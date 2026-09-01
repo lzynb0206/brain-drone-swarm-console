@@ -8,7 +8,7 @@
 
 已经可运行的内容：
 
-- Firebase 邮箱注册、登录和密码重置；离线 Mock 登录模式。
+- Firebase 邮箱注册、登录和密码重置；也可切换为离线 Mock 登录模式。
 - 士兵、科研人员、系统工程师、系统管理员等角色页面。
 - 范式、算法、控制器和 L1 指令映射的本地交互状态。
 - 工程师工作台：真实 Qt 左侧导航、模块表格、日志筛选、性能刷新和自检。
@@ -47,9 +47,17 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
+### 默认 Firebase 登录
+
+程序默认使用已配置的 Firebase 邮箱注册、登录和密码重置功能。首次使用前，请在 Firebase Console 的 `Authentication → Sign-in method` 启用 `Email/Password`，随后直接运行：
+
+```bash
+python main.py
+```
+
 ### 离线演示模式
 
-默认就是离线演示模式，不需要 Firebase 配置，适合展示各角色界面：
+如需不联网演示各角色界面，可临时切换为 Mock 模式：
 
 ```bash
 YY_AUTH_BACKEND=mock python main.py
@@ -62,18 +70,17 @@ YY_AUTH_BACKEND=mock python main.py
 | `admin` / `管理` | 系统管理员 |
 | 其他 | 作战操作员 |
 
-### Firebase 登录模式
+### 覆盖 Firebase 配置
 
-1. 在 Firebase Console 的 `Authentication → Sign-in method` 启用 `Email/Password`。
-2. 设置 Web API Key：
+如需临时使用另一套 Firebase 项目，可通过环境变量覆盖内置配置：
 
 ```bash
-export FIREBASE_API_KEY="你的 Firebase Web API Key"
+export FIREBASE_API_KEY="另一套 Firebase Web API Key"
 export YY_AUTH_BACKEND=firebase
 python main.py
 ```
 
-也可以复制 `.env.example` 为 `.env` 保存配置；当前代码不会自动读取 `.env`，因此 PyCharm 中请在运行配置的环境变量中设置 `FIREBASE_API_KEY`。
+当前代码不会自动读取 `.env`；若要覆盖配置，请在 PyCharm 的运行配置中设置环境变量。
 
 注册时可选择演示身份。身份映射保存在本机 `~/.brain_control_console/firebase_roles.json`，仅用于课题演示；正式部署应使用可信后端或 Firebase Custom Claims 分配权限。
 
