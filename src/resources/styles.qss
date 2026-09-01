@@ -1,0 +1,82 @@
+QStackedWidget#pageStack { background: #050b16; }
+
+QLabel#loginTitle {
+    color: #ffffff;
+    font-size: 28px;
+    font-weight: 700;
+}
+
+QFrame#loginCard {
+    background: #ffffff;
+    border: none;
+    border-radius: 12px;
+}
+
+QLabel#loginFieldLabel {
+    color: #252b33;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+QLineEdit#loginInput {
+    color: #252b33;
+    background: #ffffff;
+    border: 1px solid #d9dde4;
+    border-radius: 5px;
+    padding: 0 13px;
+    font-size: 14px;
+    selection-background-color: #2374f6;
+}
+
+QLineEdit#loginInput:focus { border: 1px solid #2374f6; }
+QLineEdit#loginInput::placeholder { color: #a4a9b2; }
+
+QPushButton#loginButton {
+    color: #ffffff;
+    background: #2374f6;
+    border: none;
+    border-radius: 22px;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+QPushButton#loginButton:hover { background: #1768e7; }
+QPushButton#loginButton:pressed { background: #1159ca; }
+
+QPushButton#registerButton {
+    color: #2374f6;
+    background: #ffffff;
+    border: 1px solid #2374f6;
+    border-radius: 22px;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+QPushButton#registerButton:hover { background: #edf4ff; }
+QPushButton#loginButton:disabled,
+QPushButton#registerButton:disabled { color: #aab3c0; background: #dfe4eb; border-color: #dfe4eb; }
+
+QPushButton#forgotButton {
+    color: #8c929c;
+    background: transparent;
+    border: none;
+    font-size: 13px;
+}
+
+QPushButton#forgotButton:hover { color: #2374f6; }
+QLabel#errorLabel { color: #e24b4b; font-size: 11px; }
+
+QLabel#loginVersion {
+    color: rgba(255, 255, 255, 145);
+    font-size: 12px;
+}
+
+QDialog { background: #f7f9fc; color: #252b33; }
+QDialog QLineEdit {
+    color: #252b33;
+    background: #ffffff;
+    border: 1px solid #ccd3dd;
+    border-radius: 5px;
+    padding: 8px;
+}
+QLabel#registerNote { color: #6f7783; font-size: 12px; }
