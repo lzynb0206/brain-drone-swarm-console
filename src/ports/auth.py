@@ -13,8 +13,8 @@ class AuthGateway(Protocol):
     """登录认证边界。
 
     【真实接口接入点】正式版在 ``src/adapters/real/`` 实现本协议：
-    - 单机演示可用 SQLite 保存用户、密码哈希和盐值；
-    - 多人/联网系统可调用 HTTPS 登录 API，保存服务端返回的 JWT；
+    - 当前实现调用本机 Spring Boot API，由 PostgreSQL 保存 BCrypt 哈希；
+    - 客户端只在内存中保存服务端返回的短期 JWT；
     - 无论哪种实现，都只返回 ``User``，界面不应直接访问数据库或 HTTP。
     """
 

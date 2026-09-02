@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.adapters.firebase import FirebaseAuthGateway
+from src.adapters.http import HttpAuthGateway
 from src.adapters.mock import (
     MockAuthGateway,
     MockEEGStream,
@@ -18,8 +18,7 @@ from src.adapters.mock import (
 )
 from src.ports import EEGStream, EngineerDataProvider, SwarmGateway, SystemMonitor
 from src.services.auth_service import AuthService
-from src.services.role_profile_store import LocalRoleProfileStore
-from src.settings import AUTH_BACKEND, FIREBASE_API_KEY, ROLE_PROFILE_PATH
+from src.settings import AUTH_API_URL, AUTH_BACKEND
 
 
 @dataclass(frozen=True)
@@ -36,7 +35,7 @@ def create_demo_container() -> ApplicationContainer:
 
     【真实接口接入点】将来不要到 View 里直接 ``import pylsl/cflib``。
     应新增 ``create_production_container()``，把下面四个 Mock 分别替换成
-    SQLite/HTTPAuthGateway、LSLEEGStream、CrazyflieSwarmGateway 和
+    PostgreSQL/Spring HTTP 认证、LSLEEGStream、CrazyflieSwarmGateway 和
     RealSystemMonitor。这样前端绘制代码不需要随硬件实现一起重写。
     """
 
@@ -50,7 +49,7 @@ def create_demo_container() -> ApplicationContainer:
 
 
 def create_default_container() -> ApplicationContainer:
-    """Create the normal app container, using Firebase Auth by default.
+    """Create the normal app container, using the Spring REST API by default.
 
     Set ``YY_AUTH_BACKEND=mock`` to work offline with the original role-based
     demo accounts. Hardware and telemetry remain mocked in both modes.
@@ -59,7 +58,7 @@ def create_default_container() -> ApplicationContainer:
     auth_gateway = (
         MockAuthGateway()
         if AUTH_BACKEND == "mock"
-        else FirebaseAuthGateway(FIREBASE_API_KEY, role_store=LocalRoleProfileStore(ROLE_PROFILE_PATH))
+        else HttpAuthGateway(AUTH_API_URL)
     )
     return ApplicationContainer(
         auth_service=AuthService(auth_gateway),

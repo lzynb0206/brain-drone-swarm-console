@@ -6,7 +6,7 @@
 
 该目录是React + TypeScript + Vite制作的纯界面原型，不是可连接实验设备的完整系统：
 
-- 原 React 登录页没有真实认证；当前 Python 版已接入 Firebase 邮箱注册、登录与密码重置，并保留可切换的离线 Mock。
+- 原 React 登录页没有真实认证；当前 Python 版已接入本机 Spring Boot + PostgreSQL 注册登录，并保留可切换的离线 Mock。
 - EEG、CPU、延迟和士兵状态来自固定值、三角函数或`Math.random()`。
 - 无人机位置、任务、电量和告警全部写死在组件中。
 - 大部分“应用配置”“加载算法”“紧急停止”“备份”等按钮没有事件处理。
@@ -62,7 +62,7 @@ src/
 
 | React原型页面 | Python页面目标 | 当前数据 | 后续接口/实现 |
 | --- | --- | --- | --- |
-| 登录 | UI-01 | Firebase Auth；离线 Mock 可切换 | `AuthGateway`、`FirebaseAuthGateway`；后续补 Custom Claims/RBAC |
+| 登录 | UI-01 | Spring REST API、BCrypt、JWT；离线 Mock 可切换 | `AuthGateway`、`HttpAuthGateway`；后续补刷新令牌、审计与完整 RBAC |
 | 作战地图 | UI-02 | 固定无人机/目标 | `SwarmGateway`；后续Crazyflie/cflib或WebSocket |
 | 脑控操作 | UI-03 | 固定置信度 | 解码结果流 + `SwarmGateway.send_command()` |
 | 士兵状态 | UI-04 | 随机曲线 | 生理状态流；后续LSL多模态数据 |

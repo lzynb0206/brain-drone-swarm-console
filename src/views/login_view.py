@@ -43,7 +43,7 @@ class AuthTaskSignals(QObject):
 
 
 class AuthTask(QRunnable):
-    """Run a blocking Firebase REST operation away from the GUI thread."""
+    """Run a blocking authentication HTTP operation away from the GUI thread."""
 
     def __init__(self, operation) -> None:
         super().__init__()
@@ -62,11 +62,11 @@ class AuthTask(QRunnable):
 
 
 class RegisterDialog(QDialog):
-    """Small native registration form for Firebase email/password accounts."""
+    """Registration form for accounts stored by the local backend."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("注册 Firebase 账号")
+        self.setWindowTitle("注册系统账号")
         self.setModal(True)
         self.setMinimumWidth(390)
         form = QFormLayout(self)
@@ -80,7 +80,7 @@ class RegisterDialog(QDialog):
         for label, role in ROLE_CHOICES:
             self.role_input.addItem(label, role.value)
         self.email_input.setPlaceholderText("name@example.com")
-        self.password_input.setPlaceholderText("至少 6 位")
+        self.password_input.setPlaceholderText("8 到 72 位")
         self.password_input.setEchoMode(QLineEdit.Password)
         self.confirm_input.setEchoMode(QLineEdit.Password)
         form.addRow("显示名称", self.name_input)
@@ -88,7 +88,7 @@ class RegisterDialog(QDialog):
         form.addRow("密码", self.password_input)
         form.addRow("确认密码", self.confirm_input)
         form.addRow("演示身份", self.role_input)
-        note = QLabel("身份会按 Firebase UID 保存在本机，仅用于课题演示；正式系统需由后台授权。")
+        note = QLabel("身份将写入 PostgreSQL。当前允许选择身份仅用于本地课题演示。")
         note.setObjectName("registerNote")
         note.setWordWrap(True)
         form.addRow(note)
@@ -157,7 +157,7 @@ class LoginView(BackdropWidget):
         self._build_ui()
         if self.auth_service.is_remote:
             self.username_label.setText("邮箱")
-            self.username_input.setPlaceholderText("请输入 Firebase 注册邮箱")
+            self.username_input.setPlaceholderText("请输入系统注册邮箱")
         QTimer.singleShot(100, self.username_input.setFocus)
 
     def _build_ui(self) -> None:
@@ -266,9 +266,8 @@ class LoginView(BackdropWidget):
         if not username.strip() or not password:
             self.error_label.setText("请输入用户名和密码")
             return
-        # 【真实接口接入点】UI-01：界面只调用 AuthService。默认容器连接
-        # FirebaseAuthGateway，离线演示可切换 MockAuthGateway。角色提升、
-        # Custom Claims 和审计必须由可信后台负责，不能写进本方法。
+        # UI 只调用 AuthService。默认容器连接本机 Spring Boot 后端，
+        # BCrypt、JWT 和 PostgreSQL 均由后端处理，不在界面中保存密码。
         self._run_auth(
             lambda: self.auth_service.login(username, password),
             self._login_completed,

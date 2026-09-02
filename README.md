@@ -8,7 +8,7 @@
 
 已经可运行的内容：
 
-- Firebase 邮箱注册、登录和密码重置；也可切换为离线 Mock 登录模式。
+- Spring Boot + PostgreSQL 邮箱注册和登录，密码使用 BCrypt 哈希并返回 JWT；也可切换为离线 Mock 模式。
 - 士兵、科研人员、系统工程师、系统管理员等角色页面。
 - 范式、算法、控制器和 L1 指令映射的本地交互状态。
 - 工程师工作台：真实 Qt 左侧导航、模块表格、日志筛选、性能刷新和自检。
@@ -27,12 +27,10 @@
 
 ```text
 PySide6 桌面界面
-        ↓
-Service 业务逻辑
-        ↓
-Port 接口定义
-        ↓
-Mock Adapter（当前） / Real Adapter（后续）
+        ↓ HTTP + JWT
+Spring Boot 认证 API
+        ↓ JPA + Flyway
+PostgreSQL（账号、BCrypt 密码哈希、身份）
 ```
 
 真实接入时，仅需实现 `src/adapters/real/` 下的适配器，并在 [src/container.py](src/container.py) 中替换 Mock 装配；页面层无需推倒重写。
@@ -47,9 +45,9 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-### 默认 Firebase 登录
+### 默认本地数据库登录
 
-程序默认使用已配置的 Firebase 邮箱注册、登录和密码重置功能。首次使用前，请在 Firebase Console 的 `Authentication → Sign-in method` 启用 `Email/Password`，随后直接运行：
+先启动 PostgreSQL 和 `/Users/geniusalu/Desktop/brain-drone-swarm-server` 中的 Spring Boot 服务，再运行桌面端：
 
 ```bash
 python main.py
@@ -70,19 +68,17 @@ YY_AUTH_BACKEND=mock python main.py
 | `admin` / `管理` | 系统管理员 |
 | 其他 | 作战操作员 |
 
-### 覆盖 Firebase 配置
+### 覆盖后端地址
 
-如需临时使用另一套 Firebase 项目，可通过环境变量覆盖内置配置：
+默认认证地址为 `http://127.0.0.1:8080`，可以通过环境变量覆盖：
 
 ```bash
-export FIREBASE_API_KEY="另一套 Firebase Web API Key"
-export YY_AUTH_BACKEND=firebase
+export AUTH_API_URL="http://127.0.0.1:8080"
+export YY_AUTH_BACKEND=http
 python main.py
 ```
 
-当前代码不会自动读取 `.env`；若要覆盖配置，请在 PyCharm 的运行配置中设置环境变量。
-
-注册时可选择演示身份。身份映射保存在本机 `~/.brain_control_console/firebase_roles.json`，仅用于课题演示；正式部署应使用可信后端或 Firebase Custom Claims 分配权限。
+注册时选择的演示身份会直接保存在 PostgreSQL 的 `app_users.role`。正式部署应关闭注册身份选择，由管理员接口授权。
 
 ## 演示数据与真实接口位置
 
@@ -100,12 +96,12 @@ python main.py
 ```text
 src/
 ├── app.py                  # 主窗口和角色路由
-├── container.py            # Mock / Firebase / 后续真实接口装配入口
+├── container.py            # Mock / Spring HTTP / 后续真实接口装配入口
 ├── domain/                 # 与 Qt、硬件无关的数据模型
 ├── ports/                  # EEG、蜂群、系统监控、工程数据等接口
 ├── adapters/
 │   ├── mock/               # 当前演示数据实现
-│   └── firebase/           # Firebase Auth 实现
+│   └── http/               # Spring Boot JWT 认证客户端
 ├── services/               # 登录、工作台状态、演示身份逻辑
 └── views/                  # PySide6 界面
 ```
@@ -116,7 +112,7 @@ src/
 QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 ```
 
-当前包含登录、Firebase REST、工程师交互、工作台动作和 Mock Adapter 测试。
+当前包含 Spring REST 登录客户端、工程师交互、工作台动作和 Mock Adapter 测试。
 
 ## 安全说明
 

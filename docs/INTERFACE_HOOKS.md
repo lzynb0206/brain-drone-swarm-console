@@ -25,7 +25,7 @@ XDF 文件读写必须放在 `QThread`、线程池或独立进程中，不能写
 
 | 界面 | 当前状态 | 真实接入内容 | 代码位置 |
 | --- | --- | --- | --- |
-| UI-01 登录 | Firebase 邮箱注册/登录/重置密码；本机 UID 身份表；Mock 可切换 | 用服务端 Custom Claims/RBAC 替换本机身份表，补 Token 刷新与审计 | `LoginView`、`FirebaseAuthGateway`、`LocalRoleProfileStore` |
+| UI-01 登录 | Spring Boot + PostgreSQL 注册/登录；BCrypt 哈希；短期 JWT；Mock 可切换 | 补刷新令牌、管理员授权、登录限流、审计和密码重置邮件 | `LoginView`、`HttpAuthGateway`、`brain-drone-swarm-server` |
 | UI-02 作战地图 | 固定 UAV/目标 | Crazyflie 遥测、Lighthouse 位置、目标识别、蜂群任务 | `MainView._soldier_combat`、`SwarmGateway` |
 | UI-03 脑控操作 | 方向/悬停/急停已接 Mock 网关 | EEG 解码、指令映射、安全仲裁、急停回执 | `MainView._soldier_brain`、`WorkbenchService`、`SwarmGateway` |
 | UI-04 士兵状态 | 固定指标 | EEG/EMG/心率/体温/血氧 LSL 流与告警 | `MainView._soldier_status` |
