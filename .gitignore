@@ -11,3 +11,5 @@ dist/
 artifacts/
 .doc_review/
 .env
+data/recordings/
+data/samples/*.csv

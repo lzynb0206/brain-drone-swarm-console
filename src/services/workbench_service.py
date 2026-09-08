@@ -33,20 +33,22 @@ class WorkbenchService:
     ) -> None:
         self.swarm_gateway = swarm_gateway
         self.system_monitor = system_monitor
-        self.paradigm_frequency = 8
+        self.paradigm_frequency = 11.0
         self.paradigm_type = "SSVEP"
         self.stimulus_size = 40
         self.duty_cycle = 60
-        self.algorithm = "GraSPNet"
-        self.algorithm_mode = "A/B测试"
-        self.loaded_algorithms = {"ResMTN", "GCD", "GraSPNet", "PathoGeoNet", "CNN"}
-        self.default_algorithm = "GraSPNet"
+        self.algorithm = "FBCCA"
+        self.algorithm_mode = "固定解码"
+        self.loaded_algorithms = {"FBCCA"}
+        self.default_algorithm = "FBCCA"
         self.controller = "PID"
         self.controller_values = {"Kp": 30, "Ki": 50, "Kd": 70}
         self.mappings = [
-            MappingEntry("8Hz", "左转", "15°"),
-            MappingEntry("12Hz", "右转", "15°"),
-            MappingEntry("15Hz", "前进", "2m/s"),
+            MappingEntry("11Hz", "起飞", "仅识别"),
+            MappingEntry("13.75Hz", "前进", "仅识别"),
+            MappingEntry("15Hz", "后退", "仅识别"),
+            MappingEntry("16.5Hz", "左转", "仅识别"),
+            MappingEntry("18.33Hz", "右转", "仅识别"),
         ]
         self.data_tab = "标签管理"
         self.selected_session = 2
@@ -73,7 +75,7 @@ class WorkbenchService:
         )
 
     def reset_paradigm(self) -> str:
-        self.paradigm_frequency, self.stimulus_size, self.duty_cycle = 8, 40, 60
+        self.paradigm_frequency, self.stimulus_size, self.duty_cycle = 11.0, 40, 60
         return self._record("范式参数已恢复默认")
 
     def select_algorithm(self, name: str) -> str:
@@ -96,9 +98,7 @@ class WorkbenchService:
         return self._record(f"默认算法已设为 {self.algorithm}")
 
     def benchmark_algorithm(self) -> str:
-        scores = {"GraSPNet": "91.2% / 68ms", "ResMTN": "89.6% / 74ms", "GCD": "87.9% / 61ms"}
-        result = scores.get(self.algorithm, "86.5% / 82ms")
-        return self._record(f"{self.algorithm} 基准测试完成：准确率/延迟 {result}")
+        return self._record("FBCCA 为无训练解码器；请使用带真实标签的试次统计准确率")
 
     def apply_controller(self) -> str:
         values = ", ".join(f"{key}={value / 100:.2f}" for key, value in self.controller_values.items())
@@ -124,12 +124,13 @@ class WorkbenchService:
         entry = self.mappings.pop(index)
         return self._record(f"已删除映射：{entry.frequency}")
 
-    def add_marker(self) -> str:
+    def add_marker(self, label: str = "") -> str:
         self.marker_count += 1
-        return self._record(f"已添加实验标签 Marker-{self.marker_count:03d}")
+        suffix = f"：{label}" if label else ""
+        return self._record(f"下一完整 EEG 试次已标注{suffix}")
 
     def generate_dataset(self) -> str:
-        return self._record("数据集任务完成：已按 8:2 生成训练/验证集（演示）")
+        return self._record("当前阶段保存原始带标签试次，尚未执行训练/验证集划分")
 
     def send_swarm_command(self, action: str) -> str:
         labels = {"forward": "前进", "backward": "后退", "left": "左转", "right": "右转", "hover": "悬停"}

@@ -32,10 +32,11 @@ class WorkbenchServiceTest(unittest.TestCase):
 
         self.service.add_mapping("18Hz", "悬停", "0m/s")
         self.assertEqual("18Hz", self.service.mappings[-1].frequency)
-        self.service.update_mapping(3, "后退", "1m/s")
+        added_index = len(self.service.mappings) - 1
+        self.service.update_mapping(added_index, "后退", "1m/s")
         self.assertEqual("后退", self.service.mappings[-1].action)
-        self.service.delete_mapping(3)
-        self.assertEqual(3, len(self.service.mappings))
+        self.service.delete_mapping(added_index)
+        self.assertEqual(5, len(self.service.mappings))
 
     def test_swarm_commands_and_emergency_stop_use_gateway(self) -> None:
         self.service.send_swarm_command("forward")
@@ -56,7 +57,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertEqual("S-07", payload["soldier_id"])
         self.assertIn("exported_at", payload)
         self.assertEqual("SSVEP", config["paradigm"]["type"])
-        self.assertEqual("GraSPNet", config["algorithm"])
+        self.assertEqual("FBCCA", config["algorithm"])
 
 
 class MainViewActionRoutingTest(unittest.TestCase):
@@ -93,9 +94,9 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.view.show()
         self.app.processEvents()
 
-        QTest.mouseClick(self.view, Qt.LeftButton, pos=QPoint(1000, 485))
+        QTest.mouseClick(self.view, Qt.LeftButton, pos=QPoint(100, 485))
 
-        self.assertEqual("LSTM", self.view.actions.algorithm)
+        self.assertEqual("FBCCA", self.view.actions.algorithm)
 
 
 if __name__ == "__main__":

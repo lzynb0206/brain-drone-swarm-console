@@ -76,6 +76,23 @@ class EEGFrame:
 
 
 @dataclass(frozen=True)
+class RecognitionResult:
+    """One FBCCA decision. It deliberately contains no device command callback."""
+
+    timestamp: float
+    prediction: str | None
+    frequency_hz: float | None
+    scores: Mapping[str, float]
+    best_score: float
+    margin: float
+    accepted: bool
+    reason: str
+    sample_rate_hz: float
+    sample_count: int
+    used_channels_1based: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class SoldierVitals:
     soldier_id: str
     attention: float

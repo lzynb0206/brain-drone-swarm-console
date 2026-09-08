@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 from datetime import datetime
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QInputDialog, QLabel, QMessageBox, QWidget
 
-from src.domain import Role, User
-from src.ports import EEGStream, EngineerDataProvider, SwarmGateway, SystemMonitor
-from src.services import WorkbenchService
+from src.bci.config import TRUE_LABELS
+from src.domain import EEGFrame, RecognitionResult, Role, User
+from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
+from src.services import EEGPipelineWorker, ExperimentRecorder, WorkbenchService
 from src.views.engineer_dashboard import EngineerDashboard
 from src.widgets.scifi_canvas import (
     BG,
@@ -37,6 +39,8 @@ class MainView(QWidget):
     def __init__(
         self,
         eeg_stream: EEGStream | None = None,
+        intent_decoder: IntentDecoder | None = None,
+        experiment_recorder: ExperimentRecorder | None = None,
         swarm_gateway: SwarmGateway | None = None,
         system_monitor: SystemMonitor | None = None,
         engineer_data_provider: EngineerDataProvider | None = None,
@@ -46,6 +50,8 @@ class MainView(QWidget):
         # WorkbenchService 管理；曲线和遥测仍是演示数据。后续实时刷新时从
         # 这些协议读取，不要让 paintEvent 直接访问硬件或执行网络请求。
         self.eeg_stream = eeg_stream
+        self.intent_decoder = intent_decoder
+        self.experiment_recorder = experiment_recorder
         self.swarm_gateway = swarm_gateway
         self.system_monitor = system_monitor
         self.engineer_data_provider = engineer_data_provider
@@ -58,6 +64,21 @@ class MainView(QWidget):
         self._regions: list[tuple[QRectF, str]] = []
         self._toast = ""
         self._toast_generation = 0
+        self._eeg_history = [deque(maxlen=360) for _ in range(8)]
+        self._eeg_sample_rate = 0.0
+        self._eeg_status = "尚未启动"
+        self._latest_recognition: RecognitionResult | None = None
+        self._eeg_events: deque[str] = deque(maxlen=12)
+        self._pipeline_worker: EEGPipelineWorker | None = None
+        if eeg_stream is not None and intent_decoder is not None and experiment_recorder is not None:
+            self._pipeline_worker = EEGPipelineWorker(
+                eeg_stream, intent_decoder, experiment_recorder, parent=self,
+            )
+            self._pipeline_worker.frame_received.connect(self._on_eeg_frame)
+            self._pipeline_worker.recognition_received.connect(self._on_recognition)
+            self._pipeline_worker.status_changed.connect(self._on_eeg_status)
+            self._pipeline_worker.error_occurred.connect(self._on_eeg_error)
+            self._pipeline_worker.labeled_trial_saved.connect(self._on_labeled_trial_saved)
         # Kept as a small compatibility surface for integrations/tests.
         self.user_label = QLabel("", self)
         self.user_label.hide()
@@ -77,7 +98,52 @@ class MainView(QWidget):
         self.soldier_page = "脑控"
         if self.engineer_dashboard is not None:
             self.engineer_dashboard.setVisible(user.role == Role.ENGINEER)
+        if user.role == Role.RESEARCHER:
+            self._start_eeg_pipeline()
+        else:
+            self.deactivate()
         self.update()
+
+    def _start_eeg_pipeline(self) -> None:
+        if self._pipeline_worker is not None and not self._pipeline_worker.isRunning():
+            self._eeg_status = "正在连接数据源…"
+            self._pipeline_worker.start()
+
+    def deactivate(self) -> None:
+        if self._pipeline_worker is not None and self._pipeline_worker.isRunning():
+            self._pipeline_worker.stop()
+
+    def _on_eeg_frame(self, frame: EEGFrame) -> None:
+        if len(self._eeg_history) != len(frame.samples):
+            self._eeg_history = [deque(maxlen=360) for _ in frame.samples]
+        for history, values in zip(self._eeg_history, frame.samples):
+            history.extend(float(value) for value in values)
+        self._eeg_sample_rate = frame.sample_rate_hz
+        self.update()
+
+    def _on_recognition(self, result: RecognitionResult) -> None:
+        self._latest_recognition = result
+        label = result.prediction or "未通过阈值"
+        self._eeg_events.appendleft(
+            f"{datetime.now():%H:%M:%S}  FBCCA {label}  分数 {result.best_score:.3f}  差值 {result.margin:.3f}"
+        )
+        self.update()
+
+    def _on_eeg_status(self, status: str) -> None:
+        self._eeg_status = status
+        self._eeg_events.appendleft(f"{datetime.now():%H:%M:%S}  {status}")
+        self.update()
+
+    def _on_eeg_error(self, message: str) -> None:
+        self._eeg_events.appendleft(f"{datetime.now():%H:%M:%S}  ERROR  {message}")
+        self.update()
+
+    def _on_labeled_trial_saved(self, label: str, path: str) -> None:
+        self._notify(f"真实标签“{label}”和原始 EEG 已保存：{path}")
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self.deactivate()
+        super().closeEvent(event)
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
@@ -141,6 +207,7 @@ class MainView(QWidget):
     def _activate(self, action: str, x: float = 0, y: float = 0) -> None:
         """Route every painted control to a stateful application action."""
         if action == "logout":
+            self.deactivate()
             self.logout_requested.emit()
         elif action.startswith("research:"):
             self.research_page = action.split(":", 1)[1]
@@ -155,7 +222,7 @@ class MainView(QWidget):
             self.soldier_page = action.split(":", 1)[1]
             self.update()
         elif action.startswith("paradigm-frequency:"):
-            self.actions.paradigm_frequency = int(action.rsplit(":", 1)[1])
+            self.actions.paradigm_frequency = float(action.rsplit(":", 1)[1])
             self.update()
         elif action.startswith("paradigm-type:"):
             self.actions.paradigm_type = action.split(":", 1)[1]
@@ -212,7 +279,15 @@ class MainView(QWidget):
             self.actions.selected_session = int(action.rsplit(":", 1)[1])
             self.update()
         elif action == "marker-add":
-            self._notify(self.actions.add_marker())
+            if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
+                self._notify("EEG 采集未运行，无法标注试次")
+                return
+            label, ok = QInputDialog.getItem(
+                self, "标注下一次 EEG 试次", "真实标签", list(TRUE_LABELS), 0, False,
+            )
+            if ok:
+                self._pipeline_worker.capture_next_trial(label)
+                self._notify(self.actions.add_marker(label))
         elif action.startswith("log-filter:"):
             self.actions.log_filter = action.split(":", 1)[1]
             self.update()
@@ -246,7 +321,9 @@ class MainView(QWidget):
             self._notify("操作提示：选择模块后点击控件；所有结果会在底部提示")
 
     def _add_mapping_dialog(self) -> None:
-        frequency, ok = QInputDialog.getItem(self, "添加映射", "SSVEP频率", ["8Hz", "12Hz", "15Hz", "18Hz"], 3, False)
+        frequency, ok = QInputDialog.getItem(
+            self, "添加映射", "SSVEP频率", ["11Hz", "13.75Hz", "15Hz", "16.5Hz", "18.33Hz"], 0, False,
+        )
         if not ok:
             return
         command, ok = QInputDialog.getItem(self, "添加映射", "映射动作", ["左转", "右转", "前进", "后退", "悬停"], 0, False)
@@ -311,33 +388,84 @@ class MainView(QWidget):
         }[self.research_page](c)
 
     def _research_eeg(self, c: Canvas) -> None:
-        # 【真实接口接入点】UI-05：当前曲线、热力图和无人机卡片都是演示数据。
-        # 正式版：QThread 调用 self.eeg_stream.connect/read_frame，把最新
-        # EEGFrame 缓存在模型中；Qt 主线程按 20~30 FPS 只绘制缓存。
-        # UAV 卡片从 self.swarm_gateway.list_uavs() 的缓存读取；实验事件同时
-        # 写入 LSL Marker，最终由记录器保存为 XDF。严禁在 paintEvent 阻塞读流。
+        # EEG is acquired and decoded in EEGPipelineWorker. paintEvent only
+        # renders cached values and never blocks on CSV/LSL or performs inference.
         c.panel(17, 73, 824, 305, "EEG 8通道实时波形")
-        c.chart(98, 130, 723, 230, ["#ef514d", "#f1c64b", "#62df8a", "#65d9e9"], labels=True)
-        c.panel(859, 73, 404, 305, "频谱热力图")
-        for row in range(23):
-            for col in range(37):
-                strength = (math.sin(row * 0.7 + col * 0.23) + 1) / 2
-                color = QColor(21 + int(strength * 10), 29 + int(strength * 12), 47 + int(strength * 14))
-                c.rect(875 + col * 10, 126 + row * 10, 6, 6, color)
+        self._draw_live_eeg(c, 62, 124, 756, 232)
 
-        c.panel(17, 398, 824, 304, "无人机状态")
-        cards = [("UAV-01", 41, 458), ("UAV-02", 305, 458), ("UAV-03", 569, 458),
-                 ("UAV-04", 41, 554), ("UAV-01", 305, 554), ("UAV-02", 569, 554)]
-        for name, x, y in cards:
-            c.rect(x, y, 248, 80, "#152239", "#2b3b58", 3)
-            c.text(x + 13, y + 10, 100, 25, name, 14, TEXT, True)
-            c.text(x + 13, y + 35, 150, 16, "6:30:10:35", 9, "#536076")
-            c.text(x + 13, y + 52, 170, 16, "25.00 10:5503-10电量", 9, "#536076")
-            c.circle(x + 224, y + 40, 9, None, GREEN, 2)
-            c.circle(x + 224, y + 40, 3, GREEN)
-        c.panel(859, 398, 404, 304, "控制台输出")
-        for i in range(12):
-            c.text(875, 445 + i * 20, 360, 18, "INFO:  LSL流已连接  14:30:01", 11, TEXT)
+        c.panel(859, 73, 404, 305, "纯 FBCCA 识别结果")
+        c.text(879, 116, 360, 25, self._eeg_status, 12, CYAN, True)
+        if self._latest_recognition is None:
+            c.text(879, 158, 360, 42, "等待积累完整 4 秒 EEG 窗口…", 14, MUTED)
+        else:
+            result = self._latest_recognition
+            prediction = result.prediction or "未通过阈值"
+            c.text(879, 151, 150, 45, prediction, 24, GREEN if result.accepted else YELLOW, True)
+            c.text(1040, 157, 195, 30, result.reason, 12, MUTED, False, Qt.AlignRight)
+            c.text(879, 195, 350, 25, f"最高分 {result.best_score:.3f}   区分度 {result.margin:.3f}", 12, TEXT)
+            for index, (label, score) in enumerate(result.scores.items()):
+                y = 228 + index * 25
+                c.text(879, y, 70, 20, label, 11, TEXT)
+                c.rect(947, y + 5, 225, 9, "#1c2940", None, 4)
+                c.rect(947, y + 5, min(225, score / max(0.001, result.best_score) * 225), 9, BLUE, None, 4)
+                c.text(1178, y - 2, 55, 22, f"{score:.3f}", 10, MUTED, False, Qt.AlignRight)
+
+        c.panel(17, 398, 824, 304, "采集与试次保存")
+        source = self._pipeline_worker.source_name if self._pipeline_worker is not None else "未配置"
+        pending = self._pipeline_worker.pending_true_label() if self._pipeline_worker is not None else ""
+        stats = self.experiment_recorder.stats() if self.experiment_recorder is not None else {"recognitions": 0, "labeled_trials": 0}
+        cards = (
+            ("数据源", source, 41),
+            ("采样率", f"{self._eeg_sample_rate or 250:.0f} Hz", 305),
+            ("已记录识别", str(stats["recognitions"]), 569),
+        )
+        for title, value, x in cards:
+            c.rect(x, 455, 248, 70, "#152239", "#2b3b58", 3)
+            c.text(x + 14, 461, 220, 22, title, 11, MUTED)
+            c.text(x + 14, 486, 220, 26, value, 14, TEXT, True)
+        c.rect(41, 544, 760, 116, "#0c1628", "#2b3b58", 3)
+        c.text(58, 553, 300, 28, f"已保存带标签原始试次：{stats['labeled_trials']}", 13, TEXT, True)
+        c.text(58, 584, 700, 24, f"待保存真实标签：{pending or '无（点击右上角“添加标签”）'}", 12, CYAN)
+        root = str(self.experiment_recorder.root) if self.experiment_recorder is not None else "未配置"
+        c.text(58, 613, 720, 24, f"保存目录：{root}", 10, MUTED)
+        c.text(58, 665, 720, 20, "安全状态：识别结果仅显示和保存，未连接任何设备动作", 11, GREEN, True)
+
+        c.panel(859, 398, 404, 304, "实时事件")
+        if not self._eeg_events:
+            c.text(879, 448, 345, 24, "暂无采集事件", 12, MUTED)
+        for index, message in enumerate(list(self._eeg_events)[:11]):
+            color = RED if "ERROR" in message else TEXT
+            c.text(879, 438 + index * 22, 354, 20, message, 10, color)
+
+    def _draw_live_eeg(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
+        histories = [list(values) for values in self._eeg_history]
+        if not histories or not any(histories):
+            c.text(x, y, w, h, "等待 EEG 数据…", 15, MUTED, False, Qt.AlignCenter)
+            return
+        palette = ("#ef514d", "#f1c64b", "#62df8a", "#65d9e9", "#6c9bd9", "#987bd8", "#ef7ac8", "#e5e9f0")
+        row_height = h / max(1, len(histories))
+        c.p.save()
+        c.p.setClipRect(QRectF(x, y, w, h))
+        for index, values in enumerate(histories):
+            baseline = y + row_height * (index + 0.5)
+            c.line(x, baseline, x + w, baseline, "#1d2c45")
+            c.text(x, baseline - 11, 35, 20, f"CH{index + 1}", 9, MUTED)
+            if len(values) < 2:
+                continue
+            center = sum(values) / len(values)
+            amplitude = max(max(abs(value - center) for value in values), 1e-9)
+            path = QPainterPath()
+            for sample_index, value in enumerate(values):
+                px = x + 40 + sample_index / max(1, len(values) - 1) * (w - 42)
+                py = baseline - (value - center) / amplitude * row_height * 0.39
+                if sample_index == 0:
+                    path.moveTo(px, py)
+                else:
+                    path.lineTo(px, py)
+            c.p.setPen(QPen(QColor(palette[index % len(palette)]), 1.1))
+            c.p.setBrush(Qt.NoBrush)
+            c.p.drawPath(path)
+        c.p.restore()
 
     def _research_paradigm(self, c: Canvas) -> None:
         # 【真实接口接入点】UI-06 / M4.6：“应用配置”应调用 ParadigmService：
@@ -360,8 +488,10 @@ class MainView(QWidget):
         c.rect(623, 205, 450, 366, PANEL, BORDER, 4)
         c.text(656, 229, 380, 42, "SSVEP参数配置", 19, TEXT, True)
         c.text(656, 282, 130, 27, "频率配置", 14, MUTED)
-        for frequency, x, width in ((8, 656, 117), (12, 788, 117), (15, 922, 118)):
-            c.button(x, 322, width, 42, f"{frequency}Hz", self.actions.paradigm_frequency == frequency)
+        for frequency, x, width in (
+            (11.0, 656, 70), (13.75, 734, 70), (15.0, 812, 70), (16.5, 890, 70), (18.33, 968, 72),
+        ):
+            c.button(x, 322, width, 42, f"{frequency:g}Hz", self.actions.paradigm_frequency == frequency)
             self._hit(x, 322, width, 42, f"paradigm-frequency:{frequency}")
         knobs = (
             ("刺激尺寸", 390, 739 + 299 * self.actions.stimulus_size / 100, "paradigm-size"),
@@ -380,14 +510,11 @@ class MainView(QWidget):
         self._hit(855, 492, 185, 46, "paradigm-reset")
 
     def _research_algorithm(self, c: Canvas) -> None:
-        # 【真实接口接入点】UI-07 / M4：算法列表应来自 AlgorithmRegistry，
-        # “加载/卸载/设为默认”交给 AlgorithmService。分类器统一实现
-        # predict(samples)->{label, confidence, latency_ms}，模型权重来自 .pth；
-        # 模型加载和推理必须放后台线程/独立进程，不能卡住 GUI。
+        # This build intentionally uses only the non-trained FBCCA path.
         c.rect(48, 104, 1184, 69, PANEL, BORDER, 3)
         c.text(66, 116, 92, 40, "当前算法:", 14, TEXT)
         c.button(158, 121, 191, 36, self.actions.algorithm)
-        radios = ["手动选择", "系统默认", "自适应切换", "A/B测试"]
+        radios = ["固定解码"]
         x = 404
         for label in radios:
             active = self.actions.algorithm_mode == label
@@ -396,9 +523,9 @@ class MainView(QWidget):
             self._hit(x, 116, 101, 46, f"algorithm-mode:{label}")
             x += 101
         c.rect(48, 189, 1184, 171, PANEL, BORDER, 3)
-        metadata = [("名称:", self.actions.algorithm, 73, 207), ("版本:", "v2.3", 356, 207),
-                    ("训练集:", "BCIC-IV-2a", 640, 207), ("准确率:", "91.2%", 922, 207),
-                    ("平均延迟:", "68ms", 73, 256), ("稀疏率:", "45%", 356, 256),
+        metadata = [("名称:", "纯 FBCCA", 73, 207), ("类型:", "无训练模型", 356, 207),
+                    ("数据源:", "CSV / LSL", 640, 207), ("准确率:", "待真实标签评估", 922, 207),
+                    ("识别窗:", "4秒", 73, 256), ("更新步长:", "1秒", 356, 256),
                     ("适用范式:", "SSVEP", 640, 256)]
         for label, value, x, y in metadata:
             c.text(x, y, 86, 38, label, 14, TEXT)
@@ -406,7 +533,7 @@ class MainView(QWidget):
         c.line(73, 310, 1207, 310, "#283752")
         c.rect(48, 376, 1184, 295, PANEL, BORDER, 3)
         c.text(73, 394, 200, 37, "算法库", 17, TEXT, True)
-        algorithms = ["ResMTN", "GCD", "GraSPNet", "PathoGeoNet", "CNN", "SVM", "LSTM"]
+        algorithms = ["FBCCA"]
         for i, name in enumerate(algorithms):
             x = 73 + i * 144
             selected = name == self.actions.algorithm
@@ -474,12 +601,12 @@ class MainView(QWidget):
         panels = [(192, 112, 896, 302), (192, 438, 896, 184), (192, 646, 896, 150)]
         for x, y, w, h in panels:
             c.rect(x, y, w, h, PANEL, BORDER, 3)
-        c.text(217, 128, 360, 42, "L1 基础指令 (当前生效)", 16, TEXT, True)
+        c.text(217, 128, 430, 42, "SSVEP 识别映射（当前不下发设备）", 16, TEXT, True)
         headers = [("SSVEP频率", 434), ("映射动作", 577), ("参数", 684), ("操作", 778)]
         for text, x in headers:
             c.text(x, 185, 104, 34, text, 13, TEXT, True, Qt.AlignCenter)
         c.line(433, 216, 847, 216, "#273752")
-        for i, row in enumerate(self.actions.mappings[:4]):
+        for i, row in enumerate(self.actions.mappings[:5]):
             y = 218 + i * 31
             c.text(448, y, 88, 29, row.frequency, 13, TEXT, False, Qt.AlignCenter)
             c.text(564, y, 88, 29, row.action, 13, TEXT, False, Qt.AlignCenter)
@@ -489,8 +616,8 @@ class MainView(QWidget):
             self._hit(742, y, 52, 29, f"mapping-edit:{i}")
             self._hit(797, y, 47, 29, f"mapping-delete:{i}")
             c.line(433, y + 30, 847, y + 30, "#273752")
-        c.button(576, 352, 128, 38, "添加映射", True)
-        self._hit(576, 352, 128, 38, "mapping-add")
+        c.button(576, 380, 128, 28, "添加映射", True)
+        self._hit(576, 380, 128, 28, "mapping-add")
         c.text(217, 454, 360, 42, "L2 行为级指令 (预留)", 16, TEXT, True)
         for i, name in enumerate(("侦察队形", "菱形编队", "左翼包抄", "垂直爬升")):
             c.button(360 + i * 144, 511, 128, 51, name, False, True)
@@ -498,12 +625,10 @@ class MainView(QWidget):
         c.text(217, 663, 360, 42, "L3 战术意图 (占位)", 16, TEXT, True)
 
     def _research_data(self, c: Canvas) -> None:
-        # 【真实接口接入点】UI-10 / M11：会话列表应查询 SQLite 元数据；波形和
-        # Marker 从 XDF 读取。标签编辑后更新事件索引；“数据集生成”按窗口切片、
-        # 剔除 Bad_Epoch、8:2 划分并导出 .npz。大文件读写必须放工作线程。
+        # The left list and counts come from the recorder index, not painted demo sessions.
         c.rect(16, 72, 1248, 35, "#0b1425")
         c.text(39, 72, 360, 35, "实验数据工作台", 17, TEXT, True)
-        for i, name in enumerate(("数据浏览", "标签管理", "数据集生成")):
+        for i, name in enumerate(("数据浏览", "标签管理", "采集说明")):
             x = 543 + i * 106
             c.button(x, 72, 90, 34, name, self.actions.data_tab == name)
             self._hit(x, 72, 90, 34, f"data-tab:{name}")
@@ -513,26 +638,29 @@ class MainView(QWidget):
         c.text(260, 125, 20, 43, "×", 16, TEXT, True, Qt.AlignCenter)
         c.line(32, 168, 286, 168, BORDER)
         c.text(40, 169, 210, 38, "实验会话", 13, MUTED)
-        names = ["2026-08-02 实验1", "2026-08-02 实验2", "2026-08-02 实验2", "2026-08-02 实验2",
-                 "2026-08-02 实验2", "2026-08-02 实验3", "2026-08-02 实验2", "2026-08-02 实验3",
-                 "2026-08-02 实验1", "2026-08-02 实验2", "2026-08-02 实验3", "2026-08-02 实验1"]
+        trials = self.experiment_recorder.recent_trials(12) if self.experiment_recorder is not None else []
+        names = [f"{row.get('timestamp', '')[5:19]}  {row.get('true_label', '')}" for row in trials]
+        if not names:
+            names = ["暂无带标签原始试次"]
         for i, name in enumerate(names):
             y = 211 + i * 40
-            if i == self.actions.selected_session:
+            if trials and i == self.actions.selected_session:
                 c.rect(41, y, 238, 36, BLUE, None, 3)
             c.text(52, y, 195, 36, name, 13, TEXT)
-            c.text(250, y, 20, 36, "›", 18, MUTED, False, Qt.AlignCenter)
-            self._hit(41, y, 238, 36, f"data-session:{i}")
+            if trials:
+                c.text(250, y, 20, 36, "›", 18, MUTED, False, Qt.AlignCenter)
+                self._hit(41, y, 238, 36, f"data-session:{i}")
         c.rect(304, 123, 944, 597, "#071020", BORDER)
-        c.text(317, 124, 220, 44, "脑中会话", 14, TEXT, True)
+        c.text(317, 124, 420, 44, "当前 EEG 缓存与保存状态", 14, TEXT, True)
         c.text(1203, 124, 34, 44, "⌕×", 18, MUTED, False, Qt.AlignCenter)
         c.line(304, 168, 1248, 168, BORDER)
-        c.chart(340, 208, 872, 492, ["#6dd28b", "#f0d052", "#6c9bd9", "#987bd8"], amp=.18, points=78)
-        markers = [(494, "左转", GREEN), (523, "左转", GREEN), (636, "左转", GREEN),
-                   (824, "右转", GREEN), (1013, "MI开始", RED), (1060, "MI开始", CYAN)]
-        for x, label, color in markers:
-            c.line(x, 212, x, 697, color, 4)
-            c.text(x - 36, 190 if x < 900 else 191, 80, 20, label, 11, color, True, Qt.AlignCenter)
+        self._draw_live_eeg(c, 335, 205, 880, 330)
+        stats = self.experiment_recorder.stats() if self.experiment_recorder is not None else {"recognitions": 0, "labeled_trials": 0}
+        c.rect(335, 557, 880, 116, "#0c1628", "#263752", 3)
+        c.text(355, 567, 840, 27, f"识别日志：{stats['recognitions']} 条    带真实标签试次：{stats['labeled_trials']} 条", 13, TEXT, True)
+        c.text(355, 599, 840, 23, "点击右上角“添加标签”后，将重新采集并保存连续 4 秒带标签 EEG。", 12, CYAN)
+        log_path = str(self.experiment_recorder.recognition_log_path) if self.experiment_recorder is not None else "未配置"
+        c.text(355, 630, 840, 22, f"识别日志：{log_path}", 10, MUTED)
 
     # ---------- Administrator dashboard ----------
 

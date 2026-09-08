@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.adapters.http import HttpAuthGateway
+from src.adapters.real import CsvEEGStream, LSLEEGStream
 from src.adapters.mock import (
     MockAuthGateway,
     MockEEGStream,
@@ -16,8 +17,20 @@ from src.adapters.mock import (
     MockSwarmGateway,
     MockSystemMonitor,
 )
-from src.ports import EEGStream, EngineerDataProvider, SwarmGateway, SystemMonitor
+from src.bci import FBCCADecoder
+from src.bci.config import (
+    EEG_BACKEND,
+    EEG_CSV_PATH,
+    FRAME_SIZE,
+    LSL_RESOLVE_TIMEOUT_SECONDS,
+    LSL_STREAM_NAME,
+    LSL_STREAM_TYPE,
+    RECORDING_ROOT,
+    SAMPLE_RATE_HZ,
+)
+from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services.auth_service import AuthService
+from src.services.experiment_recorder import ExperimentRecorder
 from src.settings import AUTH_API_URL, AUTH_BACKEND
 
 
@@ -28,6 +41,8 @@ class ApplicationContainer:
     swarm_gateway: SwarmGateway
     system_monitor: SystemMonitor
     engineer_data_provider: EngineerDataProvider
+    intent_decoder: IntentDecoder | None = None
+    experiment_recorder: ExperimentRecorder | None = None
 
 
 def create_demo_container() -> ApplicationContainer:
@@ -60,10 +75,30 @@ def create_default_container() -> ApplicationContainer:
         if AUTH_BACKEND == "mock"
         else HttpAuthGateway(AUTH_API_URL)
     )
+    if EEG_BACKEND == "lsl":
+        eeg_stream: EEGStream = LSLEEGStream(
+            stream_name=LSL_STREAM_NAME,
+            stream_type=LSL_STREAM_TYPE,
+            timeout_seconds=LSL_RESOLVE_TIMEOUT_SECONDS,
+            frame_size=FRAME_SIZE,
+        )
+    elif EEG_BACKEND == "csv" and EEG_CSV_PATH.is_file():
+        eeg_stream = CsvEEGStream(
+            EEG_CSV_PATH,
+            sample_rate_hz=SAMPLE_RATE_HZ,
+            frame_size=FRAME_SIZE,
+            loop=True,
+            realtime=True,
+        )
+    else:
+        eeg_stream = MockEEGStream(sample_rate_hz=SAMPLE_RATE_HZ, frame_size=FRAME_SIZE)
+
     return ApplicationContainer(
         auth_service=AuthService(auth_gateway),
-        eeg_stream=MockEEGStream(),
+        eeg_stream=eeg_stream,
         swarm_gateway=MockSwarmGateway(),
         system_monitor=MockSystemMonitor(),
         engineer_data_provider=MockEngineerDataProvider(),
+        intent_decoder=FBCCADecoder(),
+        experiment_recorder=ExperimentRecorder(RECORDING_ROOT),
     )

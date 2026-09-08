@@ -30,6 +30,8 @@ class CommandConsoleWindow(QMainWindow):
         # Mock；正式版只替换 container 的装配，不在页面里硬编码设备连接。
         self.main_view = MainView(
             eeg_stream=self.container.eeg_stream,
+            intent_decoder=self.container.intent_decoder,
+            experiment_recorder=self.container.experiment_recorder,
             swarm_gateway=self.container.swarm_gateway,
             system_monitor=self.container.system_monitor,
             engineer_data_provider=self.container.engineer_data_provider,
@@ -46,6 +48,7 @@ class CommandConsoleWindow(QMainWindow):
         self.setWindowTitle("脑控无人机蜂群作战系统 v1.0")
 
     def _show_login_view(self) -> None:
+        self.main_view.deactivate()
         self.container.auth_service.logout()
         self.login_view.reset()
         self.pages.setCurrentWidget(self.login_view)

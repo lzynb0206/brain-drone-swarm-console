@@ -3,6 +3,7 @@
 from src.domain.models import (
     DeviceStatus,
     EEGFrame,
+    RecognitionResult,
     Position,
     Role,
     SoldierVitals,
@@ -15,6 +16,7 @@ from src.domain.models import (
 __all__ = [
     "DeviceStatus",
     "EEGFrame",
+    "RecognitionResult",
     "Position",
     "Role",
     "SoldierVitals",
