@@ -21,6 +21,7 @@ class LSLEEGStream:
         stream_type: str = "EEG",
         timeout_seconds: float = 3.0,
         frame_size: int = 32,
+        expected_channel_count: int = 8,
         resolver: Callable[..., list[Any]] | None = None,
         inlet_factory: Callable[..., Any] | None = None,
     ) -> None:
@@ -28,12 +29,17 @@ class LSLEEGStream:
         self.stream_type = stream_type
         self.timeout_seconds = float(timeout_seconds)
         self.frame_size = int(frame_size)
+        self.expected_channel_count = int(expected_channel_count)
         self._resolver = resolver
         self._inlet_factory = inlet_factory
         self._inlet = None
         self._channel_count = 0
         self.sample_rate_hz = 0.0
         self.source_name = f"LSL · {stream_name}"
+
+    @property
+    def connected(self) -> bool:
+        return self._inlet is not None
 
     def connect(self) -> None:
         if self._resolver is None or self._inlet_factory is None:
@@ -57,6 +63,11 @@ class LSLEEGStream:
         self._inlet = inlet_factory(streams[0], max_buflen=8, recover=True)
         info = self._inlet.info()
         self._channel_count = int(info.channel_count())
+        if self._channel_count != self.expected_channel_count:
+            self.disconnect()
+            raise RuntimeError(
+                f"LSL EEG 通道数应为 {self.expected_channel_count}，实际为 {self._channel_count}"
+            )
         self.sample_rate_hz = float(info.nominal_srate()) or 250.0
         resolved_name = str(info.name() or self.stream_name)
         self.source_name = f"LSL · {resolved_name}"

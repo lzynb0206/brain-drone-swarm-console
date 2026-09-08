@@ -1,17 +1,14 @@
-"""Stateful application actions used by the interactive desktop prototype.
-
-This module turns the visual prototype into a working demo without pretending
-that real hardware is connected.  Every method has a stable place where a real
-repository/device service can replace the current in-memory behaviour later.
-"""
+"""Stateful application actions and safety-aware adapter orchestration."""
 
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ
 from src.domain import SwarmCommand
 from src.ports import SwarmGateway, SystemMonitor
 
@@ -24,7 +21,7 @@ class MappingEntry:
 
 
 class WorkbenchService:
-    """Owns mutable demo state and delegates device actions through Ports."""
+    """Owns mutable UI state and delegates device actions through Ports."""
 
     def __init__(
         self,
@@ -33,7 +30,7 @@ class WorkbenchService:
     ) -> None:
         self.swarm_gateway = swarm_gateway
         self.system_monitor = system_monitor
-        self.paradigm_frequency = 11.0
+        self.paradigm_frequency = TARGET_FREQUENCIES_HZ[0]
         self.paradigm_type = "SSVEP"
         self.stimulus_size = 40
         self.duty_cycle = 60
@@ -44,11 +41,8 @@ class WorkbenchService:
         self.controller = "PID"
         self.controller_values = {"Kp": 30, "Ki": 50, "Kd": 70}
         self.mappings = [
-            MappingEntry("11Hz", "起飞", "仅识别"),
-            MappingEntry("13.75Hz", "前进", "仅识别"),
-            MappingEntry("15Hz", "后退", "仅识别"),
-            MappingEntry("16.5Hz", "左转", "仅识别"),
-            MappingEntry("18.33Hz", "右转", "仅识别"),
+            MappingEntry(f"{frequency:g}Hz", command, "仅识别")
+            for frequency, command in zip(TARGET_FREQUENCIES_HZ, COMMANDS)
         ]
         self.data_tab = "标签管理"
         self.selected_session = 2
@@ -58,6 +52,10 @@ class WorkbenchService:
         self.user_roles = {"张伟": "士兵", "李明": "科研人员", "王强": "管理员"}
         self.marker_count = 0
         self.emergency_stopped = False
+        self.bci_control_enabled = False
+        self._pending_intent_label = ""
+        self._pending_intent_count = 0
+        self._last_bci_command_time = 0.0
         self.self_test_run = False
         self.layout_mode = "标准布局"
         self.command_history: list[str] = ["前进", "悬停"]
@@ -75,7 +73,7 @@ class WorkbenchService:
         )
 
     def reset_paradigm(self) -> str:
-        self.paradigm_frequency, self.stimulus_size, self.duty_cycle = 11.0, 40, 60
+        self.paradigm_frequency, self.stimulus_size, self.duty_cycle = TARGET_FREQUENCIES_HZ[0], 40, 60
         return self._record("范式参数已恢复默认")
 
     def select_algorithm(self, name: str) -> str:
@@ -133,7 +131,10 @@ class WorkbenchService:
         return self._record("当前阶段保存原始带标签试次，尚未执行训练/验证集划分")
 
     def send_swarm_command(self, action: str) -> str:
-        labels = {"forward": "前进", "backward": "后退", "left": "左转", "right": "右转", "hover": "悬停"}
+        labels = {
+            "takeoff": "起飞", "land": "降落", "forward": "前进", "backward": "后退",
+            "left": "左转", "right": "右转", "hover": "悬停",
+        }
         if self.emergency_stopped:
             return self._record("系统处于急停状态，指令被安全策略拒绝")
         command = SwarmCommand(action)
@@ -147,12 +148,93 @@ class WorkbenchService:
         del self.command_history[8:]
         return self._record(f"蜂群指令已提交：{label}")
 
+    def connect_swarm(self) -> str:
+        if self.swarm_gateway is None:
+            return self._record("蜂群接口未配置")
+        try:
+            self.swarm_gateway.connect()
+            self.emergency_stopped = False
+            return self._record("Crazyflie 连接任务已在后台启动")
+        except RuntimeError as exc:
+            return self._record(f"连接失败：{exc}")
+
+    def disconnect_swarm(self) -> str:
+        if self.swarm_gateway is None:
+            return self._record("蜂群接口未配置")
+        self.bci_control_enabled = False
+        self.swarm_gateway.disconnect()
+        return self._record("蜂群连接已安全关闭")
+
+    def arm_swarm(self, confirmation: str) -> str:
+        if self.swarm_gateway is None:
+            return self._record("蜂群接口未配置")
+        try:
+            self.swarm_gateway.arm(confirmation)
+            return self._record("实机控制已解锁；飞行指令将发送到硬件")
+        except RuntimeError as exc:
+            return self._record(f"解锁失败：{exc}")
+
+    def disarm_swarm(self) -> str:
+        self.bci_control_enabled = False
+        if self.swarm_gateway is not None:
+            self.swarm_gateway.disarm()
+        return self._record("实机控制和脑控执行均已锁定")
+
+    def set_bci_control_enabled(self, enabled: bool, eeg_source: str) -> str:
+        if not enabled:
+            self.bci_control_enabled = False
+            self._pending_intent_label = ""
+            self._pending_intent_count = 0
+            return self._record("脑电识别继续运行，但自动飞行执行已关闭")
+        if not eeg_source.lower().startswith("lsl"):
+            return self._record("脑控执行被拒绝：只有实时 LSL 数据源可以驱动实机")
+        if self.swarm_gateway is None:
+            return self._record("脑控执行被拒绝：蜂群接口未配置")
+        status = self.swarm_gateway.status()
+        if not status.connected or not status.armed:
+            return self._record("脑控执行被拒绝：请先连接并解锁实机控制")
+        self.bci_control_enabled = True
+        return self._record("脑控执行已开启：同一意图连续确认两次后才提交")
+
+    def handle_intent(self, label: str, accepted: bool, eeg_source: str) -> str | None:
+        if not self.bci_control_enabled:
+            return None
+        if not eeg_source.lower().startswith("lsl"):
+            self.bci_control_enabled = False
+            return self._record("数据源已不再是实时 LSL，脑控执行自动关闭")
+        if not accepted:
+            self._pending_intent_label = ""
+            self._pending_intent_count = 0
+            return None
+        action = {"起飞": "takeoff", "前进": "forward", "后退": "backward", "左转": "left", "右转": "right"}.get(label)
+        if action is None:
+            return None
+        if label == self._pending_intent_label:
+            self._pending_intent_count += 1
+        else:
+            self._pending_intent_label = label
+            self._pending_intent_count = 1
+        if self._pending_intent_count < 2:
+            return self._record(f"脑控候选待二次确认：{label}")
+        now = time.monotonic()
+        if now - self._last_bci_command_time < 2.5:
+            return None
+        self._pending_intent_count = 0
+        self._last_bci_command_time = now
+        return self.send_swarm_command(action)
+
     def emergency_stop(self) -> str:
+        hardware_message = ""
         if not self.emergency_stopped and self.swarm_gateway is not None:
-            self.swarm_gateway.emergency_stop()
+            try:
+                self.swarm_gateway.emergency_stop()
+                hardware_message = "，硬件急停调用已发送"
+            except RuntimeError as exc:
+                hardware_message = f"；硬件急停未送达：{exc}"
         self.emergency_stopped = True
+        self.bci_control_enabled = False
         self.command_history.insert(0, "紧急停止")
-        return self._record("紧急停止已执行，后续控制指令已锁定")
+        return self._record(f"本地控制已锁定{hardware_message}")
 
     def run_self_test(self) -> str:
         self.self_test_run = True

@@ -48,6 +48,11 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertIn("拒绝", message)
         self.assertEqual(before, len(self.gateway.command_log))
 
+    def test_csv_replay_cannot_enable_hardware_bci_control(self) -> None:
+        message = self.service.set_bci_control_enabled(True, "CSV回放 · start-1.csv")
+        self.assertIn("只有实时 LSL", message)
+        self.assertFalse(self.service.bci_control_enabled)
+
     def test_report_export_writes_structured_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = self.service.export_soldier_report(Path(directory))

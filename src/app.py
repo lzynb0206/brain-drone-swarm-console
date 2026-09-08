@@ -26,8 +26,7 @@ class CommandConsoleWindow(QMainWindow):
         self.setCentralWidget(self.pages)
 
         self.login_view = LoginView(self.container.auth_service)
-        # 【真实接口接入点】所有外部能力从容器注入主界面。当前容器提供
-        # Mock；正式版只替换 container 的装配，不在页面里硬编码设备连接。
+        # 所有外部能力从容器注入主界面；页面里不硬编码设备连接。
         self.main_view = MainView(
             eeg_stream=self.container.eeg_stream,
             intent_decoder=self.container.intent_decoder,

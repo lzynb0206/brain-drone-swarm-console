@@ -11,5 +11,9 @@ dist/
 artifacts/
 .doc_review/
 .env
-data/recordings/
 data/samples/*.csv
+data/raw_trials/
+data/sessions/*.json
+data/sessions/*.csv
+data/recognition_logs/
+data/exports/

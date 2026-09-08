@@ -65,6 +65,19 @@ class UAVTelemetry:
     task: str
     status: DeviceStatus
     position: Position
+    battery_voltage: float | None = None
+    positioning_ok: bool = False
+    last_update_timestamp: float = 0.0
+
+
+@dataclass(frozen=True)
+class SwarmStatus:
+    backend: str
+    state: str
+    connected: bool
+    armed: bool
+    control_enabled: bool
+    message: str = ""
 
 
 @dataclass(frozen=True)
@@ -76,20 +89,32 @@ class EEGFrame:
 
 
 @dataclass(frozen=True)
-class RecognitionResult:
-    """One FBCCA decision. It deliberately contains no device command callback."""
+class IntentResult:
+    """Unified decoder output; it carries evidence but cannot execute a device action."""
 
     timestamp: float
-    prediction: str | None
-    frequency_hz: float | None
-    scores: Mapping[str, float]
-    best_score: float
+    label: str
+    confidence: float
     margin: float
     accepted: bool
     reason: str
+    frequency_hz: float
+    scores: Mapping[str, float]
     sample_rate_hz: float
     sample_count: int
     used_channels_1based: tuple[int, ...]
+    signal_quality: Mapping[str, object] = field(default_factory=dict)
+
+    @property
+    def prediction(self) -> str | None:
+        return self.label if self.accepted else None
+
+    @property
+    def best_score(self) -> float:
+        return self.confidence
+
+
+RecognitionResult = IntentResult
 
 
 @dataclass(frozen=True)

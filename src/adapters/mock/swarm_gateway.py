@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from src.domain import DeviceStatus, Position, SwarmCommand, UAVTelemetry
+from src.domain import DeviceStatus, Position, SwarmCommand, SwarmStatus, UAVTelemetry
 
 
 class MockSwarmGateway:
@@ -21,6 +21,25 @@ class MockSwarmGateway:
             UAVTelemetry("UAV-03", 78, 1.8, 1.2, "编队", DeviceStatus.WARNING, Position(0.55, 0.22, 1.2)),
             UAVTelemetry("UAV-04", 86, 2.0, 1.6, "警戒", DeviceStatus.NORMAL, Position(0.65, 0.55, 1.6)),
         )
+        self._connected = True
+        self._armed = True
+
+    def connect(self) -> None:
+        self._connected = True
+
+    def disconnect(self) -> None:
+        self._connected = False
+        self._armed = False
+
+    def status(self) -> SwarmStatus:
+        return SwarmStatus("mock", "connected" if self._connected else "disconnected", self._connected,
+                           self._armed, True, "仅供测试")
+
+    def arm(self, confirmation: str) -> None:
+        self._armed = True
+
+    def disarm(self) -> None:
+        self._armed = False
 
     def list_uavs(self) -> Sequence[UAVTelemetry]:
         return self._uavs

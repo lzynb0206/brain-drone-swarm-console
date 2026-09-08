@@ -6,10 +6,20 @@ or ports and never instantiate hardware clients directly.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from src.adapters.http import HttpAuthGateway
-from src.adapters.real import CsvEEGStream, LSLEEGStream
+from src.adapters.real import (
+    CrazyflieSwarmConfig,
+    CrazyflieSwarmGateway,
+    CsvEEGStream,
+    DisabledSwarmGateway,
+    LSLEEGStream,
+    RealSystemMonitor,
+    RuntimeEngineerDataProvider,
+    UnavailableEEGStream,
+)
 from src.adapters.mock import (
     MockAuthGateway,
     MockEEGStream,
@@ -66,8 +76,8 @@ def create_demo_container() -> ApplicationContainer:
 def create_default_container() -> ApplicationContainer:
     """Create the normal app container, using the Spring REST API by default.
 
-    Set ``YY_AUTH_BACKEND=mock`` to work offline with the original role-based
-    demo accounts. Hardware and telemetry remain mocked in both modes.
+    Authentication may be explicitly switched to mock for UI-only testing.
+    EEG and swarm data never silently fall back to generated mock values.
     """
 
     auth_gateway = (
@@ -91,14 +101,26 @@ def create_default_container() -> ApplicationContainer:
             realtime=True,
         )
     else:
-        eeg_stream = MockEEGStream(sample_rate_hz=SAMPLE_RATE_HZ, frame_size=FRAME_SIZE)
+        eeg_stream = UnavailableEEGStream(
+            f"EEG 数据源不可用：backend={EEG_BACKEND!r}，CSV={EEG_CSV_PATH}"
+        )
+
+    swarm_backend = os.getenv("BDS_SWARM_BACKEND", "disabled").strip().lower()
+    if swarm_backend == "crazyflie":
+        swarm_gateway: SwarmGateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig.from_environment())
+    else:
+        swarm_gateway = DisabledSwarmGateway(
+            "蜂群接口未启用；设置 BDS_SWARM_BACKEND=crazyflie 并配置实机参数"
+        )
+    system_monitor = RealSystemMonitor()
+    engineer_data_provider = RuntimeEngineerDataProvider(eeg_stream, swarm_gateway)
 
     return ApplicationContainer(
         auth_service=AuthService(auth_gateway),
         eeg_stream=eeg_stream,
-        swarm_gateway=MockSwarmGateway(),
-        system_monitor=MockSystemMonitor(),
-        engineer_data_provider=MockEngineerDataProvider(),
+        swarm_gateway=swarm_gateway,
+        system_monitor=system_monitor,
+        engineer_data_provider=engineer_data_provider,
         intent_decoder=FBCCADecoder(),
         experiment_recorder=ExperimentRecorder(RECORDING_ROOT),
     )

@@ -10,11 +10,12 @@ from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QInputDialog, QLabel, QMessageBox, QWidget
 
-from src.bci.config import TRUE_LABELS
-from src.domain import EEGFrame, RecognitionResult, Role, User
+from src.bci.config import COMMANDS, SSVEP_PROFILE_NAME, TARGET_FREQUENCIES_HZ, TRUE_LABELS
+from src.domain import EEGFrame, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
-from src.services import EEGPipelineWorker, ExperimentRecorder, WorkbenchService
+from src.services import ExperimentRecorder, WorkbenchService
 from src.views.engineer_dashboard import EngineerDashboard
+from src.workers import EEGWorker
 from src.widgets.scifi_canvas import (
     BG,
     BLUE,
@@ -46,9 +47,8 @@ class MainView(QWidget):
         engineer_data_provider: EngineerDataProvider | None = None,
     ) -> None:
         super().__init__()
-        # 【真实接口接入点】依赖从 app.py/container.py 注入。按钮状态由
-        # WorkbenchService 管理；曲线和遥测仍是演示数据。后续实时刷新时从
-        # 这些协议读取，不要让 paintEvent 直接访问硬件或执行网络请求。
+        # 依赖从 app.py/container.py 注入。paintEvent 只读取线程安全缓存，
+        # 不直接访问 EEG、无线电硬件或网络服务。
         self.eeg_stream = eeg_stream
         self.intent_decoder = intent_decoder
         self.experiment_recorder = experiment_recorder
@@ -67,11 +67,12 @@ class MainView(QWidget):
         self._eeg_history = [deque(maxlen=360) for _ in range(8)]
         self._eeg_sample_rate = 0.0
         self._eeg_status = "尚未启动"
-        self._latest_recognition: RecognitionResult | None = None
+        self._latest_recognition: IntentResult | None = None
+        self._experiment_session_id = ""
         self._eeg_events: deque[str] = deque(maxlen=12)
-        self._pipeline_worker: EEGPipelineWorker | None = None
+        self._pipeline_worker: EEGWorker | None = None
         if eeg_stream is not None and intent_decoder is not None and experiment_recorder is not None:
-            self._pipeline_worker = EEGPipelineWorker(
+            self._pipeline_worker = EEGWorker(
                 eeg_stream, intent_decoder, experiment_recorder, parent=self,
             )
             self._pipeline_worker.frame_received.connect(self._on_eeg_frame)
@@ -87,6 +88,9 @@ class MainView(QWidget):
             self.engineer_dashboard = EngineerDashboard(system_monitor, engineer_data_provider, self)
             self.engineer_dashboard.logout_requested.connect(self.logout_requested.emit)
             self.engineer_dashboard.hide()
+        self._runtime_refresh_timer = QTimer(self)
+        self._runtime_refresh_timer.timeout.connect(self.update)
+        self._runtime_refresh_timer.start(300)
         self.setMouseTracking(True)
 
     def set_user(self, user: User) -> None:
@@ -98,7 +102,12 @@ class MainView(QWidget):
         self.soldier_page = "脑控"
         if self.engineer_dashboard is not None:
             self.engineer_dashboard.setVisible(user.role == Role.ENGINEER)
-        if user.role == Role.RESEARCHER:
+        if user.role in {Role.RESEARCHER, Role.SOLDIER}:
+            self._experiment_session_id = f"session-{datetime.now():%Y%m%d-%H%M%S}-{user.username}"
+            if self._pipeline_worker is not None:
+                self._pipeline_worker.set_experiment_context(
+                    user.uid or user.username, self._experiment_session_id,
+                )
             self._start_eeg_pipeline()
         else:
             self.deactivate()
@@ -121,12 +130,16 @@ class MainView(QWidget):
         self._eeg_sample_rate = frame.sample_rate_hz
         self.update()
 
-    def _on_recognition(self, result: RecognitionResult) -> None:
+    def _on_recognition(self, result: IntentResult) -> None:
         self._latest_recognition = result
-        label = result.prediction or "未通过阈值"
+        label = result.label if result.accepted else f"候选{result.label}（拒绝）"
         self._eeg_events.appendleft(
             f"{datetime.now():%H:%M:%S}  FBCCA {label}  分数 {result.best_score:.3f}  差值 {result.margin:.3f}"
         )
+        source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
+        command_message = self.actions.handle_intent(result.label, result.accepted, source)
+        if command_message:
+            self._eeg_events.appendleft(command_message)
         self.update()
 
     def _on_eeg_status(self, status: str) -> None:
@@ -143,6 +156,8 @@ class MainView(QWidget):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.deactivate()
+        if self.swarm_gateway is not None:
+            self.swarm_gateway.disconnect()
         super().closeEvent(event)
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
@@ -305,6 +320,21 @@ class MainView(QWidget):
             self._edit_user_dialog(action.split(":", 1)[1])
         elif action.startswith("swarm-command:"):
             self._notify(self.actions.send_swarm_command(action.split(":", 1)[1]))
+        elif action == "swarm-connect":
+            self._notify(self.actions.connect_swarm())
+        elif action == "swarm-disconnect":
+            self._notify(self.actions.disconnect_swarm())
+        elif action == "swarm-arm":
+            confirmation, ok = QInputDialog.getText(
+                self, "解锁实机控制", "确认现场净空、Lighthouse、急停和电量均已检查。\n请输入：启用实机控制",
+            )
+            if ok:
+                self._notify(self.actions.arm_swarm(confirmation.strip()))
+        elif action == "swarm-disarm":
+            self._notify(self.actions.disarm_swarm())
+        elif action == "bci-control-toggle":
+            source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
+            self._notify(self.actions.set_bci_control_enabled(not self.actions.bci_control_enabled, source))
         elif action == "swarm-emergency-stop":
             self._notify(self.actions.emergency_stop())
         elif action == "soldier-export":
@@ -322,11 +352,11 @@ class MainView(QWidget):
 
     def _add_mapping_dialog(self) -> None:
         frequency, ok = QInputDialog.getItem(
-            self, "添加映射", "SSVEP频率", ["11Hz", "13.75Hz", "15Hz", "16.5Hz", "18.33Hz"], 0, False,
+            self, "添加映射", "SSVEP频率", [f"{value:g}Hz" for value in TARGET_FREQUENCIES_HZ], 0, False,
         )
         if not ok:
             return
-        command, ok = QInputDialog.getItem(self, "添加映射", "映射动作", ["左转", "右转", "前进", "后退", "悬停"], 0, False)
+        command, ok = QInputDialog.getItem(self, "添加映射", "映射动作", list(COMMANDS), 0, False)
         if not ok:
             return
         parameter, ok = QInputDialog.getText(self, "添加映射", "参数", text="15°")
@@ -335,7 +365,7 @@ class MainView(QWidget):
 
     def _edit_mapping_dialog(self, index: int) -> None:
         entry = self.actions.mappings[index]
-        commands = ["左转", "右转", "前进", "后退", "悬停"]
+        commands = list(COMMANDS)
         command, ok = QInputDialog.getItem(
             self, "修改映射", "映射动作", commands,
             commands.index(entry.action) if entry.action in commands else 0, False,
@@ -347,9 +377,13 @@ class MainView(QWidget):
             self._notify(self.actions.update_mapping(index, command, parameter.strip()))
 
     def _show_device_dialog(self, name: str) -> None:
+        swarm_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
         details = {
             "DeepBCI采集板": "类型：脑电采集设备\n固件：v2.1\n状态：在线\n采样率：250Hz",
-            "Crazyflie-01": "类型：无人机\n固件：v1.3\n状态：在线\n链路：MockSwarmGateway",
+            "Crazyflie-01": (
+                f"类型：无人机\n接口：{swarm_status.backend}\n状态：{swarm_status.state}\n{swarm_status.message}"
+                if swarm_status is not None else "Crazyflie 接口未配置"
+            ),
             "智能头盔": "类型：多模态头盔\n固件：v1.0\n状态：离线\n最近在线：2026-08-30",
         }
         QMessageBox.information(self, f"设备详情 · {name}", details.get(name, "暂无设备信息"))
@@ -388,7 +422,7 @@ class MainView(QWidget):
         }[self.research_page](c)
 
     def _research_eeg(self, c: Canvas) -> None:
-        # EEG is acquired and decoded in EEGPipelineWorker. paintEvent only
+        # EEG is acquired and decoded in EEGWorker. paintEvent only
         # renders cached values and never blocks on CSV/LSL or performs inference.
         c.panel(17, 73, 824, 305, "EEG 8通道实时波形")
         self._draw_live_eeg(c, 62, 124, 756, 232)
@@ -399,7 +433,7 @@ class MainView(QWidget):
             c.text(879, 158, 360, 42, "等待积累完整 4 秒 EEG 窗口…", 14, MUTED)
         else:
             result = self._latest_recognition
-            prediction = result.prediction or "未通过阈值"
+            prediction = result.label if result.accepted else f"候选：{result.label}"
             c.text(879, 151, 150, 45, prediction, 24, GREEN if result.accepted else YELLOW, True)
             c.text(1040, 157, 195, 30, result.reason, 12, MUTED, False, Qt.AlignRight)
             c.text(879, 195, 350, 25, f"最高分 {result.best_score:.3f}   区分度 {result.margin:.3f}", 12, TEXT)
@@ -426,8 +460,9 @@ class MainView(QWidget):
         c.rect(41, 544, 760, 116, "#0c1628", "#2b3b58", 3)
         c.text(58, 553, 300, 28, f"已保存带标签原始试次：{stats['labeled_trials']}", 13, TEXT, True)
         c.text(58, 584, 700, 24, f"待保存真实标签：{pending or '无（点击右上角“添加标签”）'}", 12, CYAN)
+        c.text(58, 605, 700, 20, f"会话：{self._experiment_session_id or '未建立'}", 10, MUTED)
         root = str(self.experiment_recorder.root) if self.experiment_recorder is not None else "未配置"
-        c.text(58, 613, 720, 24, f"保存目录：{root}", 10, MUTED)
+        c.text(58, 625, 720, 24, f"保存目录：{root}", 10, MUTED)
         c.text(58, 665, 720, 20, "安全状态：识别结果仅显示和保存，未连接任何设备动作", 11, GREEN, True)
 
         c.panel(859, 398, 404, 304, "实时事件")
@@ -488,9 +523,8 @@ class MainView(QWidget):
         c.rect(623, 205, 450, 366, PANEL, BORDER, 4)
         c.text(656, 229, 380, 42, "SSVEP参数配置", 19, TEXT, True)
         c.text(656, 282, 130, 27, "频率配置", 14, MUTED)
-        for frequency, x, width in (
-            (11.0, 656, 70), (13.75, 734, 70), (15.0, 812, 70), (16.5, 890, 70), (18.33, 968, 72),
-        ):
+        for index, frequency in enumerate(TARGET_FREQUENCIES_HZ):
+            x, width = 656 + index * 78, 72
             c.button(x, 322, width, 42, f"{frequency:g}Hz", self.actions.paradigm_frequency == frequency)
             self._hit(x, 322, width, 42, f"paradigm-frequency:{frequency}")
         knobs = (
@@ -526,7 +560,7 @@ class MainView(QWidget):
         metadata = [("名称:", "纯 FBCCA", 73, 207), ("类型:", "无训练模型", 356, 207),
                     ("数据源:", "CSV / LSL", 640, 207), ("准确率:", "待真实标签评估", 922, 207),
                     ("识别窗:", "4秒", 73, 256), ("更新步长:", "1秒", 356, 256),
-                    ("适用范式:", "SSVEP", 640, 256)]
+                    ("频率配置:", SSVEP_PROFILE_NAME, 640, 256)]
         for label, value, x, y in metadata:
             c.text(x, y, 86, 38, label, 14, TEXT)
             c.text(x + 50 if len(label) <= 3 else x + 80, y, 145, 38, value, 14, TEXT, True)
@@ -856,10 +890,6 @@ class MainView(QWidget):
         self._hit(1185, 18, 78, 34, "soldier-root:单兵面板")
 
     def _soldier_combat(self, c: Canvas) -> None:
-        # 【真实接口接入点】UI-02 / M1/M6：地图上的 UAV 位置、状态卡和电量应
-        # 从 self.swarm_gateway.list_uavs() 的定时缓存读取；目标信息来自目标识别
-        # 服务。任务按钮只能提交 TacticalTask 给 SwarmManager，不能从 UI 绕过
-        # 指令仲裁直接控制电机。链路中断时由网关执行悬停/返航失效保护。
         c.fill("#03101d")
         # tactical grid
         for x in range(24, 952, 58):
@@ -870,52 +900,53 @@ class MainView(QWidget):
         now = datetime.now().strftime("%H:%M:%S")
         c.text(24, 5, 140, 25, now, 12, "#c4d7e5")
         c.text(85, 5, 140, 25, now, 12, "#59697a")
-        # centered network tab
+        uavs = list(self.swarm_gateway.list_uavs()) if self.swarm_gateway is not None else []
+        gateway_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
+        connected = bool(gateway_status and gateway_status.connected)
         c.line(568, 0, 584, 27, CYAN, 1)
         c.line(584, 27, 872, 27, CYAN, 1)
         c.line(872, 27, 888, 0, CYAN, 1)
-        c.circle(605, 18, 6, GREEN)
-        c.text(617, 3, 120, 28, "网络正常", 13, TEXT, True)
-        c.text(1164, 4, 94, 26, "总电量 86%", 12, TEXT, True, Qt.AlignRight)
-        # links and central target
-        links = [(204, 485, 328, 176), (328, 176, 703, 153), (703, 153, 825, 384), (825, 384, 204, 485)]
-        for x1, y1, x2, y2 in links:
-            c.line(x1, y1, x2, y2, "#355160", .8)
-        c.circle(577, 394, 120, None, "#a88b49", 1)
-        c.circle(577, 394, 41, None, "#a88b49", 1)
-        c.circle(577, 394, 5, "#f1a427")
-        c.text(649, 280, 66, 25, "目标A", 12, RED, True)
-        c.text(585, 445, 66, 25, "目标B", 12, "#e2a93a", True)
-        for name, x, y in (("UAV-01", 204, 485), ("UAV-02", 328, 176), ("UAV-03", 703, 153), ("UAV-04", 825, 384)):
+        c.circle(605, 18, 6, GREEN if connected else YELLOW)
+        c.text(617, 3, 160, 28, "遥测已连接" if connected else "遥测未连接", 13, TEXT, True)
+        average_battery = sum(uav.battery for uav in uavs) / len(uavs) if uavs else 0.0
+        c.text(1124, 4, 134, 26, f"平均电量 {average_battery:.0f}%" if uavs else "无实机遥测", 12, TEXT, True, Qt.AlignRight)
+        points = [
+            (uav, 476 + max(-1.0, min(1.0, uav.position.x)) * 330,
+             360 - max(-1.0, min(1.0, uav.position.y)) * 260)
+            for uav in uavs
+        ]
+        for index, (_, x1, y1) in enumerate(points):
+            if len(points) > 1:
+                _, x2, y2 = points[(index + 1) % len(points)]
+                c.line(x1, y1, x2, y2, "#355160", .8)
+        if not points:
+            c.text(230, 320, 500, 70, "没有真实无人机遥测\n请在脑控页连接 Crazyflie", 18, MUTED, True, Qt.AlignCenter)
+        for uav, x, y in points:
             for radius in (23, 16, 9, 4):
                 c.circle(x, y, radius, None, CYAN, 2)
             c.circle(x, y, 28, QColor(72, 231, 248, 22))
-            c.text(x - 45, y + 25, 90, 24, name, 13, TEXT, True, Qt.AlignCenter)
+            c.text(x - 55, y + 25, 110, 24, uav.uav_id, 13, TEXT, True, Qt.AlignCenter)
         c.rect(936, 24, 326, 672, "#07111f", "#22354c")
         c.rect(952, 44, 4, 13, CYAN)
         c.text(964, 35, 240, 31, "蜂群状态总览", 15, CYAN, True)
-        entries = [("UAV-01", "电量82%", "速度2.1m/s", "任务-侦察"),
-                   ("UAV-02", "电量75%", "高度1.5m", "任务-编队"),
-                   ("UAV-03", "速度 1.8m/s", "高度1.2m", "任务-编队")]
-        for i, row in enumerate(entries):
+        for i, uav in enumerate(uavs[:3]):
             y = 74 + i * 70
             c.rect(953, y, 285, 60, PANEL, BORDER, 3)
             c.rect(953, y, 4, 60, CYAN)
-            c.text(966, y + 7, 120, 25, row[0], 13, TEXT, True)
-            c.text(966, y + 29, 105, 21, row[1], 10, MUTED)
-            c.text(1112, y + 5, 114, 23, row[2], 12, TEXT, True, Qt.AlignRight)
-            c.text(1112, y + 28, 114, 20, row[3], 10, CYAN, False, Qt.AlignRight)
+            c.text(966, y + 7, 150, 25, uav.uav_id, 13, TEXT, True)
+            c.text(966, y + 29, 130, 21, f"电量 {uav.battery:.0f}%  {uav.battery_voltage or 0:.2f}V", 10, MUTED)
+            c.text(1092, y + 5, 134, 23, f"高度 {uav.altitude_m:.2f}m", 12, TEXT, True, Qt.AlignRight)
+            c.text(1092, y + 28, 134, 20, f"速度 {uav.speed_mps:.2f}m/s", 10, CYAN, False, Qt.AlignRight)
         c.rect(952, 303, 4, 13, CYAN)
-        c.text(964, 294, 220, 31, "目标信息", 14, CYAN, True)
+        c.text(964, 294, 220, 31, "目标识别接口", 14, CYAN, True)
         c.rect(953, 332, 285, 62, PANEL, BORDER, 3)
-        c.circle(974, 363, 7, None, RED, 2)
-        c.circle(974, 363, 2, RED)
-        c.text(994, 340, 150, 28, "目标A", 14, TEXT, True)
-        c.text(994, 366, 220, 20, "类型-导弹车   距离45m", 10, MUTED)
+        c.circle(974, 363, 7, None, YELLOW, 2)
+        c.text(994, 340, 210, 28, "未接入", 14, TEXT, True)
+        c.text(994, 366, 220, 20, "等待真实视觉模型和坐标接口", 10, MUTED)
         c.rect(952, 423, 4, 13, CYAN)
         c.text(964, 414, 220, 31, "操作员状态", 14, CYAN, True)
         c.circle(967, 460, 6, GREEN)
-        c.text(980, 443, 170, 34, "注意力：85%", 13, TEXT, True)
+        c.text(980, 443, 220, 34, "多模态生命体征未接入", 13, TEXT, True)
         c.rect(952, 500, 4, 13, CYAN)
         c.text(964, 491, 220, 31, "指令日志", 14, CYAN, True)
         c.rect(953, 527, 285, 152, PANEL, BORDER, 3)
@@ -923,14 +954,34 @@ class MainView(QWidget):
             c.text(966, 535 + i * 26, 245, 25, f"指令：{command}", 11, RED if command == "紧急停止" else MUTED)
 
     def _soldier_brain(self, c: Canvas) -> None:
-        # 【真实接口接入点】UI-03 / M4→M4.5→M6：方向和置信度来自解码服务：
-        # EEGFrame -> classifier.predict -> 指令映射 -> 安全仲裁 ->
-        # swarm_gateway.send_command。中心“悬停/确认”也走同一命令通道。
-        # “紧急停止”必须直接调用 swarm_gateway.emergency_stop()，并要求硬件
-        # 回执、超时处理和审计日志；不能只把红色按钮画出来。
         c.fill("#111420")
-        c.circle(594, 52, 6, RED if self.actions.emergency_stopped else GREEN)
-        c.text(608, 36, 180, 32, "控制已锁定" if self.actions.emergency_stopped else "脑控已激活", 14, TEXT, True)
+        gateway_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
+        connected = bool(gateway_status and gateway_status.connected)
+        armed = bool(gateway_status and gateway_status.armed)
+        status_color = RED if self.actions.emergency_stopped else (GREEN if connected else YELLOW)
+        status_text = (
+            "急停锁定" if self.actions.emergency_stopped else
+            "实机已解锁" if armed else
+            "只读遥测已连接" if connected else
+            "实机未连接"
+        )
+        c.circle(594, 52, 6, status_color)
+        c.text(608, 36, 220, 32, status_text, 14, TEXT, True)
+
+        c.panel(28, 82, 245, 252, "实机链路")
+        c.text(45, 122, 210, 38, gateway_status.message if gateway_status else "蜂群接口未配置", 11, MUTED)
+        c.button(45, 170, 96, 35, "断开" if connected else "连接", connected, accent=CYAN)
+        self._hit(45, 170, 96, 35, "swarm-disconnect" if connected else "swarm-connect")
+        c.button(151, 170, 96, 35, "锁定" if armed else "解锁", armed, accent=YELLOW)
+        self._hit(151, 170, 96, 35, "swarm-disarm" if armed else "swarm-arm")
+        c.button(45, 217, 96, 35, "起飞", False, accent=GREEN)
+        c.button(151, 217, 96, 35, "降落", False, accent=BLUE)
+        self._hit(45, 217, 96, 35, "swarm-command:takeoff")
+        self._hit(151, 217, 96, 35, "swarm-command:land")
+        c.button(45, 268, 202, 39,
+                 "脑控执行：开" if self.actions.bci_control_enabled else "脑控执行：关",
+                 self.actions.bci_control_enabled, accent=RED)
+        self._hit(45, 268, 202, 39, "bci-control-toggle")
         # diamond connector
         c.line(640, 267, 752, 380, "#252c3a")
         c.line(752, 380, 640, 493, "#252c3a")
@@ -947,10 +998,12 @@ class MainView(QWidget):
         c.circle(640, 380, 33, "#df4c4e")
         c.text(612, 350, 56, 62, "悬停\n/确认", 10, TEXT, True, Qt.AlignCenter)
         self._hit(607, 347, 66, 66, "swarm-command:hover")
-        c.text(456, 613, 280, 30, "解码置信度", 13, MUTED)
-        c.line(448, 653, 728, 653, "#63a9e9", 7)
-        c.text(736, 628, 80, 51, "置信度\n82%", 14, TEXT, True)
-        c.line(796, 653, 832, 653, "#35425a", 6)
+        confidence = self._latest_recognition.confidence if self._latest_recognition is not None else 0.0
+        result_label = self._latest_recognition.label if self._latest_recognition is not None else "等待 EEG"
+        c.text(456, 603, 280, 30, f"FBCCA：{result_label}", 13, MUTED)
+        c.line(448, 653, 448 + 350 * max(0.0, min(1.0, confidence)), 653, "#63a9e9", 7)
+        c.line(448 + 350 * max(0.0, min(1.0, confidence)), 653, 798, 653, "#35425a", 6)
+        c.text(806, 628, 100, 51, f"置信度\n{confidence * 100:.1f}%", 14, TEXT, True)
         c.circle(1168, 608, 64, "#a52d32" if self.actions.emergency_stopped else "#ee8284", RED, 4)
         c.circle(1168, 608, 73, QColor(239, 78, 80, 28))
         c.text(1104, 545, 128, 126, "已急停" if self.actions.emergency_stopped else "紧急停止", 19, TEXT, True, Qt.AlignCenter)

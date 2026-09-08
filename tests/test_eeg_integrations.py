@@ -9,8 +9,8 @@ import numpy as np
 
 from src.adapters.real import CsvEEGStream, LSLEEGStream
 from src.bci import FBCCADecoder
-from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ
-from src.domain import RecognitionResult
+from src.bci.config import COMMANDS, FB_EEGNET_ENABLED, TARGET_FREQUENCIES_HZ
+from src.domain import IntentResult
 from src.services import ExperimentRecorder
 
 
@@ -33,6 +33,9 @@ class CsvEEGStreamTest(unittest.TestCase):
 
 
 class FBCCADecoderTest(unittest.TestCase):
+    def test_fb_eegnet_remains_disabled_until_new_model_assets_exist(self) -> None:
+        self.assertFalse(FB_EEGNET_ENABLED)
+
     def test_recognizes_each_configured_frequency(self) -> None:
         fs = 250.0
         timeline = np.arange(round(fs * 4)) / fs
@@ -51,28 +54,34 @@ class FBCCADecoderTest(unittest.TestCase):
 
 class ExperimentRecorderTest(unittest.TestCase):
     def test_logs_every_decision_and_saves_only_labeled_raw_trial(self) -> None:
-        result = RecognitionResult(
+        result = IntentResult(
             timestamp=1.0,
-            prediction="前进",
-            frequency_hz=13.75,
-            scores={"起飞": 0.1, "前进": 0.8},
-            best_score=0.8,
+            label="前进",
+            confidence=0.8,
             margin=0.7,
             accepted=True,
-            reason="识别成功",
+            reason="通过安全阈值",
+            frequency_hz=13.75,
+            scores={"起飞": 0.1, "前进": 0.8},
             sample_rate_hz=250.0,
             sample_count=1000,
             used_channels_1based=(2, 7),
+            signal_quality={"status": "good"},
         )
         with tempfile.TemporaryDirectory() as directory:
             recorder = ExperimentRecorder(directory)
-            recorder.record(result, np.ones((8, 1000)), source="test")
-            saved = recorder.record(result, np.ones((8, 1000)), true_label="前进", source="test")
+            recorder.record(result, np.ones((8, 1000)), source="test", subject_id="S01", session_id="session-1")
+            saved = recorder.record(
+                result, np.ones((8, 1000)), true_label="前进", source="test",
+                subject_id="S01", session_id="session-1", start_time="2026-09-08T10:00:00+08:00",
+            )
             stats = recorder.stats()
             trial_path = Path(directory) / saved["raw_trial_path"]
             payload = np.load(trial_path)
             self.assertEqual((8, 1000), payload["eeg"].shape)
             self.assertEqual("前进", str(payload["true_label"]))
+            self.assertEqual("S01", str(payload["subject_id"]))
+            self.assertTrue((Path(directory) / "sessions" / "session-1.json").is_file())
         self.assertEqual({"recognitions": 2, "labeled_trials": 1}, stats)
 
 
@@ -92,7 +101,7 @@ class _FakeInlet:
 class LSLEEGStreamTest(unittest.TestCase):
     def test_wraps_lsl_samples_in_common_frame_contract(self) -> None:
         resolver = lambda *_args, **_kwargs: [object()]
-        stream = LSLEEGStream(resolver=resolver, inlet_factory=_FakeInlet)
+        stream = LSLEEGStream(expected_channel_count=2, resolver=resolver, inlet_factory=_FakeInlet)
         stream.connect()
         frame = stream.read_frame()
         stream.disconnect()

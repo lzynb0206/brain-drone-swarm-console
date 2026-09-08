@@ -15,12 +15,14 @@ class CsvEEGStream:
         path: Path | str,
         sample_rate_hz: float = 250.0,
         frame_size: int = 32,
+        expected_channel_count: int = 8,
         loop: bool = True,
         realtime: bool = True,
     ) -> None:
         self.path = Path(path).expanduser().resolve()
         self.sample_rate_hz = float(sample_rate_hz)
         self.frame_size = int(frame_size)
+        self.expected_channel_count = int(expected_channel_count)
         self.loop = bool(loop)
         self.realtime = bool(realtime)
         self._rows: list[tuple[float, ...]] = []
@@ -28,6 +30,10 @@ class CsvEEGStream:
         self._position = 0
         self._connected = False
         self.source_name = f"CSV回放 · {self.path.name}"
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
 
     def connect(self) -> None:
         if not self.path.is_file():
@@ -41,6 +47,10 @@ class CsvEEGStream:
             width = len(first)
             if width == 0:
                 raise ValueError("EEG CSV 没有通道列")
+            if width != self.expected_channel_count:
+                raise ValueError(
+                    f"EEG CSV 通道数应为 {self.expected_channel_count}，实际为 {width}"
+                )
             has_index_header = [item.strip() for item in first] == [str(i) for i in range(width)]
             if has_index_header:
                 self._channel_names = tuple(f"CH{i + 1}" for i in range(width))
