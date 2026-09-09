@@ -10,21 +10,26 @@
 
 - Spring Boot + PostgreSQL 邮箱注册和登录，密码使用 BCrypt 哈希并返回 JWT；也可切换为离线 Mock 模式。
 - 士兵、科研人员、系统工程师、系统管理员等角色页面。
-- 范式、算法、控制器和 L1 指令映射的本地交互状态。
+- 原生 PySide6 全屏六频 SSVEP 刺激：`11 / 13.75 / 15 / 16.5 / 18.33 / 20.625 Hz`，支持 J 开始、K 停止、0 空闲、1–6 标签和 B 急停。
+- 刺激帧时间、实际刷新率、实测频率、频谱 `.npz/.png` 和开始/停止事件标记。
 - 工程师工作台：真实 Qt 左侧导航、运行时接口状态、真实本机性能和设备日志。
-- Crazyflie 蜂群连接、只读遥测、解锁/锁定、起降、前后左右、悬停和硬件急停调用。
+- Crazyflie 蜂群连接、只读遥测、解锁/锁定、起降、前后左右、悬停、单机控制和硬件急停调用。
+- LED 无桨测试、逐架悬停、同步悬停、相对方形轨迹，以及一字/菱形/方形的分阶段绝对坐标转换和到位误差检查。
+- 单架 Flow Deck 人工验收模式；该模式禁止打开自动脑控执行。
 - 飞行安全门控：实时遥测、最低电压、Lighthouse 状态、场地围栏、最小机距和串行命令队列。
 - 脑控执行默认关闭；只允许实时 LSL，且同一意图连续确认两次并经过冷却后提交。
-- `start-1.csv` 8 通道回放、真实 `LSLEEGStream` 和后台实时波形。
-- 纯 FBCCA：暂用传承单机五频配置，仅显示识别结果；最终频率待老师确认。
-- 识别日志，以及包含被试、会话、真实标签、频率、质量和门控结果的 4 秒原始 EEG `.npz` 试次。
+- `start-1.csv` 8 通道回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
+- 纯 FBCCA 六频实时识别；包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
+- 可选 FB-EEGNet 训练/验证/实时推理；没有匹配权重时自动保留真实 FBCCA，不伪造模型结果。
+- 识别日志、命令提交/完成/失败日志、连续原始 EEG 分块，以及包含真实标签和质量信息的同步 4 秒 `.npz` 试次。
+- 每架高度校准采样与建议补偿文件；结果必须人工复核，不会自动套用旧补偿值。
 
 尚待现场或外部团队提供的能力：
 
 - Crazyflie URI、实验室实测场地围栏、固件参数和实机安全验收。
 - 目标识别/跟踪、生命体征和避障服务的协议、地址及数据字典。
-- 实验元数据 PostgreSQL 接口、XDF 长时间记录及正式训练/验证数据集划分。
-- FB-EEGNet（当前明确 `FB_EEGNET_ENABLED = False`）。
+- 实验元数据 PostgreSQL 接口（当前原始 EEG 和索引保存在本地文件）。
+- 足量、平衡且由实验人员确认的六频加空闲训练数据；训练程序已实现，但仓库不附带可冒充有效模型的权重。
 - 生产级 RBAC、审计、服务端身份授权和真实设备安全仲裁。
 
 科研页默认回放本地 `data/samples/start-1.csv`。文件不存在时会明确报告数据源不可用，不再生成 Mock EEG。蜂群后端默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
@@ -32,7 +37,7 @@
 ## 技术架构
 
 ```text
-CSV / LSL → EEG QThread → 纯 FBCCA → 安全确认 → 可选蜂群命令
+CSV / LSL → EEG QThread → 质量检查 → FBCCA / 可选 FB-EEGNet → 安全确认 → 可选蜂群命令
 PySide6 → HTTP + JWT → Spring Boot → PostgreSQL（账号与身份）
 PySide6 → CrazyflieSwarmGateway 后台队列 → cflib/Crazyradio → Crazyflie + Lighthouse
 ```
@@ -44,8 +49,8 @@ PySide6 → CrazyflieSwarmGateway 后台队列 → cflib/Crazyradio → Crazyfli
 需要 Python 3.10+：
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3.12 -m venv .venv312
+source .venv312/bin/activate
 python -m pip install -r requirements.txt
 ```
 
@@ -62,7 +67,7 @@ python main.py
 如需不联网演示各角色界面，可临时切换为 Mock 模式：
 
 ```bash
-YY_AUTH_BACKEND=mock python main.py
+BDS_AUTH_BACKEND=mock python main.py
 ```
 
 | 用户名包含 | 进入角色 |
@@ -78,7 +83,7 @@ YY_AUTH_BACKEND=mock python main.py
 
 ```bash
 export AUTH_API_URL="http://127.0.0.1:8080"
-export YY_AUTH_BACKEND=http
+export BDS_AUTH_BACKEND=http
 python main.py
 ```
 
@@ -104,6 +109,28 @@ python main.py
 
 打开“单兵面板 → 脑控”，依次点击连接、解锁，再进行单机/多机分阶段测试。完整流程见 [硬件接入说明](docs/CRAZYFLIE_HARDWARE_INTEGRATION.md)。
 
+单架 Flow Deck 只开放人工验收：
+
+```bash
+export BDS_SWARM_BACKEND=flowdeck
+export BDS_CRAZYFLIE_URIS='实际单机URI'
+export BDS_SWARM_GEOFENCE='以起飞点为原点实测填写'
+export BDS_HARDWARE_CONTROL_ENABLED=true
+python main.py
+```
+
+### 训练并启用 FB-EEGNet
+
+采集每个类别（含“空闲”）的足量真实试次后：
+
+```bash
+python -m pip install -r requirements-ml.txt
+python -m src.ml.train_fb_eegnet --index data/sessions/raw_trials_index.csv
+BDS_FB_EEGNET_ENABLED=true python main.py
+```
+
+训练输出 `models/fb_eegnet_fusion.pt` 和与其匹配的 `models/fb_eegnet_metadata.json`，metadata 内含训练/验证数量、准确率、宏 F1、混淆矩阵和空闲误触发率。
+
 ## 运行时数据与接口位置
 
 | 数据类型 | 默认状态 | 真实实现位置 |
@@ -124,13 +151,14 @@ src/
 ├── domain/                 # 与 Qt、硬件无关的数据模型
 ├── ports/                  # EEG、蜂群、系统监控、工程数据等接口
 ├── bci/                    # 统一频率配置、预处理和纯 FBCCA
+├── ml/                     # 可选 FB-EEGNet、预处理、训练评估与推理
 ├── adapters/
 │   ├── mock/               # 仅供自动化测试和显式离线 UI 测试
 │   ├── http/               # Spring Boot JWT 认证客户端
 │   └── real/               # CSV、LSL、Crazyflie、运行时监控
 ├── workers/                # QThread EEG 持续采集与4秒窗口
-├── services/               # 登录、意图安全门控、记录与工作台状态
-└── views/                  # PySide6 界面
+├── services/               # 登录、记录、实机验收、高度校准与工作台状态
+└── views/                  # PySide6 主界面及全屏 SSVEP 刺激
 ```
 
 ## 测试
@@ -139,7 +167,7 @@ src/
 QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 ```
 
-当前包含 Spring REST 登录客户端、CSV/LSL Adapter、纯 FBCCA、实验记录器、工程师交互和工作台测试。详细运行方法见 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。
+当前包含 Spring REST 登录客户端、CSV/LSL、六频 FBCCA、刺激测频、信号质量、实验记录、高度校准、Crazyflie 安全门控和界面交互测试。详细运行方法见 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。
 
 ## 安全说明
 

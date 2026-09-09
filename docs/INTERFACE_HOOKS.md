@@ -14,7 +14,7 @@ DeepBCI / 智能头盔 / Crazyflie
               ↓
 预处理 → 解码算法 → 指令映射 → 安全仲裁 → 无人机网关
               ↓                         ↓
-       XDF + SQLite                遥测与执行回执
+       NPZ + CSV/JSON 索引         遥测与执行回执
 ```
 
 界面只负责展示、收集用户操作和调用 Service。设备读取、算法推理、网络请求、
@@ -26,17 +26,17 @@ XDF 文件读写必须放在 `QThread`、线程池或独立进程中，不能写
 | --- | --- | --- | --- |
 | UI-01 登录 | Spring Boot + PostgreSQL 注册/登录；BCrypt 哈希；短期 JWT；Mock 可切换 | 补刷新令牌、管理员授权、登录限流、审计和密码重置邮件 | `LoginView`、`HttpAuthGateway`、`brain-drone-swarm-server` |
 | UI-02 作战地图 | Crazyflie 实时缓存；目标接口未接入 | 目标识别、避障、蜂群任务 | `MainView._soldier_combat`、`SwarmGateway` |
-| UI-03 脑控操作 | 连接/解锁/起降/移动/悬停/急停和受控脑控路径 | 实验室实机验收 | `MainView._soldier_brain`、`WorkbenchService`、`CrazyflieSwarmGateway` |
+| UI-03 脑控操作 | 连接/解锁/起降/移动/单机控制/队形/急停和受控脑控路径 | 实验室实机验收 | `MainView._soldier_brain`、`WorkbenchService`、`CrazyflieSwarmGateway` |
 | UI-04 士兵状态 | 固定指标 | EEG/EMG/心率/体温/血氧 LSL 流与告警 | `MainView._soldier_status` |
-| UI-05 实验台 | CSV/LSL 8通道波形、4秒窗纯FBCCA、日志与NPZ试次 | LSL Marker、实验元数据API | `MainView._research_eeg`、`EEGWorker`、`ExperimentRecorder` |
-| UI-06 范式配置 | 控件可调并可应用/重置 | YAML/JSON 配置、刺激程序、范式 Marker | `MainView._research_paradigm`、`WorkbenchService` |
-| UI-07 算法配置 | 选择/加载/默认/测试可操作 | 模型注册、`.pth` 加载、后台推理、A/B 测试 | `MainView._research_algorithm`、`WorkbenchService` |
+| UI-05 实验台 | CSV/LSL、连续录制、刺激同步4秒试次、质量检测和识别日志 | 实验元数据API | `MainView._research_eeg`、`EEGWorker`、`ExperimentRecorder` |
+| UI-06 范式配置 | 原生六频全屏刺激、快捷键、Marker、实测频率和频谱保存 | 多显示器/光电二极管现场校验 | `SSVEPStimulusWindow`、`StimulusSessionRecorder` |
+| UI-07 算法配置 | 纯FBCCA和可选FB-EEGNet训练/验证/推理 | 真实数据评估、模型审批和版本注册 | `src/bci/`、`src/ml/` |
 | UI-08 控制器配置 | 滑块、应用、保存和重置可操作 | PID/MPC 参数校验、应用、版本化保存 | `MainView._research_controller`、`WorkbenchService` |
-| UI-09 指令映射 | L1 映射可增删改 | 映射持久化、安全仲裁；L2/L3 暂不实飞 | `MainView._research_mapping`、`WorkbenchService` |
-| UI-10 数据工坊 | 页签/会话/Marker 可操作 | XDF 读取、SQLite 索引、标签编辑、`.npz` 导出 | `MainView._research_data`、`WorkbenchService` |
+| UI-09 指令映射 | 六频映射可增删改并进入受控动作路径；队形/验收按钮已接网关 | 映射服务端持久化和版本审批 | `MainView._research_mapping`、`WorkbenchService` |
+| UI-10 数据工坊 | 会话、Marker、原始试次、连续分块和CSV/JSON索引 | 实验元数据PostgreSQL API | `MainView._research_data`、`ExperimentRecorder` |
 | UI-11 工程监控 | 本机资源、适配器状态和 Crazyflie 日志 | GPU/链路吞吐量采集器 | `EngineerDashboard`、`RuntimeEngineerDataProvider`、`RealSystemMonitor` |
 | UI-12 管理后台 | 本地清理/备份状态可操作 | 设备、用户/RBAC、存储、备份服务 | `MainView._paint_admin`、`WorkbenchService` |
-| UI-13 系统诊断 | Qt 进度条和自检按钮调用监控 Port | 丢包/延迟、50 Hz 干扰、完整诊断服务 | `EngineerDashboard`、`SystemMonitor` |
+| UI-13 系统诊断 | Qt 进度条、自检和算法侧50Hz质量指标 | 设备链路丢包/延迟和完整诊断服务 | `EngineerDashboard`、`SystemMonitor`、`assess_signal_quality` |
 
 ## 已存在的稳定接口
 

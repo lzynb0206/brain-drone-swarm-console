@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -27,9 +28,11 @@ class WorkbenchService:
         self,
         swarm_gateway: SwarmGateway | None = None,
         system_monitor: SystemMonitor | None = None,
+        experiment_recorder=None,
     ) -> None:
         self.swarm_gateway = swarm_gateway
         self.system_monitor = system_monitor
+        self.experiment_recorder = experiment_recorder
         self.paradigm_frequency = TARGET_FREQUENCIES_HZ[0]
         self.paradigm_type = "SSVEP"
         self.stimulus_size = 40
@@ -60,12 +63,31 @@ class WorkbenchService:
         self.layout_mode = "标准布局"
         self.command_history: list[str] = ["前进", "悬停"]
         self.event_log: list[str] = []
+        if self.swarm_gateway is not None:
+            add_listener = getattr(self.swarm_gateway, "add_event_listener", None)
+            if callable(add_listener):
+                add_listener(self._on_gateway_event)
+            add_command_listener = getattr(self.swarm_gateway, "add_command_listener", None)
+            if callable(add_command_listener):
+                add_command_listener(self._on_command_result)
 
     def _record(self, message: str) -> str:
         stamp = datetime.now().strftime("%H:%M:%S")
         self.event_log.insert(0, f"{stamp}  {message}")
         del self.event_log[40:]
         return message
+
+    def _on_gateway_event(self, level: str, message: str) -> None:
+        self._record(f"{level.upper()}  {message}")
+        if self.experiment_recorder is not None:
+            self.experiment_recorder.record_command_event(level.upper(), message)
+
+    def _on_command_result(self, status: str, message: str, command: SwarmCommand) -> None:
+        self._record(f"{status.upper()}  {command.action}  {message}")
+        if self.experiment_recorder is not None:
+            self.experiment_recorder.record_command_event(
+                status.upper(), message, command.action, command.command_id, command.uav_id or "",
+            )
 
     def apply_paradigm(self) -> str:
         return self._record(
@@ -130,23 +152,56 @@ class WorkbenchService:
     def generate_dataset(self) -> str:
         return self._record("当前阶段保存原始带标签试次，尚未执行训练/验证集划分")
 
-    def send_swarm_command(self, action: str) -> str:
+    def send_swarm_command(
+        self, action: str, uav_id: str | None = None,
+        parameters: dict[str, float | str] | None = None,
+    ) -> str:
         labels = {
             "takeoff": "起飞", "land": "降落", "forward": "前进", "backward": "后退",
-            "left": "左转", "right": "右转", "hover": "悬停",
+            "left": "左转", "right": "右转", "hover": "悬停", "formation": "队形切换",
+            "switch_formation": "循环切换队形", "led_test": "LED连通性测试",
+            "relative_square": "相对方形飞行测试", "hover_one_by_one": "逐架悬停验收",
+            "hover_sync_test": "同步悬停验收", "relative_forward_back": "相对前后验收",
+            "hover_sync_test": "同步悬停验收", "relative_forward_back": "相对前后验收",
         }
         if self.emergency_stopped:
             return self._record("系统处于急停状态，指令被安全策略拒绝")
-        command = SwarmCommand(action)
+        command_id = uuid.uuid4().hex
+        command = SwarmCommand(action, uav_id=uav_id, parameters=parameters or {}, command_id=command_id)
         if self.swarm_gateway is not None:
             try:
                 self.swarm_gateway.send_command(command)
             except RuntimeError as exc:
+                if self.experiment_recorder is not None:
+                    self.experiment_recorder.record_command_event(
+                        "REJECTED", str(exc), action, command_id, uav_id or "",
+                    )
                 return self._record(f"指令失败：{exc}")
+        if self.experiment_recorder is not None:
+            self.experiment_recorder.record_command_event(
+                "SUBMITTED", "指令已进入后台队列", action, command_id, uav_id or "",
+            )
         label = labels.get(action, action)
+        if uav_id:
+            label = f"{uav_id} · {label}"
         self.command_history.insert(0, label)
         del self.command_history[8:]
         return self._record(f"蜂群指令已提交：{label}")
+
+    def set_formation(self, name: str) -> str:
+        labels = {"line": "一字", "diamond": "菱形", "square": "方形"}
+        if name not in labels:
+            return self._record(f"未知队形：{name}")
+        return self.send_swarm_command("formation", parameters={"name": name})
+
+    def configure_swarm_uris(self, uris: list[str]) -> str:
+        if self.swarm_gateway is None:
+            return self._record("蜂群接口未配置")
+        try:
+            self.swarm_gateway.configure_uris(uris)
+            return self._record(f"已配置 {len(uris)} 个 Crazyflie URI")
+        except RuntimeError as exc:
+            return self._record(f"URI 配置失败：{exc}")
 
     def connect_swarm(self) -> str:
         if self.swarm_gateway is None:
@@ -193,10 +248,14 @@ class WorkbenchService:
         status = self.swarm_gateway.status()
         if not status.connected or not status.armed:
             return self._record("脑控执行被拒绝：请先连接并解锁实机控制")
+        if status.backend != "crazyflie":
+            return self._record("脑控执行被拒绝：Flow Deck 单机模式仅开放人工验收")
         self.bci_control_enabled = True
         return self._record("脑控执行已开启：同一意图连续确认两次后才提交")
 
-    def handle_intent(self, label: str, accepted: bool, eeg_source: str) -> str | None:
+    def handle_intent(
+        self, label: str, accepted: bool, eeg_source: str, frequency_hz: float | None = None,
+    ) -> str | None:
         if not self.bci_control_enabled:
             return None
         if not eeg_source.lower().startswith("lsl"):
@@ -206,16 +265,26 @@ class WorkbenchService:
             self._pending_intent_label = ""
             self._pending_intent_count = 0
             return None
-        action = {"起飞": "takeoff", "前进": "forward", "后退": "backward", "左转": "left", "右转": "right"}.get(label)
+        mapped_label = label
+        if frequency_hz is not None:
+            frequency_key = f"{float(frequency_hz):g}Hz"
+            mapped_label = next(
+                (entry.action for entry in self.mappings if entry.frequency == frequency_key),
+                label,
+            )
+        action = {
+            "起飞": "takeoff", "前进": "forward", "后退": "backward",
+            "左转": "left", "右转": "right", "切换队形": "switch_formation",
+        }.get(mapped_label)
         if action is None:
             return None
-        if label == self._pending_intent_label:
+        if mapped_label == self._pending_intent_label:
             self._pending_intent_count += 1
         else:
-            self._pending_intent_label = label
+            self._pending_intent_label = mapped_label
             self._pending_intent_count = 1
         if self._pending_intent_count < 2:
-            return self._record(f"脑控候选待二次确认：{label}")
+            return self._record(f"脑控候选待二次确认：{mapped_label}")
         now = time.monotonic()
         if now - self._last_bci_command_time < 2.5:
             return None

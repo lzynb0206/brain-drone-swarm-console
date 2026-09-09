@@ -64,7 +64,7 @@ class FBCCADecoder:
         fs = float(sample_rate_hz)
         if fs <= 0:
             raise ValueError("EEG sample rate must be positive")
-        data, used_channels, quality = prepare_ssvep_channels(samples, self.channels_1based)
+        data, used_channels, quality = prepare_ssvep_channels(samples, self.channels_1based, fs)
         references = self._reference_signals(fs, data.shape[1])
         raw_scores = np.zeros(len(self.labels), dtype=float)
         for filtered, weight in filter_bank(data, fs):

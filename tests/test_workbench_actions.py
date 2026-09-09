@@ -10,8 +10,9 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
+from src.bci.config import COMMANDS
 from src.domain import Role, User
-from src.services import WorkbenchService
+from src.services import ExperimentRecorder, WorkbenchService
 from src.views.main_view import MainView
 
 
@@ -36,7 +37,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.service.update_mapping(added_index, "后退", "1m/s")
         self.assertEqual("后退", self.service.mappings[-1].action)
         self.service.delete_mapping(added_index)
-        self.assertEqual(5, len(self.service.mappings))
+        self.assertEqual(len(COMMANDS), len(self.service.mappings))
 
     def test_swarm_commands_and_emergency_stop_use_gateway(self) -> None:
         self.service.send_swarm_command("forward")
@@ -52,6 +53,18 @@ class WorkbenchServiceTest(unittest.TestCase):
         message = self.service.set_bci_control_enabled(True, "CSV回放 · start-1.csv")
         self.assertIn("只有实时 LSL", message)
         self.assertFalse(self.service.bci_control_enabled)
+
+    def test_command_audit_correlates_submission_and_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            gateway = MockSwarmGateway()
+            recorder = ExperimentRecorder(directory)
+            service = WorkbenchService(gateway, MockSystemMonitor(), recorder)
+            service.send_swarm_command("forward")
+            rows = recorder.command_log_path.read_text(encoding="utf-8-sig").splitlines()
+        command_id = gateway.command_log[-1].command_id
+        self.assertTrue(command_id)
+        self.assertTrue(any(command_id in row and "COMPLETED" in row for row in rows))
+        self.assertTrue(any(command_id in row and "SUBMITTED" in row for row in rows))
 
     def test_report_export_writes_structured_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

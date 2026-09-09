@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from typing import Any, Callable
 
 from src.domain import EEGFrame
@@ -35,6 +36,8 @@ class LSLEEGStream:
         self._inlet = None
         self._channel_count = 0
         self.sample_rate_hz = 0.0
+        self.nominal_sample_rate_hz = 0.0
+        self._timestamps: deque[float] = deque(maxlen=2048)
         self.source_name = f"LSL · {stream_name}"
 
     @property
@@ -68,7 +71,9 @@ class LSLEEGStream:
             raise RuntimeError(
                 f"LSL EEG 通道数应为 {self.expected_channel_count}，实际为 {self._channel_count}"
             )
-        self.sample_rate_hz = float(info.nominal_srate()) or 250.0
+        self.nominal_sample_rate_hz = float(info.nominal_srate()) or 250.0
+        self.sample_rate_hz = self.nominal_sample_rate_hz
+        self._timestamps.clear()
         resolved_name = str(info.name() or self.stream_name)
         self.source_name = f"LSL · {resolved_name}"
 
@@ -80,6 +85,22 @@ class LSLEEGStream:
             except Exception:
                 pass
 
+    def flush(self) -> int:
+        inlet = self._inlet
+        if inlet is None:
+            return 0
+        self._timestamps.clear()
+        try:
+            return int(inlet.flush() or 0)
+        except AttributeError:
+            discarded = 0
+            while True:
+                samples, _timestamps = inlet.pull_chunk(timeout=0.0, max_samples=512)
+                if not samples:
+                    break
+                discarded += len(samples)
+            return discarded
+
     def read_frame(self) -> EEGFrame:
         inlet = self._inlet
         if inlet is None:
@@ -87,6 +108,13 @@ class LSLEEGStream:
         samples, timestamps = inlet.pull_chunk(timeout=1.0, max_samples=self.frame_size)
         if not samples:
             raise TimeoutError("等待 LSL EEG 数据")
+        for timestamp in timestamps or ():
+            value = float(timestamp)
+            if value > 0:
+                self._timestamps.append(value)
+        calibrated = self._calibrated_sample_rate()
+        if calibrated is not None:
+            self.sample_rate_hz = calibrated
         width = self._channel_count or len(samples[0])
         normalized = [tuple(float(value) for value in row[:width]) for row in samples]
         if any(len(row) != width for row in normalized):
@@ -98,3 +126,21 @@ class LSLEEGStream:
             channel_names=tuple(f"CH{i + 1}" for i in range(width)),
             samples=channels,
         )
+
+    def _calibrated_sample_rate(self) -> float | None:
+        if len(self._timestamps) < 64:
+            return None
+        values = list(self._timestamps)
+        deltas = [right - left for left, right in zip(values, values[1:]) if right > left]
+        if len(deltas) < 32:
+            return None
+        ordered = sorted(deltas)
+        median = ordered[len(ordered) // 2]
+        filtered = [value for value in deltas if median * 0.5 <= value <= median * 1.5]
+        if len(filtered) < 32:
+            return None
+        estimate = 1.0 / (sum(filtered) / len(filtered))
+        nominal = self.nominal_sample_rate_hz or 250.0
+        if not (nominal * 0.8 <= estimate <= nominal * 1.2):
+            return None
+        return float(estimate)

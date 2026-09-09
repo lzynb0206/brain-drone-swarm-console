@@ -36,3 +36,13 @@ class DisabledSwarmGateway:
 
     def emergency_stop(self) -> None:
         raise RuntimeError(self.reason)
+
+    def configure_uris(self, uris) -> None:
+        raise RuntimeError("当前未启用 Crazyflie 网关，不能配置 URI")
+
+    def add_event_listener(self, listener) -> None:
+        return None
+
+
+    def add_command_listener(self, listener) -> None:
+        return None

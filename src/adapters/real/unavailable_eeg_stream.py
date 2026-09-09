@@ -20,3 +20,6 @@ class UnavailableEEGStream:
 
     def read_frame(self) -> EEGFrame:
         raise RuntimeError(self.reason)
+
+    def flush(self) -> int:
+        return 0

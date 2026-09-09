@@ -140,3 +140,4 @@ class SwarmCommand:
     action: str
     uav_id: str | None = None
     parameters: Mapping[str, float | str] = field(default_factory=dict)
+    command_id: str = ""

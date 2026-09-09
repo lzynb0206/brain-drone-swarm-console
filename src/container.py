@@ -37,6 +37,9 @@ from src.bci.config import (
     LSL_STREAM_TYPE,
     RECORDING_ROOT,
     SAMPLE_RATE_HZ,
+    FB_EEGNET_ENABLED,
+    FB_EEGNET_METADATA_PATH,
+    FB_EEGNET_MODEL_PATH,
 )
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services.auth_service import AuthService
@@ -56,12 +59,10 @@ class ApplicationContainer:
 
 
 def create_demo_container() -> ApplicationContainer:
-    """组装纯演示环境，不会连接任何真实设备、数据库或网络服务。
+    """组装隔离的测试环境，不连接真实设备、数据库或网络服务。
 
-    【真实接口接入点】将来不要到 View 里直接 ``import pylsl/cflib``。
-    应新增 ``create_production_container()``，把下面四个 Mock 分别替换成
-    PostgreSQL/Spring HTTP 认证、LSLEEGStream、CrazyflieSwarmGateway 和
-    RealSystemMonitor。这样前端绘制代码不需要随硬件实现一起重写。
+    正常启动使用 ``create_default_container()``；此容器仅供自动化测试和
+    明确选择的离线界面测试使用。
     """
 
     return ApplicationContainer(
@@ -107,13 +108,28 @@ def create_default_container() -> ApplicationContainer:
 
     swarm_backend = os.getenv("BDS_SWARM_BACKEND", "disabled").strip().lower()
     if swarm_backend == "crazyflie":
-        swarm_gateway: SwarmGateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig.from_environment())
+        swarm_gateway: SwarmGateway = CrazyflieSwarmGateway(
+            CrazyflieSwarmConfig.from_environment("lighthouse")
+        )
+    elif swarm_backend == "flowdeck":
+        swarm_gateway = CrazyflieSwarmGateway(
+            CrazyflieSwarmConfig.from_environment("flowdeck")
+        )
     else:
         swarm_gateway = DisabledSwarmGateway(
-            "蜂群接口未启用；设置 BDS_SWARM_BACKEND=crazyflie 并配置实机参数"
+            "蜂群接口未启用；设置 BDS_SWARM_BACKEND=crazyflie 或 flowdeck 并配置实机参数"
         )
     system_monitor = RealSystemMonitor()
     engineer_data_provider = RuntimeEngineerDataProvider(eeg_stream, swarm_gateway)
+    intent_decoder: IntentDecoder = FBCCADecoder()
+    if FB_EEGNET_ENABLED:
+        from src.bci.hybrid_decoder import HybridIntentDecoder
+        from src.ml.predictor import FBEEGNetPredictor
+
+        intent_decoder = HybridIntentDecoder(
+            FBEEGNetPredictor(FB_EEGNET_MODEL_PATH, FB_EEGNET_METADATA_PATH),
+            intent_decoder,
+        )
 
     return ApplicationContainer(
         auth_service=AuthService(auth_gateway),
@@ -121,6 +137,6 @@ def create_default_container() -> ApplicationContainer:
         swarm_gateway=swarm_gateway,
         system_monitor=system_monitor,
         engineer_data_provider=engineer_data_provider,
-        intent_decoder=FBCCADecoder(),
+        intent_decoder=intent_decoder,
         experiment_recorder=ExperimentRecorder(RECORDING_ROOT),
     )

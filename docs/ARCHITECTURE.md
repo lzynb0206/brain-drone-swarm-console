@@ -23,7 +23,7 @@ Services（登录、实验、控制等用例）
        ↓
 Ports（稳定接口协议）
        ↓
-Adapters（Mock / LSL / Crazyflie / SQLite / WebSocket）
+Adapters（CSV / LSL / Crazyflie / Spring HTTP；Mock 仅测试）
        ↓
 设备、算法进程、文件与数据库
 ```
@@ -31,7 +31,7 @@ Adapters（Mock / LSL / Crazyflie / SQLite / WebSocket）
 硬性约束：
 
 1. `views/`不直接导入`pylsl`、`cflib`、串口、蓝牙或数据库包。
-2. 界面开发阶段统一使用`adapters/mock/`。
+2. 正常启动不使用 Mock 数据；`adapters/mock/` 仅供自动化测试或显式离线界面演示。
 3. 接入真实设备时新增Adapter，不修改界面数据结构。
 4. 实时采集必须在工作线程中运行，通过Qt Signal把数据送回主线程。
 5. EEG连续数据不通过普通HTTP轮询；优先使用LSL或本机流式连接。
@@ -51,8 +51,13 @@ src/
 │   ├── swarm.py             # 无人机状态和控制接口
 │   └── monitoring.py        # 系统性能监控接口
 ├── adapters/
-│   └── mock/                # 当前界面演示所用模拟实现
-├── services/                # 业务用例
+│   ├── real/                # CSV、LSL、Crazyflie/Flow Deck、系统监控
+│   ├── http/                # Spring Boot JWT 认证
+│   └── mock/                # 仅测试/显式演示
+├── bci/                     # 六频配置、质量检测、FBCCA、混合解码
+├── ml/                      # FB-EEGNet 训练、评估和可选推理
+├── workers/                 # EEG 后台采集、同步试次和连续录制
+├── services/                # 业务用例、记录、验收和高度校准
 ├── views/                   # PySide6页面
 ├── widgets/                 # 可复用面板、仪表、图表组件
 └── resources/               # QSS、图片、字体等资源
@@ -63,16 +68,16 @@ src/
 | React原型页面 | Python页面目标 | 当前数据 | 后续接口/实现 |
 | --- | --- | --- | --- |
 | 登录 | UI-01 | Spring REST API、BCrypt、JWT；离线 Mock 可切换 | `AuthGateway`、`HttpAuthGateway`；后续补刷新令牌、审计与完整 RBAC |
-| 作战地图 | UI-02 | 固定无人机/目标 | `SwarmGateway`；后续Crazyflie/cflib或WebSocket |
-| 脑控操作 | UI-03 | 固定置信度 | 解码结果流 + `SwarmGateway.send_command()` |
+| 作战地图 | UI-02 | Crazyflie真实遥测；目标接口仍未接入 | `CrazyflieSwarmGateway`；后续视觉/避障接口 |
+| 脑控操作 | UI-03 | 实时解码、人工控制、安全门控、执行回执 | `EEGWorker` + `WorkbenchService` + `SwarmGateway` |
 | 士兵状态 | UI-04 | 随机曲线 | 生理状态流；后续LSL多模态数据 |
-| EEG实验台 | UI-05 | 随机波形 | `EEGStream`；后续DeepBCI → LSL |
-| 范式配置 | UI-06 | 无持久化 | `ParadigmRepository`；后续YAML/JSON |
-| 算法管理 | UI-07 | 固定卡片 | `AlgorithmRegistry`；后续Python模型插件 |
+| EEG实验台 | UI-05 | CSV/LSL真实波形、试次和连续录制 | `EEGStream`、`ExperimentRecorder` |
+| 范式配置 | UI-06 | 原生六频全屏刺激、事件标记、实测频率和频谱 | `SSVEPStimulusWindow`、`StimulusSessionRecorder` |
+| 算法管理 | UI-07 | FBCCA；可选FB-EEGNet训练/验证/推理 | `FBCCADecoder`、`HybridIntentDecoder`、`src/ml/` |
 | 控制器配置 | UI-08 | 无实际应用 | `ControllerRegistry`；后续PID/MPC实现 |
-| 指令映射 | UI-09 | 内存表格可增删改 | `CommandMappingRepository`；后续YAML/SQLite持久化 |
-| 数据工坊 | UI-10 | 随机波形/固定会话 | `SessionRepository`；后续XDF、NPZ和SQLite |
-| 开发者监控 | UI-11 | 随机性能值 | `SystemMonitor` + LSL流目录 |
+| 指令映射 | UI-09 | 六频映射可增删改并供脑控安全路径读取 | 后续增加服务端版本化持久化 |
+| 数据工坊 | UI-10 | NPZ原始试次/连续数据与CSV/JSON索引 | 后续实验元数据PostgreSQL API |
+| 开发者监控 | UI-11 | 本机性能与运行时适配器状态 | `SystemMonitor` + 运行时数据提供器 |
 | 运维后台 | UI-12 | 固定设备/用户 | `DeviceRegistry`、`UserRepository`、`BackupService` |
 | 系统诊断 | UI-13 | 随机频谱 | `SystemMonitor`、链路诊断和自检服务 |
 
@@ -89,7 +94,7 @@ src/
 
 ## 6. 当前迁移状态
 
-1. **已完成**：UI-01 至 UI-13 的静态前端翻译和角色路由。
-2. **已完成**：科研顶部导航、工程监控/诊断切换、作战地图/单兵面板切换、脑控/状态监控切换。
-3. **待后续明确**：将原型中的按钮连接到现有 Port 或新增业务接口。
-4. **接设备时**：新增 LSL、Crazyflie、串口或 WebSocket Adapter，以真实数据替换当前模拟内容，不重做前端。
+1. **已完成**：UI-01 至 UI-13 的前端翻译、角色路由和主要科研交互。
+2. **已完成**：Spring认证、CSV/LSL、六频刺激、FBCCA、记录、Crazyflie/Flow Deck适配、安全命令队列和受限验收工具。
+3. **需要现场验收**：Crazyradio、Lighthouse、Flow Deck、队形误差、高度补偿和硬件急停；代码存在不等于已经通过实机测试。
+4. **仍待外部协议**：视觉/避障、多模态生命体征、实验元数据API、生产RBAC与不可篡改审计。

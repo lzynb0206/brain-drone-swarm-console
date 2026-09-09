@@ -1,7 +1,6 @@
 .DS_Store
 .idea/
-.venv/
-.venv-*/
+.venv*/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -13,7 +12,12 @@ artifacts/
 .env
 data/samples/*.csv
 data/raw_trials/
+data/continuous_raw/
 data/sessions/*.json
 data/sessions/*.csv
 data/recognition_logs/
+data/stimulus_logs/
+data/calibration/
 data/exports/
+models/*.pt
+models/*.pth

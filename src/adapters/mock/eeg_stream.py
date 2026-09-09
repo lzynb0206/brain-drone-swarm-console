@@ -25,6 +25,9 @@ class MockEEGStream:
     def disconnect(self) -> None:
         self._connected = False
 
+    def flush(self) -> int:
+        return 0
+
     def read_frame(self) -> EEGFrame:
         if not self._connected:
             raise RuntimeError("EEG stream is not connected")

@@ -23,6 +23,8 @@ class MockSwarmGateway:
         )
         self._connected = True
         self._armed = True
+        self._listeners = []
+        self._command_listeners = []
 
     def connect(self) -> None:
         self._connected = True
@@ -48,6 +50,25 @@ class MockSwarmGateway:
         if self.emergency_stopped:
             raise RuntimeError("Swarm is emergency-stopped")
         self.command_log.append(command)
+        for listener in tuple(self._listeners):
+            listener("INFO", f"飞行指令完成：{command.action}")
+        for listener in tuple(self._command_listeners):
+            listener("COMPLETED", "测试适配器已执行", command)
+
+    def configure_uris(self, uris) -> None:
+        if self._connected:
+            raise RuntimeError("测试网关已连接，不能修改 URI")
+        normalized = [str(uri).strip() for uri in uris if str(uri).strip()]
+        if not normalized or len(set(normalized)) != len(normalized):
+            raise RuntimeError("URI 不能为空且不能重复")
+
+    def add_event_listener(self, listener) -> None:
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def add_command_listener(self, listener) -> None:
+        if listener not in self._command_listeners:
+            self._command_listeners.append(listener)
 
     def emergency_stop(self) -> None:
         self.emergency_stopped = True

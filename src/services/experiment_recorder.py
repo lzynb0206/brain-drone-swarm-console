@@ -37,12 +37,17 @@ class ExperimentRecorder:
         self.session_dir = self.root / "sessions"
         self.recognition_log_dir = self.root / "recognition_logs"
         self.export_dir = self.root / "exports"
+        self.continuous_dir = self.root / "continuous_raw"
         self.recognition_log_path = self.recognition_log_dir / "recognition_log.csv"
         self.raw_trial_index_path = self.session_dir / "raw_trials_index.csv"
+        self.marker_log_path = self.session_dir / "event_markers.jsonl"
+        self.continuous_index_path = self.session_dir / "continuous_raw_index.csv"
+        self.command_log_path = self.recognition_log_dir / "command_execution_log.csv"
         self._lock = threading.Lock()
         self._known_sessions: set[str] = set()
         for directory in (
             self.raw_trial_dir, self.session_dir, self.recognition_log_dir, self.export_dir,
+            self.continuous_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -154,6 +159,109 @@ class ExperimentRecorder:
                 },
             )
         return {"trial_id": trial_id, "raw_trial_path": relative_trial_path}
+
+    def record_marker(
+        self,
+        name: str,
+        timestamp: float,
+        subject_id: str = "",
+        session_id: str = "",
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        """Append a stimulus/experiment marker without storing sample points in a database."""
+
+        payload = {
+            "name": str(name),
+            "timestamp": float(timestamp),
+            "subject_id": str(subject_id),
+            "session_id": str(session_id),
+            "metadata": metadata or {},
+        }
+        with self._lock:
+            with self.marker_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def record_continuous_chunk(
+        self,
+        eeg,
+        sample_rate_hz: float,
+        source: str,
+        subject_id: str,
+        session_id: str,
+        chunk_index: int,
+        started_at: str,
+    ) -> str:
+        """Persist one bounded continuous EEG chunk and append its searchable index row."""
+
+        data = np.asarray(eeg, dtype=np.float32)
+        if data.ndim != 2 or data.shape[0] == 0 or data.shape[1] == 0:
+            raise ValueError("Continuous EEG chunk must have shape (channels, samples)")
+        if not np.isfinite(data).all():
+            raise ValueError("Continuous EEG chunk contains NaN or Inf")
+        safe_session = re.sub(r"[^0-9A-Za-z_.-]+", "_", session_id or "session")
+        session_path = self.continuous_dir / safe_session
+        session_path.mkdir(parents=True, exist_ok=True)
+        name = f"chunk-{int(chunk_index):06d}-{uuid.uuid4().hex[:8]}.npz"
+        path = session_path / name
+        np.savez_compressed(
+            path,
+            eeg=data,
+            fs=np.asarray(float(sample_rate_hz), dtype=np.float32),
+            source=np.asarray(source),
+            subject_id=np.asarray(subject_id),
+            session_id=np.asarray(session_id),
+            started_at=np.asarray(started_at),
+        )
+        relative = str(path.relative_to(self.root))
+        fields = (
+            "timestamp", "subject_id", "session_id", "source", "chunk_index",
+            "path", "sample_rate_hz", "channels", "samples", "started_at",
+        )
+        with self._lock:
+            self._append_csv(
+                self.continuous_index_path,
+                fields,
+                {
+                    "timestamp": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                    "subject_id": subject_id,
+                    "session_id": session_id,
+                    "source": source,
+                    "chunk_index": int(chunk_index),
+                    "path": relative,
+                    "sample_rate_hz": float(sample_rate_hz),
+                    "channels": data.shape[0],
+                    "samples": data.shape[1],
+                    "started_at": started_at,
+                },
+            )
+        return relative
+
+    def record_command_event(
+        self,
+        status: str,
+        message: str,
+        action: str = "",
+        command_id: str = "",
+        uav_id: str = "",
+        source: str = "swarm_gateway",
+    ) -> None:
+        fields = (
+            "timestamp", "command_id", "action", "uav_id", "status", "message", "source",
+        )
+        with self._lock:
+            self._append_csv(
+                self.command_log_path,
+                fields,
+                {
+                    "timestamp": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                    "command_id": command_id,
+                    "action": action,
+                    "uav_id": uav_id,
+                    "status": status,
+                    "message": message,
+                    "source": source,
+                },
+            )
 
     def _ensure_session(self, session_id: str, subject_id: str, source: str, timestamp: str) -> None:
         if not session_id or session_id in self._known_sessions:

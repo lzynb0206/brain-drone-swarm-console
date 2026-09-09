@@ -25,3 +25,7 @@ class EEGStream(Protocol):
     def read_frame(self) -> EEGFrame:
         """返回带统一时间戳的一小帧多通道采样。"""
         ...
+
+    def flush(self) -> int:
+        """丢弃数据源历史缓存，并返回丢弃的采样点数；不支持时返回 0。"""
+        ...

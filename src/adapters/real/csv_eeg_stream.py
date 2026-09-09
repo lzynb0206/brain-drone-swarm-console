@@ -79,6 +79,11 @@ class CsvEEGStream:
     def disconnect(self) -> None:
         self._connected = False
 
+    def flush(self) -> int:
+        """CSV replay has no transport backlog; keep its current file position."""
+
+        return 0
+
     def read_frame(self) -> EEGFrame:
         if not self._connected:
             raise RuntimeError("EEG CSV stream is not connected")

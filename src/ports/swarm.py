@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, Sequence
+from typing import Callable, Protocol, Sequence
 
 from src.domain import SwarmCommand, SwarmStatus, UAVTelemetry
 
@@ -43,4 +43,16 @@ class SwarmGateway(Protocol):
 
     def emergency_stop(self) -> None:
         """立即悬停/停机；正式实现需要硬件确认、超时和审计日志。"""
+        ...
+
+    def configure_uris(self, uris: Sequence[str]) -> None:
+        """在未连接状态更新设备 URI；实现必须拒绝重复或空 URI。"""
+        ...
+
+    def add_event_listener(self, listener: Callable[[str, str], None]) -> None:
+        """订阅后台指令完成、失败和安全事件。"""
+        ...
+
+    def add_command_listener(self, listener: Callable[[str, str, SwarmCommand], None]) -> None:
+        """订阅包含 command_id 的命令完成或失败回执。"""
         ...

@@ -1,4 +1,4 @@
-"""PyCharm/terminal entry point for the command console demo."""
+"""PyCharm and terminal entry point for the command console application."""
 
 from src.main import main
 

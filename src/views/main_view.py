@@ -13,8 +13,9 @@ from PySide6.QtWidgets import QInputDialog, QLabel, QMessageBox, QWidget
 from src.bci.config import COMMANDS, SSVEP_PROFILE_NAME, TARGET_FREQUENCIES_HZ, TRUE_LABELS
 from src.domain import EEGFrame, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
-from src.services import ExperimentRecorder, WorkbenchService
+from src.services import ExperimentRecorder, HeightCalibrationService, WorkbenchService
 from src.views.engineer_dashboard import EngineerDashboard
+from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 from src.workers import EEGWorker
 from src.widgets.scifi_canvas import (
     BG,
@@ -55,7 +56,7 @@ class MainView(QWidget):
         self.swarm_gateway = swarm_gateway
         self.system_monitor = system_monitor
         self.engineer_data_provider = engineer_data_provider
-        self.actions = WorkbenchService(swarm_gateway, system_monitor)
+        self.actions = WorkbenchService(swarm_gateway, system_monitor, experiment_recorder)
         self.user: User | None = None
         self.research_page = "实验"
         self.engineer_page = "系统监控"
@@ -71,6 +72,18 @@ class MainView(QWidget):
         self._experiment_session_id = ""
         self._eeg_events: deque[str] = deque(maxlen=12)
         self._pipeline_worker: EEGWorker | None = None
+        self._stimulus_window: SSVEPStimulusWindow | None = None
+        self._continuous_recording = False
+        self._height_calibrating = False
+        self._height_calibration = (
+            HeightCalibrationService(
+                experiment_recorder.root / "calibration",
+                target_height_m=float(
+                    getattr(getattr(swarm_gateway, "config", None), "default_height_m", 0.5)
+                ),
+            )
+            if experiment_recorder is not None else None
+        )
         if eeg_stream is not None and intent_decoder is not None and experiment_recorder is not None:
             self._pipeline_worker = EEGWorker(
                 eeg_stream, intent_decoder, experiment_recorder, parent=self,
@@ -80,6 +93,7 @@ class MainView(QWidget):
             self._pipeline_worker.status_changed.connect(self._on_eeg_status)
             self._pipeline_worker.error_occurred.connect(self._on_eeg_error)
             self._pipeline_worker.labeled_trial_saved.connect(self._on_labeled_trial_saved)
+            self._pipeline_worker.continuous_chunk_saved.connect(self._on_continuous_chunk_saved)
         # Kept as a small compatibility surface for integrations/tests.
         self.user_label = QLabel("", self)
         self.user_label.hide()
@@ -89,7 +103,7 @@ class MainView(QWidget):
             self.engineer_dashboard.logout_requested.connect(self.logout_requested.emit)
             self.engineer_dashboard.hide()
         self._runtime_refresh_timer = QTimer(self)
-        self._runtime_refresh_timer.timeout.connect(self.update)
+        self._runtime_refresh_timer.timeout.connect(self._refresh_runtime)
         self._runtime_refresh_timer.start(300)
         self.setMouseTracking(True)
 
@@ -119,6 +133,8 @@ class MainView(QWidget):
             self._pipeline_worker.start()
 
     def deactivate(self) -> None:
+        if self._stimulus_window is not None:
+            self._stimulus_window.close()
         if self._pipeline_worker is not None and self._pipeline_worker.isRunning():
             self._pipeline_worker.stop()
 
@@ -137,7 +153,9 @@ class MainView(QWidget):
             f"{datetime.now():%H:%M:%S}  FBCCA {label}  分数 {result.best_score:.3f}  差值 {result.margin:.3f}"
         )
         source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
-        command_message = self.actions.handle_intent(result.label, result.accepted, source)
+        command_message = self.actions.handle_intent(
+            result.label, result.accepted, source, result.frequency_hz,
+        )
         if command_message:
             self._eeg_events.appendleft(command_message)
         self.update()
@@ -153,6 +171,10 @@ class MainView(QWidget):
 
     def _on_labeled_trial_saved(self, label: str, path: str) -> None:
         self._notify(f"真实标签“{label}”和原始 EEG 已保存：{path}")
+
+    def _on_continuous_chunk_saved(self, path: str) -> None:
+        self._eeg_events.appendleft(f"{datetime.now():%H:%M:%S}  连续 EEG 已保存：{path}")
+        self.update()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.deactivate()
@@ -204,6 +226,19 @@ class MainView(QWidget):
         self.setCursor(Qt.PointingHandCursor if interactive else Qt.ArrowCursor)
         super().mouseMoveEvent(event)
 
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        # This works while the application has focus on both macOS and Windows.
+        # A macOS system-wide key hook would require an explicit Accessibility grant.
+        if event.key() == Qt.Key_B and not event.isAutoRepeat():
+            self._notify(self.actions.emergency_stop())
+            return
+        super().keyPressEvent(event)
+
+    def _refresh_runtime(self) -> None:
+        if self._height_calibrating and self._height_calibration is not None and self.swarm_gateway is not None:
+            self._height_calibration.add_telemetry(self.swarm_gateway.list_uavs())
+        self.update()
+
     def _hit(self, x: float, y: float, w: float, h: float, action: str) -> None:
         self._regions.append((QRectF(x, y, w, h), action))
 
@@ -252,6 +287,15 @@ class MainView(QWidget):
             self._notify(self.actions.apply_paradigm())
         elif action == "paradigm-reset":
             self._notify(self.actions.reset_paradigm())
+        elif action == "paradigm-start":
+            self._open_ssvep_stimulus()
+        elif action == "continuous-record-toggle":
+            if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
+                self._notify("EEG 采集未运行，不能开始连续录制")
+                return
+            self._continuous_recording = not self._continuous_recording
+            self._pipeline_worker.set_continuous_recording(self._continuous_recording)
+            self._notify("连续原始 EEG 录制已开启" if self._continuous_recording else "连续原始 EEG 录制已停止并保存")
         elif action.startswith("algorithm-select:"):
             self._notify(self.actions.select_algorithm(action.split(":", 1)[1]))
         elif action.startswith("algorithm-mode:"):
@@ -320,6 +364,14 @@ class MainView(QWidget):
             self._edit_user_dialog(action.split(":", 1)[1])
         elif action.startswith("swarm-command:"):
             self._notify(self.actions.send_swarm_command(action.split(":", 1)[1]))
+        elif action.startswith("swarm-formation:"):
+            self._notify(self.actions.set_formation(action.split(":", 1)[1]))
+        elif action == "swarm-configure-uris":
+            self._configure_swarm_uris_dialog()
+        elif action == "swarm-single-control":
+            self._single_uav_control_dialog()
+        elif action == "height-calibration-toggle":
+            self._toggle_height_calibration()
         elif action == "swarm-connect":
             self._notify(self.actions.connect_swarm())
         elif action == "swarm-disconnect":
@@ -349,6 +401,83 @@ class MainView(QWidget):
             self._notify(self.actions.toggle_layout())
         elif action == "workspace-help":
             self._notify("操作提示：选择模块后点击控件；所有结果会在底部提示")
+
+    def _open_ssvep_stimulus(self) -> None:
+        if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
+            self._notify("请先确保 EEG 数据源已经连接")
+            return
+        if self._stimulus_window is None:
+            self._stimulus_window = SSVEPStimulusWindow(parent=self)
+            self._stimulus_window.status_changed.connect(self._on_eeg_status)
+            self._stimulus_window.trial_started.connect(self._pipeline_worker.capture_stimulus_trial)
+            self._stimulus_window.event_marker.connect(self._pipeline_worker.record_stimulus_marker)
+            self._stimulus_window.emergency_requested.connect(
+                lambda: self._notify(self.actions.emergency_stop())
+            )
+            self._stimulus_window.trial_stopped.connect(
+                lambda label, path: self._notify(
+                    f"刺激试次已结束：{label}" + (f"，测频记录：{path}" if path else "")
+                )
+            )
+        self._stimulus_window.showFullScreen()
+        self._stimulus_window.raise_()
+        self._stimulus_window.activateWindow()
+        self._stimulus_window.setFocus(Qt.OtherFocusReason)
+
+    def _toggle_height_calibration(self) -> None:
+        if self._height_calibration is None or self.swarm_gateway is None:
+            self._notify("高度校准服务不可用")
+            return
+        if not self._height_calibrating:
+            status = self.swarm_gateway.status()
+            telemetry = tuple(self.swarm_gateway.list_uavs())
+            if not status.connected or not status.armed:
+                self._notify("高度校准前必须连接并解锁实机")
+                return
+            if not telemetry or any(not item.positioning_ok or item.altitude_m < 0.15 for item in telemetry):
+                self._notify("请先让全部无人机在 Lighthouse 下稳定悬停")
+                return
+            self._height_calibration.reset()
+            self._height_calibrating = True
+            self._notify("高度样本采集中；稳定悬停至少 6 秒后再次点击完成")
+            return
+        self._height_calibrating = False
+        try:
+            results, path = self._height_calibration.finish()
+        except ValueError as exc:
+            self._notify(f"高度校准失败：{exc}")
+            return
+        accepted = sum(1 for item in results.values() if item.accepted)
+        self._notify(f"高度校准完成：{accepted}/{len(results)} 架通过，结果已保存到 {path}")
+
+    def _configure_swarm_uris_dialog(self) -> None:
+        current = ""
+        config = getattr(self.swarm_gateway, "config", None)
+        if config is not None:
+            current = "\n".join(getattr(config, "uris", ()))
+        text, ok = QInputDialog.getMultiLineText(
+            self, "配置 Crazyflie URI", "每行一个 URI（必须先断开蜂群）：", current,
+        )
+        if ok:
+            uris = [line.strip() for line in text.splitlines() if line.strip()]
+            self._notify(self.actions.configure_swarm_uris(uris))
+
+    def _single_uav_control_dialog(self) -> None:
+        if self.swarm_gateway is None:
+            self._notify("蜂群接口未配置")
+            return
+        identifiers = [item.uav_id for item in self.swarm_gateway.list_uavs()]
+        if not identifiers:
+            self._notify("尚未收到无人机遥测")
+            return
+        uav_id, ok = QInputDialog.getItem(self, "单架无人机控制", "无人机", identifiers, 0, False)
+        if not ok:
+            return
+        labels = ("前进", "后退", "左移", "右移", "悬停")
+        action_map = {"前进": "forward", "后退": "backward", "左移": "left", "右移": "right", "悬停": "hover"}
+        label, ok = QInputDialog.getItem(self, "单架无人机控制", "动作", labels, 0, False)
+        if ok:
+            self._notify(self.actions.send_swarm_command(action_map[label], uav_id=uav_id))
 
     def _add_mapping_dialog(self) -> None:
         frequency, ok = QInputDialog.getItem(
@@ -463,7 +592,11 @@ class MainView(QWidget):
         c.text(58, 605, 700, 20, f"会话：{self._experiment_session_id or '未建立'}", 10, MUTED)
         root = str(self.experiment_recorder.root) if self.experiment_recorder is not None else "未配置"
         c.text(58, 625, 720, 24, f"保存目录：{root}", 10, MUTED)
-        c.text(58, 665, 720, 20, "安全状态：识别结果仅显示和保存，未连接任何设备动作", 11, GREEN, True)
+        c.button(58, 665, 198, 27,
+                 "停止连续 EEG 录制" if self._continuous_recording else "开始连续 EEG 录制",
+                 self._continuous_recording, accent=RED)
+        self._hit(58, 662, 198, 34, "continuous-record-toggle")
+        c.text(272, 665, 520, 27, "连续数据按 10 秒分块保存，停止时写入最后一块", 10, GREEN)
 
         c.panel(859, 398, 404, 304, "实时事件")
         if not self._eeg_events:
@@ -524,7 +657,7 @@ class MainView(QWidget):
         c.text(656, 229, 380, 42, "SSVEP参数配置", 19, TEXT, True)
         c.text(656, 282, 130, 27, "频率配置", 14, MUTED)
         for index, frequency in enumerate(TARGET_FREQUENCIES_HZ):
-            x, width = 656 + index * 78, 72
+            x, width = 656 + index * 63, 58
             c.button(x, 322, width, 42, f"{frequency:g}Hz", self.actions.paradigm_frequency == frequency)
             self._hit(x, 322, width, 42, f"paradigm-frequency:{frequency}")
         knobs = (
@@ -538,10 +671,12 @@ class MainView(QWidget):
             c.circle(knob, y + 7, 8, "#477af0")
             c.text(1044, y - 8, 45, 30, f"{self.actions.stimulus_size if action == 'paradigm-size' else self.actions.duty_cycle}%", 11, TEXT)
             self._hit(730, y - 5, 318, 25, action)
-        c.button(656, 492, 183, 46, "应用配置", True)
-        c.button(855, 492, 185, 46, "恢复默认")
-        self._hit(656, 492, 183, 46, "paradigm-apply")
-        self._hit(855, 492, 185, 46, "paradigm-reset")
+        c.button(656, 492, 116, 46, "应用配置", True)
+        c.button(783, 492, 116, 46, "恢复默认")
+        c.button(910, 492, 130, 46, "全屏刺激", True, accent=CYAN)
+        self._hit(656, 492, 116, 46, "paradigm-apply")
+        self._hit(783, 492, 116, 46, "paradigm-reset")
+        self._hit(910, 492, 130, 46, "paradigm-start")
 
     def _research_algorithm(self, c: Canvas) -> None:
         # This build intentionally uses only the non-trained FBCCA path.
@@ -630,18 +765,18 @@ class MainView(QWidget):
     def _research_mapping(self, c: Canvas) -> None:
         # 【真实接口接入点】UI-09 / M4.5：映射表应来自 CommandMappingRepository。
         # 解码 label/频率先经本映射转换为 SwarmCommand，再由安全仲裁器检查
-        # 权限、置信度、避障和急停状态，最后才调用 swarm_gateway.send_command。
-        # L2/L3 目前仍按设计文档保持预留，不能直接连真实飞行器。
+        # 置信度、二次确认、围栏、机间距、定位、电量、解锁和急停状态，
+        # 最后才调用 swarm_gateway.send_command。
         panels = [(192, 112, 896, 302), (192, 438, 896, 184), (192, 646, 896, 150)]
         for x, y, w, h in panels:
             c.rect(x, y, w, h, PANEL, BORDER, 3)
-        c.text(217, 128, 430, 42, "SSVEP 识别映射（当前不下发设备）", 16, TEXT, True)
+        c.text(217, 128, 430, 42, "SSVEP 识别与安全动作映射", 16, TEXT, True)
         headers = [("SSVEP频率", 434), ("映射动作", 577), ("参数", 684), ("操作", 778)]
         for text, x in headers:
             c.text(x, 185, 104, 34, text, 13, TEXT, True, Qt.AlignCenter)
         c.line(433, 216, 847, 216, "#273752")
-        for i, row in enumerate(self.actions.mappings[:5]):
-            y = 218 + i * 31
+        for i, row in enumerate(self.actions.mappings[:6]):
+            y = 214 + i * 27
             c.text(448, y, 88, 29, row.frequency, 13, TEXT, False, Qt.AlignCenter)
             c.text(564, y, 88, 29, row.action, 13, TEXT, False, Qt.AlignCenter)
             c.text(660, y, 74, 29, row.parameter, 13, TEXT, False, Qt.AlignCenter)
@@ -649,13 +784,27 @@ class MainView(QWidget):
             c.text(797, y, 47, 29, "删除", 13, RED, False, Qt.AlignCenter)
             self._hit(742, y, 52, 29, f"mapping-edit:{i}")
             self._hit(797, y, 47, 29, f"mapping-delete:{i}")
-            c.line(433, y + 30, 847, y + 30, "#273752")
+            c.line(433, y + 26, 847, y + 26, "#273752")
         c.button(576, 380, 128, 28, "添加映射", True)
         self._hit(576, 380, 128, 28, "mapping-add")
-        c.text(217, 454, 360, 42, "L2 行为级指令 (预留)", 16, TEXT, True)
-        for i, name in enumerate(("侦察队形", "菱形编队", "左翼包抄", "垂直爬升")):
-            c.button(360 + i * 144, 511, 128, 51, name, False, True)
-        c.text(459, 569, 320, 34, "当前不可用 (需切换至行为控制模式)", 13, "#596477", False, Qt.AlignCenter)
+        c.text(217, 454, 360, 42, "受限实机验收与队形", 16, TEXT, True)
+        formations = (("一字队形", "line"), ("菱形队形", "diamond"), ("方形队形", "square"))
+        for i, (name, key) in enumerate(formations):
+            x = 280 + i * 160
+            c.button(x, 500, 144, 42, name)
+            self._hit(x, 500, 144, 42, f"swarm-formation:{key}")
+        acceptance = (
+            ("相对方形", "relative_square"),
+            ("LED无桨", "led_test"),
+            ("逐架悬停", "hover_one_by_one"),
+            ("同步悬停", "hover_sync_test"),
+            ("相对前后", "relative_forward_back"),
+        )
+        for index, (name, action) in enumerate(acceptance):
+            button_x = 235 + index * 166
+            c.button(button_x, 554, 150, 38, name)
+            self._hit(button_x, 554, 150, 38, f"swarm-command:{action}")
+        c.text(235, 595, 830, 23, "连接、解锁、定位、电量、围栏和机间距检查全部通过后才会进入后台队列", 11, "#596477", False, Qt.AlignCenter)
         c.text(217, 663, 360, 42, "L3 战术意图 (占位)", 16, TEXT, True)
 
     def _research_data(self, c: Canvas) -> None:
@@ -846,8 +995,8 @@ class MainView(QWidget):
         path = QPainterPath(QPointF(734, 312))
         for i in range(110):
             xx = 734 + i
-            yy = 312 - 31 * math.exp(-((i - 52) / 19) ** 2) + max(0, i - 84) * .25
-            path.lineTo(xx, yy)
+            y_coord = 312 - 31 * math.exp(-((i - 52) / 19) ** 2) + max(0, i - 84) * .25
+            path.lineTo(xx, y_coord)
         c.p.setPen(QPen(QColor(YELLOW), 1.2))
         c.p.setBrush(QColor(219, 154, 55, 45))
         path.lineTo(843, 362)
@@ -968,7 +1117,7 @@ class MainView(QWidget):
         c.circle(594, 52, 6, status_color)
         c.text(608, 36, 220, 32, status_text, 14, TEXT, True)
 
-        c.panel(28, 82, 245, 252, "实机链路")
+        c.panel(28, 82, 245, 304, "实机链路")
         c.text(45, 122, 210, 38, gateway_status.message if gateway_status else "蜂群接口未配置", 11, MUTED)
         c.button(45, 170, 96, 35, "断开" if connected else "连接", connected, accent=CYAN)
         self._hit(45, 170, 96, 35, "swarm-disconnect" if connected else "swarm-connect")
@@ -982,6 +1131,14 @@ class MainView(QWidget):
                  "脑控执行：开" if self.actions.bci_control_enabled else "脑控执行：关",
                  self.actions.bci_control_enabled, accent=RED)
         self._hit(45, 268, 202, 39, "bci-control-toggle")
+        c.button(45, 309, 96, 24, "配置 URI", False, accent=CYAN)
+        c.button(151, 309, 96, 24, "单机控制", False, accent=YELLOW)
+        self._hit(45, 307, 96, 28, "swarm-configure-uris")
+        self._hit(151, 307, 96, 28, "swarm-single-control")
+        c.button(45, 343, 202, 28,
+                 "完成高度校准" if self._height_calibrating else "采集高度校准",
+                 self._height_calibrating, accent=GREEN)
+        self._hit(45, 340, 202, 34, "height-calibration-toggle")
         # diamond connector
         c.line(640, 267, 752, 380, "#252c3a")
         c.line(752, 380, 640, 493, "#252c3a")
