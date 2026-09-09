@@ -1,0 +1,4 @@
+-r requirements.txt
+scipy>=1.11,<2
+torch>=2.2
+scikit-learn>=1.4
