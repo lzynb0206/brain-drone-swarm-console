@@ -220,11 +220,11 @@ class WorkbenchService:
         self.swarm_gateway.disconnect()
         return self._record("蜂群连接已安全关闭")
 
-    def arm_swarm(self, confirmation: str) -> str:
+    def arm_swarm(self) -> str:
         if self.swarm_gateway is None:
             return self._record("蜂群接口未配置")
         try:
-            self.swarm_gateway.arm(confirmation)
+            self.swarm_gateway.arm()
             return self._record("实机控制已解锁；飞行指令将发送到硬件")
         except RuntimeError as exc:
             return self._record(f"解锁失败：{exc}")

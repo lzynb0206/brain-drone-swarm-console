@@ -377,11 +377,7 @@ class MainView(QWidget):
         elif action == "swarm-disconnect":
             self._notify(self.actions.disconnect_swarm())
         elif action == "swarm-arm":
-            confirmation, ok = QInputDialog.getText(
-                self, "解锁实机控制", "确认现场净空、Lighthouse、急停和电量均已检查。\n请输入：启用实机控制",
-            )
-            if ok:
-                self._notify(self.actions.arm_swarm(confirmation.strip()))
+            self._notify(self.actions.arm_swarm())
         elif action == "swarm-disarm":
             self._notify(self.actions.disarm_swarm())
         elif action == "bci-control-toggle":

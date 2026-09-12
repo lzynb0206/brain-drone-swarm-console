@@ -105,19 +105,15 @@ class CrazyflieGatewayTest(unittest.TestCase):
             time.sleep(0.005)
         self.fail(f"backend did not receive {name}")
 
-    def test_requires_explicit_control_flag_and_phrase(self) -> None:
+    def test_requires_explicit_control_flag(self) -> None:
         gateway, _ = self.make_gateway(control=False)
         with self.assertRaisesRegex(RuntimeError, "只读遥测"):
-            gateway.arm("启用实机控制")
-
-        gateway, _ = self.make_gateway()
-        with self.assertRaisesRegex(RuntimeError, "确认文字"):
-            gateway.arm("yes")
+            gateway.arm()
 
     def test_requires_geofence_before_arming(self) -> None:
         gateway, _ = self.make_gateway(bounds=False)
         with self.assertRaisesRegex(RuntimeError, "GEOFENCE"):
-            gateway.arm("启用实机控制")
+            gateway.arm()
 
     def test_bare_single_mode_skips_lighthouse_and_geofence(self) -> None:
         backend = FakeBackend()
@@ -137,7 +133,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
             time.sleep(0.005)
 
         self.assertEqual("bare", gateway.status().backend)
-        gateway.arm("启用实机控制")
+        gateway.arm()
         gateway.send_command(SwarmCommand("takeoff"))
         self.wait_for_call(backend, "takeoff")
         with self.assertRaisesRegex(RuntimeError, "无定位单机模式"):
@@ -145,7 +141,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
 
     def test_takeoff_and_relative_movement_are_queued(self) -> None:
         gateway, backend = self.make_gateway()
-        gateway.arm("启用实机控制")
+        gateway.arm()
         gateway.send_command(SwarmCommand("takeoff"))
         self.wait_for_call(backend, "takeoff")
         gateway.send_command(SwarmCommand("forward", parameters={"distance_m": 0.2}))
@@ -154,7 +150,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
 
     def test_emergency_stop_bypasses_normal_queue_and_locks(self) -> None:
         gateway, backend = self.make_gateway()
-        gateway.arm("启用实机控制")
+        gateway.arm()
         gateway.emergency_stop()
         self.wait_for_call(backend, "emergency")
         with self.assertRaisesRegex(RuntimeError, "急停"):
@@ -162,7 +158,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
 
     def test_square_checks_every_waypoint_before_submission(self) -> None:
         gateway, backend = self.make_gateway()
-        gateway.arm("启用实机控制")
+        gateway.arm()
         gateway.send_command(SwarmCommand("takeoff"))
         self.wait_for_call(backend, "takeoff")
         with self.assertRaisesRegex(RuntimeError, "围栏"):
@@ -171,7 +167,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
 
     def test_one_by_one_hover_is_background_and_disarms_after_completion(self) -> None:
         gateway, backend = self.make_gateway()
-        gateway.arm("启用实机控制")
+        gateway.arm()
         gateway.send_command(SwarmCommand("hover_one_by_one", parameters={"hover_s": 0.5}))
         self.wait_for_call(backend, "hover_one_by_one")
         deadline = time.time() + 1
@@ -194,7 +190,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
         deadline = time.time() + 1
         while not gateway.status().connected and time.time() < deadline:
             time.sleep(0.005)
-        gateway.arm("启用实机控制")
+        gateway.arm()
         gateway.send_command(SwarmCommand("takeoff"))
         self.wait_for_call(backend, "takeoff")
         gateway.send_command(SwarmCommand("formation", parameters={"name": "diamond"}))
@@ -207,7 +203,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
 
     def test_synchronized_hover_test_lands_and_disarms(self) -> None:
         gateway, backend = self.make_gateway()
-        gateway.arm("启用实机控制")
+        gateway.arm()
         gateway.send_command(SwarmCommand("hover_sync_test", parameters={"hover_s": 0.5}))
         self.wait_for_call(backend, "takeoff")
         self.wait_for_call(backend, "hover")
@@ -219,7 +215,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
 
     def test_repeated_lighthouse_loss_triggers_safety_stop(self) -> None:
         gateway, backend = self.make_gateway()
-        gateway.arm("启用实机控制")
+        gateway.arm()
         gateway.send_command(SwarmCommand("takeoff"))
         self.wait_for_call(backend, "takeoff")
         deadline = time.time() + 1

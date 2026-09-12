@@ -37,7 +37,7 @@ class MockSwarmGateway:
         return SwarmStatus("mock", "connected" if self._connected else "disconnected", self._connected,
                            self._armed, True, "仅供测试")
 
-    def arm(self, confirmation: str) -> None:
+    def arm(self) -> None:
         self._armed = True
 
     def disarm(self) -> None:

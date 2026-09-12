@@ -22,7 +22,7 @@ class DisabledSwarmGateway:
     def status(self) -> SwarmStatus:
         return SwarmStatus("disabled", "disabled", False, False, False, self.reason)
 
-    def arm(self, confirmation: str) -> None:
+    def arm(self) -> None:
         raise RuntimeError(self.reason)
 
     def disarm(self) -> None:

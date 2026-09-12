@@ -25,8 +25,8 @@ class SwarmGateway(Protocol):
         """返回缓存状态，不执行网络或无线电 I/O。"""
         ...
 
-    def arm(self, confirmation: str) -> None:
-        """显式解锁实机控制；实现必须检查硬件与场地安全条件。"""
+    def arm(self) -> None:
+        """通过一次按钮点击解锁；实现仍须检查硬件安全条件。"""
         ...
 
     def disarm(self) -> None:

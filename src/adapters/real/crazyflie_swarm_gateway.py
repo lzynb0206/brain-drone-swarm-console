@@ -76,7 +76,6 @@ class CrazyflieSwarmConfig:
     # default; from_environment() selects bare mode for this deployment.
     require_lighthouse: bool = True
     cache_dir: Path = Path(".cache/cflib")
-    arm_phrase: str = "启用实机控制"
     height_offsets_m: dict[str, float] = field(default_factory=dict)
     positioning_mode: str = "lighthouse"
 
@@ -221,12 +220,10 @@ class CrazyflieSwarmGateway:
             if listener not in self._command_listeners:
                 self._command_listeners.append(listener)
 
-    def arm(self, confirmation: str) -> None:
+    def arm(self) -> None:
         with self._lock:
             if not self.config.control_enabled:
                 raise RuntimeError("当前为只读遥测模式；请显式设置 BDS_HARDWARE_CONTROL_ENABLED=true")
-            if confirmation != self.config.arm_phrase:
-                raise RuntimeError(f"确认文字不正确，请完整输入：{self.config.arm_phrase}")
             if not self._connected:
                 raise RuntimeError("蜂群尚未连接")
             if self._emergency:
