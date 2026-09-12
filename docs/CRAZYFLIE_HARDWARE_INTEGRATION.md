@@ -35,6 +35,14 @@ python -m pip install -r requirements.txt
 
 ## 分阶段启用
 
+### 0. 无定位单机模式
+
+当前只有 Crazyflie 和 Crazyradio、没有 Lighthouse/Flow Deck 时，使用
+`BDS_REQUIRE_LIGHTHOUSE=false`。程序不再以 Lighthouse 状态阻止解锁，并将网关状态
+标记为 `bare`。该模式只允许一架飞机和人工基础动作；自动脑控、蜂群队形和多机测试
+动作仍被拒绝。由于无定位坐标不可用于可靠判定边界，`bare` 模式不执行电子围栏检查。
+以后接入并标定 Lighthouse 后，将该变量改为 `true`，定位与电子围栏检查会同时恢复。
+
 ### 1. 无桨、只读遥测
 
 ```bash

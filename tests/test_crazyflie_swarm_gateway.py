@@ -119,6 +119,30 @@ class CrazyflieGatewayTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "GEOFENCE"):
             gateway.arm("启用实机控制")
 
+    def test_bare_single_mode_skips_lighthouse_and_geofence(self) -> None:
+        backend = FakeBackend()
+        config = CrazyflieSwarmConfig(
+            uris=("radio://test/01",),
+            control_enabled=True,
+            bounds=None,
+            require_lighthouse=False,
+        )
+        gateway = CrazyflieSwarmGateway(config, backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1))
+        self.addCleanup(gateway.disconnect)
+
+        deadline = time.time() + 1
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+
+        self.assertEqual("bare", gateway.status().backend)
+        gateway.arm("启用实机控制")
+        gateway.send_command(SwarmCommand("takeoff"))
+        self.wait_for_call(backend, "takeoff")
+        with self.assertRaisesRegex(RuntimeError, "无定位单机模式"):
+            gateway.send_command(SwarmCommand("formation", parameters={"name": "line"}))
+
     def test_takeoff_and_relative_movement_are_queued(self) -> None:
         gateway, backend = self.make_gateway()
         gateway.arm("启用实机控制")

@@ -72,11 +72,19 @@ class CrazyflieSwarmConfig:
     telemetry_timeout_s: float = 1.5
     lighthouse_ready_status: int = 2
     lighthouse_failure_samples: int = 3
+    # Explicitly constructed swarm configurations retain the positioned
+    # default; from_environment() selects bare mode for this deployment.
     require_lighthouse: bool = True
     cache_dir: Path = Path(".cache/cflib")
     arm_phrase: str = "启用实机控制"
     height_offsets_m: dict[str, float] = field(default_factory=dict)
     positioning_mode: str = "lighthouse"
+
+    @property
+    def bare_mode(self) -> bool:
+        """Whether this is a single Crazyflie without external positioning."""
+
+        return self.positioning_mode == "lighthouse" and not self.require_lighthouse
 
     @classmethod
     def from_environment(cls, positioning_mode: str | None = None) -> "CrazyflieSwarmConfig":
@@ -112,7 +120,7 @@ class CrazyflieSwarmConfig:
             lighthouse_failure_samples=int(os.getenv("BDS_LIGHTHOUSE_FAILURE_SAMPLES", "3")),
             require_lighthouse=(
                 mode == "lighthouse"
-                and os.getenv("BDS_REQUIRE_LIGHTHOUSE", "true").strip().lower() not in {"0", "false", "no"}
+                and os.getenv("BDS_REQUIRE_LIGHTHOUSE", "false").strip().lower() not in {"0", "false", "no"}
             ),
             cache_dir=Path(os.getenv("BDS_CFLIB_CACHE", ".cache/cflib")).expanduser(),
             height_offsets_m=height_offsets,
@@ -153,6 +161,8 @@ class CrazyflieSwarmGateway:
     def connect(self) -> None:
         if not self.config.uris:
             raise RuntimeError("未配置 BDS_CRAZYFLIE_URIS，不能连接 Crazyflie")
+        if self.config.bare_mode and len(self.config.uris) != 1:
+            raise RuntimeError("无定位模式只允许连接一架 Crazyflie")
         if self.config.positioning_mode == "flowdeck" and len(self.config.uris) != 1:
             raise RuntimeError("Flow Deck 模式只允许配置一架 Crazyflie")
         with self._lock:
@@ -178,8 +188,11 @@ class CrazyflieSwarmGateway:
 
     def status(self) -> SwarmStatus:
         with self._lock:
+            backend = "bare" if self.config.bare_mode else (
+                "flowdeck" if self.config.positioning_mode == "flowdeck" else "crazyflie"
+            )
             return SwarmStatus(
-                backend="flowdeck" if self.config.positioning_mode == "flowdeck" else "crazyflie",
+                backend=backend,
                 state=self._state,
                 connected=self._connected,
                 armed=self._armed,
@@ -218,7 +231,7 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("蜂群尚未连接")
             if self._emergency:
                 raise RuntimeError("系统处于急停锁定状态，必须重新连接后才能解锁")
-            self._validate_ready(require_bounds=True)
+            self._validate_ready(require_bounds=not self.config.bare_mode)
             self._armed = True
             self._message = "实机控制已解锁"
             self._record("INFO", "实机控制已由操作员显式解锁")
@@ -417,9 +430,14 @@ class CrazyflieSwarmGateway:
 
     def _validate_command(self, command: SwarmCommand) -> None:
         action = command.action.strip().lower()
+        if self.config.bare_mode and action in {
+            "formation", "switch_formation", "relative_square", "relative_forward_back",
+            "hover_one_by_one", "hover_sync_test",
+        }:
+            raise RuntimeError("无定位单机模式禁止蜂群、队形和自动测试动作")
         if action in {"land", "led_test"}:
             return
-        self._validate_ready(require_bounds=action != "hover")
+        self._validate_ready(require_bounds=action != "hover" and not self.config.bare_mode)
         if action in {"takeoff", "hover_one_by_one", "hover_sync_test"}:
             if self._airborne:
                 raise RuntimeError("无人机已经处于飞行状态")
@@ -427,8 +445,10 @@ class CrazyflieSwarmGateway:
             for uav in self._uavs.values():
                 uri = self._resolve_uri(uav.uav_id)
                 target_height = height + self.config.height_offsets_m.get(uri, 0.0)
-                if not self.config.bounds or not self.config.bounds.contains(
-                    Position(uav.position.x, uav.position.y, target_height)
+                if not self.config.bare_mode and (
+                    not self.config.bounds or not self.config.bounds.contains(
+                        Position(uav.position.x, uav.position.y, target_height)
+                    )
                 ):
                     raise RuntimeError(f"{uav.uav_id} 起飞目标超出场地围栏")
             return
@@ -470,7 +490,9 @@ class CrazyflieSwarmGateway:
             current = self._uavs[uri].position
             planned[uri] = Position(current.x + dx, current.y + dy, current.z)
         targets = list(planned.values())
-        if not self.config.bounds or any(not self.config.bounds.contains(target) for target in targets):
+        if not self.config.bare_mode and (
+            not self.config.bounds or any(not self.config.bounds.contains(target) for target in targets)
+        ):
             raise RuntimeError("移动目标超出场地围栏")
         for index, first in enumerate(targets):
             for second in targets[index + 1:]:
@@ -610,8 +632,6 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError(f"{uav.uav_id} 遥测超时")
             if uav.battery_voltage is None or uav.battery_voltage < self.config.minimum_battery_voltage:
                 raise RuntimeError(f"{uav.uav_id} 电压不足")
-            if self.config.require_lighthouse and not uav.positioning_ok:
-                raise RuntimeError(f"{uav.uav_id} Lighthouse 定位未就绪")
 
     def _on_telemetry(self, uri: str, timestamp: float, data: dict[str, float]) -> None:
         position = Position(float(data.get("stateEstimate.x", 0.0)), float(data.get("stateEstimate.y", 0.0)),
@@ -721,7 +741,13 @@ class CflibBackend:
         self._swarm = Swarm(set(uris), factory=CachedCfFactory(rw_cache=str(self.cache_dir)))
         self._swarm.open_links()
         self._swarm.parallel_safe(self._configure_single)
-        self._swarm.reset_estimators()
+        # Do not use Swarm.reset_estimators() here.  cflib waits indefinitely
+        # for Kalman position variance to converge, which means a bare
+        # Crazyflie (no Lighthouse/Flow deck) never reaches the connected
+        # state even though its radio link is healthy.  Reset the estimator
+        # without waiting; flight readiness is still checked separately by
+        # the gateway before arming or accepting a movement command.
+        self._swarm.parallel_safe(self._reset_estimator_single)
         for uri, scf in self._swarm._cfs.items():  # cflib Swarm currently exposes connected CFs here.
             lost_callback = lambda _uri, message, current_uri=uri: event(
                 "SAFETY", f"{current_uri} 无线电链路丢失：{message}",
@@ -771,6 +797,12 @@ class CflibBackend:
     def _configure_single(scf) -> None:
         scf.cf.param.set_value("stabilizer.estimator", "2")
         scf.cf.param.set_value("commander.enHighLevel", "1")
+
+    @staticmethod
+    def _reset_estimator_single(scf) -> None:
+        scf.cf.param.set_value("kalman.resetEstimation", "1")
+        time.sleep(0.1)
+        scf.cf.param.set_value("kalman.resetEstimation", "0")
 
     def disconnect(self) -> None:
         for caller, callback in self._callbacks:
