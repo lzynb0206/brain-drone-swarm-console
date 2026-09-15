@@ -78,6 +78,8 @@ class SwarmStatus:
     armed: bool
     control_enabled: bool
     message: str = ""
+    airborne: bool = False
+    emergency: bool = False
 
 
 @dataclass(frozen=True)
