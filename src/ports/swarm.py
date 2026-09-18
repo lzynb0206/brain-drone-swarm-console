@@ -41,8 +41,24 @@ class SwarmGateway(Protocol):
         """提交经过权限与安全仲裁的串行控制指令。"""
         ...
 
+    def stop_motion(self) -> None:
+        """停止当前水平动作并保持飞行；无定位模式只能保持姿态/高度，不能定点。"""
+        ...
+
+    def stop_motors(self) -> None:
+        """立即关闭电机但不触发固件急停锁；空中使用会直接坠落。"""
+        ...
+
+    def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
+        """更新虚拟摇杆输入，三个轴均为 -1.0 到 1.0。"""
+        ...
+
     def emergency_stop(self) -> None:
-        """立即悬停/停机；正式实现需要硬件确认、超时和审计日志。"""
+        """触发固件锁存急停；恢复前必须重启无人机。"""
+        ...
+
+    def reset_after_emergency_reboot(self) -> None:
+        """无人机已断电重启且链路断开后，清除上位机的急停锁状态。"""
         ...
 
     def configure_uris(self, uris: Sequence[str]) -> None:

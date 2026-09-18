@@ -22,21 +22,32 @@ from src.domain import DeviceStatus, Position, SwarmCommand, SwarmStatus, UAVTel
 
 TelemetryCallback = Callable[[str, float, dict[str, float]], None]
 EventCallback = Callable[[str, str], None]
+CancelCheck = Callable[[], None]
 
 
 class CrazyflieBackend(Protocol):
     def connect(self, uris: tuple[str, ...], telemetry: TelemetryCallback, event: EventCallback) -> None: ...
     def disconnect(self) -> None: ...
+    def arm_all(self) -> bool | None: ...
+    def disarm_all(self) -> None: ...
     def takeoff_all(self, height_m: float, duration_s: float) -> None: ...
     def land_all(self, duration_s: float) -> None: ...
     def move_all_relative(self, dx: float, dy: float, dz: float, duration_s: float) -> None: ...
     def hover_all(self, duration_s: float) -> None: ...
+    def stop_motion_all(self) -> None: ...
+    def stop_motors_all(self) -> None: ...
+    def start_manual_control(self) -> None: ...
+    def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None: ...
     def emergency_stop_all(self) -> None: ...
     def move_one_relative(self, uri: str, dx: float, dy: float, dz: float, duration_s: float) -> None: ...
-    def go_to_positions(self, stages: Sequence[dict[str, Position]], duration_s: float) -> None: ...
+    def go_to_positions(
+        self, stages: Sequence[dict[str, Position]], duration_s: float,
+        cancel_check: CancelCheck | None = None,
+    ) -> None: ...
     def set_led_all(self, red: int, green: int, blue: int, duration_s: float) -> None: ...
     def hover_one_by_one(
         self, height_m: float, height_offsets_m: dict[str, float], hover_s: float, duration_s: float,
+        cancel_check: CancelCheck | None = None,
     ) -> None: ...
 
 
@@ -78,6 +89,13 @@ class CrazyflieSwarmConfig:
     cache_dir: Path = Path(".cache/cflib")
     height_offsets_m: dict[str, float] = field(default_factory=dict)
     positioning_mode: str = "lighthouse"
+    bare_max_takeoff_height_m: float = 0.35
+    bare_ascent_speed_mps: float = 0.15
+    bare_descent_speed_mps: float = 0.15
+    bare_move_distance_m: float = 0.08
+    bare_move_pulse_s: float = 0.25
+    bare_tilt_degrees: float = 4.0
+    bare_setpoint_rate_hz: float = 50.0
 
     @property
     def bare_mode(self) -> bool:
@@ -124,7 +142,18 @@ class CrazyflieSwarmConfig:
             cache_dir=Path(os.getenv("BDS_CFLIB_CACHE", ".cache/cflib")).expanduser(),
             height_offsets_m=height_offsets,
             positioning_mode=mode,
+            bare_max_takeoff_height_m=float(os.getenv("BDS_BARE_MAX_TAKEOFF_HEIGHT", "0.35")),
+            bare_ascent_speed_mps=float(os.getenv("BDS_BARE_ASCENT_SPEED", "0.15")),
+            bare_descent_speed_mps=float(os.getenv("BDS_BARE_DESCENT_SPEED", "0.15")),
+            bare_move_distance_m=float(os.getenv("BDS_BARE_MOVE_DISTANCE", "0.08")),
+            bare_move_pulse_s=float(os.getenv("BDS_BARE_MOVE_PULSE", "0.25")),
+            bare_tilt_degrees=float(os.getenv("BDS_BARE_TILT_DEGREES", "4.0")),
+            bare_setpoint_rate_hz=float(os.getenv("BDS_BARE_SETPOINT_RATE", "50")),
         )
+
+
+class _CommandCancelled(RuntimeError):
+    """Internal signal used when a high-priority motor stop cancels queued work."""
 
 
 class CrazyflieSwarmGateway:
@@ -139,11 +168,17 @@ class CrazyflieSwarmGateway:
 
     def __init__(self, config: CrazyflieSwarmConfig, backend: CrazyflieBackend | None = None) -> None:
         self.config = config
-        self._backend = backend or CflibBackend(config.cache_dir, config.lighthouse_ready_status)
+        self._backend = backend or CflibBackend(config)
         self._lock = threading.RLock()
-        self._commands: queue.Queue[SwarmCommand | None] = queue.Queue(maxsize=20)
+        self._commands: queue.Queue[tuple[int, SwarmCommand] | None] = queue.Queue(maxsize=20)
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._command_idle = threading.Event()
+        self._command_idle.set()
+        self._command_generation = 0
+        self._motor_stop_in_progress = False
+        self._motor_stop_backend_complete = False
+        self._motor_stop_error: Exception | None = None
         self._state = "disconnected"
         self._message = "尚未连接"
         self._connected = False
@@ -167,8 +202,13 @@ class CrazyflieSwarmGateway:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return
+            if self._emergency:
+                raise RuntimeError("急停锁仍未复位；请先给无人机断电重启，再点击急停复位")
+            if self._motor_stop_in_progress:
+                raise RuntimeError("电机停止操作尚未完成，请稍候")
             self._stop_event.clear()
-            self._emergency = False
+            self._commands = queue.Queue(maxsize=20)
+            self._command_idle.set()
             self._armed = False
             self._state = "connecting"
             self._message = "正在连接 Crazyradio/Crazyflie…"
@@ -176,6 +216,16 @@ class CrazyflieSwarmGateway:
             self._thread.start()
 
     def disconnect(self) -> None:
+        should_hold = False
+        with self._lock:
+            self._command_generation += 1
+            self._discard_pending_commands("连接断开")
+            should_hold = self._connected and self._airborne and not self._emergency
+        if should_hold:
+            try:
+                self._backend.stop_motion_all()
+            except Exception as exc:
+                self._record("WARN", f"断开前停止移动失败：{exc}")
         self._stop_event.set()
         try:
             self._commands.put_nowait(None)
@@ -197,6 +247,8 @@ class CrazyflieSwarmGateway:
                 armed=self._armed,
                 control_enabled=self.config.control_enabled,
                 message=self._message,
+                airborne=self._airborne,
+                emergency=self._emergency,
             )
 
     def configure_uris(self, uris: Sequence[str]) -> None:
@@ -228,13 +280,39 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("蜂群尚未连接")
             if self._emergency:
                 raise RuntimeError("系统处于急停锁定状态，必须重新连接后才能解锁")
+            if self._motor_stop_in_progress:
+                raise RuntimeError("电机停止操作尚未完成，请稍候再解锁")
             self._validate_ready(require_bounds=not self.config.bare_mode)
+            confirmed = self._backend.arm_all()
+            if confirmed is False:
+                raise RuntimeError("飞控拒绝解锁，请检查电池、机体姿态和飞控锁定状态")
+            if self.config.bare_mode:
+                try:
+                    self._backend.start_manual_control()
+                except Exception:
+                    # Never leave the firmware armed when the continuous
+                    # setpoint stream could not be established.
+                    self._backend.disarm_all()
+                    raise
             self._armed = True
-            self._message = "实机控制已解锁"
+            self._state = "connected"
+            self._message = (
+                "气压定高摇杆已启动；上推左杆起飞，水平不会定点"
+                if self.config.bare_mode else
+                "实机控制已解锁" if confirmed is not None else
+                "解锁请求已发送；当前固件未提供状态确认"
+            )
             self._record("INFO", "实机控制已由操作员显式解锁")
 
     def disarm(self) -> None:
         with self._lock:
+            if self._emergency:
+                raise RuntimeError("系统处于急停锁定状态，请先重启无人机并复位")
+            if self._motor_stop_in_progress:
+                raise RuntimeError("电机停止操作尚未完成")
+            if self._airborne:
+                raise RuntimeError("无人机仍在飞行；请先降落，必要时使用电机立即停转")
+            self._backend.disarm_all()
             self._armed = False
             self._message = "实机控制已锁定"
             self._record("INFO", "实机控制已锁定")
@@ -252,18 +330,93 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("蜂群尚未连接")
             if self._emergency:
                 raise RuntimeError("系统处于急停锁定状态")
+            if self._motor_stop_in_progress:
+                raise RuntimeError("电机正在停止，暂不接受飞行指令")
             if action not in {"land", "led_test"} and not self._armed:
                 raise RuntimeError("实机控制尚未解锁")
             self._validate_command(command)
         try:
-            self._commands.put_nowait(command)
+            self._commands.put_nowait((self._command_generation, command))
         except queue.Full as exc:
             raise RuntimeError("飞行指令队列已满，请停止继续操作") from exc
 
+    def stop_motion(self) -> None:
+        with self._lock:
+            if not self._connected:
+                raise RuntimeError("蜂群尚未连接")
+            if self._emergency:
+                raise RuntimeError("系统处于急停锁定状态")
+            if not self._armed or not self._airborne:
+                raise RuntimeError("无人机尚未起飞并解锁")
+            self._command_generation += 1
+            self._discard_pending_commands("操作员停止移动")
+        try:
+            self._backend.stop_motion_all()
+        except Exception as exc:
+            with self._lock:
+                self._armed = False
+                self._state = "flight_error"
+                self._message = f"停止移动未确认：{exc}；请立即现场处置"
+            raise RuntimeError(self._message) from exc
+        with self._lock:
+            if not self._emergency:
+                self._state = "airborne"
+                self._message = (
+                    "已停止姿态点动并保持气压高度；无定位时仍可能水平漂移"
+                    if self.config.bare_mode else "已停止移动并保持当前位置"
+                )
+        self._record("INFO", "操作员停止移动并进入保持状态")
+
+    def stop_motors(self) -> None:
+        with self._lock:
+            if not self._connected:
+                raise RuntimeError("蜂群尚未连接")
+            if self._emergency:
+                raise RuntimeError("当前已处于硬件急停锁定状态")
+            if self._motor_stop_in_progress:
+                return
+            self._command_generation += 1
+            self._discard_pending_commands("操作员停止电机")
+            self._armed = False
+            self._motor_stop_in_progress = True
+            self._motor_stop_backend_complete = False
+            self._motor_stop_error = None
+            self._state = "stopping_motors"
+            self._message = "正在发送电机停止指令…"
+            self._record("WARN", "操作员触发可恢复的电机立即停转")
+        threading.Thread(target=self._stop_motors_backend, name="Crazyflie-Motor-Stop", daemon=True).start()
+
+    def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
+        """Feed normalized virtual-stick values to the low-latency RPYT stream."""
+        values = tuple(max(-1.0, min(1.0, float(value))) for value in (vertical, forward, lateral))
+        with self._lock:
+            if not self._connected:
+                raise RuntimeError("无人机尚未连接")
+            if self._emergency:
+                raise RuntimeError("系统处于急停锁定状态")
+            if not self._armed:
+                raise RuntimeError("请先点击“启动操控”")
+            if not self.config.bare_mode:
+                raise RuntimeError("虚拟摇杆当前仅用于无定位单机气压定高模式")
+            if self._motor_stop_in_progress:
+                raise RuntimeError("电机正在停止")
+        self._backend.set_manual_input(*values)
+        with self._lock:
+            if values[0] > 0.08:
+                self._airborne = True
+                self._state = "manual_flight"
+            self._message = (
+                "摇杆输入：升降 {:+.0f}% / 前后 {:+.0f}% / 左右 {:+.0f}%（仅气压保高）"
+                .format(values[0] * 100, values[1] * 100, values[2] * 100)
+            )
+
     def emergency_stop(self) -> None:
         with self._lock:
+            self._command_generation += 1
+            self._discard_pending_commands("紧急停止")
             self._emergency = True
             self._armed = False
+            self._airborne = False
             self._state = "emergency"
             self._message = "急停指令已发送；需要现场确认设备状态"
             connected = self._connected
@@ -272,6 +425,17 @@ class CrazyflieSwarmGateway:
             threading.Thread(target=self._emergency_backend, name="Crazyflie-Emergency", daemon=True).start()
         else:
             raise RuntimeError("蜂群未连接，无法获得硬件急停回执")
+
+    def reset_after_emergency_reboot(self) -> None:
+        with self._lock:
+            if self._connected or (self._thread is not None and self._thread.is_alive()):
+                raise RuntimeError("请先断开链路，并先给无人机断电重启")
+            self._emergency = False
+            if self._motor_stop_in_progress:
+                raise RuntimeError("电机停止线程尚未结束，请稍候再复位")
+            self._state = "disconnected"
+            self._message = "急停锁已复位；等待重新连接"
+            self._record("INFO", "操作员确认无人机已重启，上位机急停锁复位")
 
     def events(self, level: str | None = None) -> list[str]:
         with self._lock:
@@ -286,7 +450,10 @@ class CrazyflieSwarmGateway:
             with self._lock:
                 self._connected = True
                 self._state = "connected"
-                self._message = "遥测已连接；实机控制仍处于锁定状态"
+                self._message = (
+                    "无线电和遥测已连接；无定位模式水平会漂移"
+                    if self.config.bare_mode else "遥测已连接；实机控制仍处于锁定状态"
+                )
             self._record("INFO", f"已连接 {len(self.config.uris)} 架 Crazyflie")
             while not self._stop_event.is_set():
                 try:
@@ -295,15 +462,24 @@ class CrazyflieSwarmGateway:
                     continue
                 if command is None:
                     break
+                generation, command = command
+                self._command_idle.clear()
                 try:
-                    self._execute(command)
+                    self._execute(command, generation)
                     self._notify_command("COMPLETED", "硬件动作执行完成", command)
+                except _CommandCancelled:
+                    self._notify_command("CANCELLED", "指令被停止操作取消", command)
                 except Exception as exc:
                     with self._lock:
                         self._armed = False
+                        if not self._emergency:
+                            self._state = "flight_error"
                         self._message = f"指令失败并锁定控制：{exc}"
                     self._record("ERROR", self._message)
                     self._notify_command("FAILED", str(exc), command)
+                finally:
+                    self._command_idle.set()
+                    self._try_finalize_motor_stop()
         except Exception as exc:
             with self._lock:
                 self._state = "error"
@@ -327,10 +503,12 @@ class CrazyflieSwarmGateway:
                     self._state = "disconnected"
                     self._message = "蜂群连接已断开"
 
-    def _execute(self, command: SwarmCommand) -> None:
+    def _execute(self, command: SwarmCommand, generation: int) -> None:
+        self._raise_if_cancelled(generation)
         with self._lock:
             self._validate_command(command)
         action = command.action.strip().lower()
+        cancel_check = lambda: self._raise_if_cancelled(generation)
         if action == "led_test":
             self._backend.set_led_all(0, 80, 255, float(command.parameters.get("duration_s", 1.0)))
         elif action == "hover_one_by_one":
@@ -339,55 +517,99 @@ class CrazyflieSwarmGateway:
             duration = max(2.0, height / max(0.05, self.config.move_speed_mps))
             with self._lock:
                 self._airborne = True
+            landed = False
             try:
                 self._backend.hover_one_by_one(
-                    height, self.config.height_offsets_m, hover_s, duration,
+                    height, self.config.height_offsets_m, hover_s, duration, cancel_check,
                 )
+                landed = True
+            except _CommandCancelled:
+                raise
             except Exception:
                 # A partially completed acceptance run must never leave its state
                 # ambiguous.  Ask every connected aircraft to land before failing.
+                self._raise_if_cancelled(generation)
                 self._backend.land_all(3.0)
+                landed = True
                 raise
             finally:
-                with self._lock:
-                    self._airborne = False
-                    self._armed = False
+                if landed:
+                    with self._lock:
+                        if generation == self._command_generation and not self._emergency:
+                            self._airborne = False
+                            self._armed = False
+                            self._state = "connected"
+                            self._message = "逐架悬停验收完成，电机已停止"
         elif action == "hover_sync_test":
             height = float(command.parameters.get("height_m", self.config.default_height_m))
             hover_s = max(0.5, float(command.parameters.get("hover_s", 2.0)))
             duration = max(2.0, height / max(0.05, self.config.move_speed_mps))
             with self._lock:
                 self._airborne = True
+            landed = False
             try:
                 takeoff_with_offsets = getattr(self._backend, "takeoff_all_with_offsets", None)
                 if self.config.height_offsets_m and callable(takeoff_with_offsets):
                     takeoff_with_offsets(height, self.config.height_offsets_m, duration)
                 else:
                     self._backend.takeoff_all(height, duration)
+                self._raise_if_cancelled(generation)
                 self._backend.hover_all(hover_s)
+                self._raise_if_cancelled(generation)
                 self._backend.land_all(duration)
+                self._raise_if_cancelled(generation)
+                landed = True
+            except _CommandCancelled:
+                raise
             except Exception:
+                self._raise_if_cancelled(generation)
                 self._backend.land_all(3.0)
+                landed = True
                 raise
             finally:
-                with self._lock:
-                    self._airborne = False
-                    self._armed = False
+                if landed:
+                    with self._lock:
+                        if generation == self._command_generation and not self._emergency:
+                            self._airborne = False
+                            self._armed = False
+                            self._state = "connected"
+                            self._message = "同步悬停验收完成，电机已停止"
         elif action == "takeoff":
             height = float(command.parameters.get("height_m", self.config.default_height_m))
-            duration = max(2.0, height / max(0.05, self.config.move_speed_mps))
+            if self.config.bare_mode:
+                height = min(height, max(0.15, self.config.bare_max_takeoff_height_m))
+                speed = max(0.05, self.config.bare_ascent_speed_mps)
+            else:
+                speed = max(0.05, self.config.move_speed_mps)
+            duration = max(2.0, height / speed)
+            with self._lock:
+                self._airborne = True
+                self._state = "taking_off"
+                self._message = "正在起飞并进入保持状态…"
             takeoff_with_offsets = getattr(self._backend, "takeoff_all_with_offsets", None)
             if self.config.height_offsets_m and callable(takeoff_with_offsets):
                 takeoff_with_offsets(height, self.config.height_offsets_m, duration)
             else:
                 self._backend.takeoff_all(height, duration)
+            self._raise_if_cancelled(generation)
+            self._backend.hover_all(0.4)
+            self._raise_if_cancelled(generation)
             with self._lock:
                 self._airborne = True
+                self._state = "airborne"
+                self._message = (
+                    "已进入气压定高；无水平定位，机体仍会漂移"
+                    if self.config.bare_mode else "已起飞并保持目标位置"
+                )
         elif action == "land":
             self._backend.land_all(3.0)
+            self._raise_if_cancelled(generation)
             with self._lock:
-                self._airborne = False
-                self._armed = False
+                if not self._emergency:
+                    self._airborne = False
+                    self._armed = False
+                    self._state = "connected"
+                    self._message = "已降落并停止电机"
         elif action == "hover":
             self._backend.hover_all(0.5)
         elif action in {"formation", "switch_formation"}:
@@ -396,21 +618,29 @@ class CrazyflieSwarmGateway:
                 name = self._FORMATIONS[(self._FORMATIONS.index(self._formation_mode) + 1) % len(self._FORMATIONS)]
             stages, targets = self._plan_formation(name)
             duration = self._duration_for_positions(targets)
-            self._backend.go_to_positions(stages, duration)
+            self._backend.go_to_positions(stages, duration, cancel_check)
+            self._raise_if_cancelled(generation)
             self._verify_position_targets(targets)
             self._formation_mode = name
         elif action == "relative_square":
             distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
             duration = max(1.0, distance / max(0.05, self.config.move_speed_mps))
             for dx, dy in ((distance, 0.0), (0.0, distance), (-distance, 0.0), (0.0, -distance)):
+                self._raise_if_cancelled(generation)
                 self._backend.move_all_relative(dx, dy, 0.0, duration)
+                self._raise_if_cancelled(generation)
         elif action == "relative_forward_back":
             distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
             duration = max(1.0, distance / max(0.05, self.config.move_speed_mps))
             self._backend.move_all_relative(distance, 0.0, 0.0, duration)
+            self._raise_if_cancelled(generation)
             self._backend.move_all_relative(-distance, 0.0, 0.0, duration)
+            self._raise_if_cancelled(generation)
         else:
-            distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
+            default_distance = (
+                self.config.bare_move_distance_m if self.config.bare_mode else self.config.move_distance_m
+            )
+            distance = float(command.parameters.get("distance_m", default_distance))
             vectors = {
                 "forward": (distance, 0.0, 0.0),
                 "backward": (-distance, 0.0, 0.0),
@@ -418,12 +648,45 @@ class CrazyflieSwarmGateway:
                 "right": (0.0, -distance, 0.0),
             }
             dx, dy, dz = vectors[action]
-            duration = max(1.0, distance / max(0.05, self.config.move_speed_mps))
+            duration = (
+                max(0.08, self.config.bare_move_pulse_s)
+                if self.config.bare_mode
+                else max(1.0, distance / max(0.05, self.config.move_speed_mps))
+            )
             if command.uav_id:
                 self._backend.move_one_relative(self._resolve_uri(command.uav_id), dx, dy, dz, duration)
             else:
                 self._backend.move_all_relative(dx, dy, dz, duration)
+            self._raise_if_cancelled(generation)
+        self._raise_if_cancelled(generation)
         self._record("INFO", f"飞行指令完成：{action}")
+
+    def _raise_if_cancelled(self, generation: int) -> None:
+        with self._lock:
+            cancelled = generation != self._command_generation or self._emergency
+        if cancelled:
+            raise _CommandCancelled()
+
+    def _discard_pending_commands(self, reason: str) -> None:
+        sentinel_seen = False
+        discarded: list[SwarmCommand] = []
+        while True:
+            try:
+                item = self._commands.get_nowait()
+            except queue.Empty:
+                break
+            if item is None:
+                sentinel_seen = True
+            else:
+                _generation, command = item
+                discarded.append(command)
+        if sentinel_seen:
+            try:
+                self._commands.put_nowait(None)
+            except queue.Full:
+                pass
+        for command in discarded:
+            self._notify_command("CANCELLED", reason, command)
 
     def _validate_command(self, command: SwarmCommand) -> None:
         action = command.action.strip().lower()
@@ -647,8 +910,11 @@ class CrazyflieSwarmGateway:
             and all(math.isfinite(value) for value in (position.x, position.y, position.z))
         )
         positioning_ok = lighthouse_ok or local_flow_ok
+        supervisor_info = int(data.get("supervisor.info", 0))
+        firmware_locked = bool(supervisor_info & (1 << 6))
         name = uri.rsplit("/", 1)[-1]
         should_trip = False
+        newly_locked = False
         with self._lock:
             self._uavs[uri] = UAVTelemetry(
                 uav_id=f"CF-{name}", battery=battery, speed_mps=speed, altitude_m=position.z,
@@ -664,6 +930,17 @@ class CrazyflieSwarmGateway:
                 should_trip = self._lighthouse_failure_counts[uri] >= self.config.lighthouse_failure_samples
             else:
                 self._lighthouse_failure_counts[uri] = 0
+            if firmware_locked and not self._emergency:
+                self._command_generation += 1
+                self._discard_pending_commands("飞控进入锁定状态")
+                self._emergency = True
+                self._armed = False
+                self._airborne = False
+                self._state = "emergency"
+                self._message = "飞控处于锁定状态；请给无人机断电重启后再复位"
+                newly_locked = True
+        if newly_locked:
+            self._record("ERROR", f"{name} 飞控报告锁定状态，需要断电重启")
         if should_trip:
             self._trip_emergency(f"{name} Lighthouse 连续 {self.config.lighthouse_failure_samples} 次未就绪")
 
@@ -691,6 +968,42 @@ class CrazyflieSwarmGateway:
         except Exception as exc:
             self._record("ERROR", f"硬件急停调用失败：{exc}")
 
+    def _stop_motors_backend(self) -> None:
+        error: Exception | None = None
+        try:
+            self._backend.stop_motors_all()
+            self._record("WARN", "电机停止调用已完成")
+        except Exception as exc:
+            error = exc
+            self._record("ERROR", f"电机停止调用失败：{exc}")
+        finally:
+            with self._lock:
+                self._motor_stop_backend_complete = True
+                self._motor_stop_error = error
+            self._try_finalize_motor_stop()
+
+    def _try_finalize_motor_stop(self) -> None:
+        with self._lock:
+            if (
+                not self._motor_stop_in_progress
+                or not self._motor_stop_backend_complete
+                or not self._command_idle.is_set()
+            ):
+                return
+            error = self._motor_stop_error
+            self._motor_stop_in_progress = False
+            self._motor_stop_backend_complete = False
+            self._motor_stop_error = None
+            if self._emergency:
+                return
+            if error is None:
+                self._airborne = False
+                self._state = "connected"
+                self._message = "电机已停止；重新起飞前需要再次解锁"
+            else:
+                self._state = "stop_error"
+                self._message = f"电机停止未确认：{error}；请立即现场处置"
+
     def _record(self, level: str, message: str) -> None:
         with self._lock:
             self._events.insert(0, (level.upper(), message, time.time()))
@@ -715,15 +1028,24 @@ class CrazyflieSwarmGateway:
 class CflibBackend:
     """Thin cflib implementation isolated for hardware-free unit testing."""
 
-    def __init__(self, cache_dir: Path, lighthouse_ready_status: int = 2) -> None:
-        self.cache_dir = cache_dir
-        self.lighthouse_ready_status = lighthouse_ready_status
+    _BARE_NEUTRAL_THRUST = 32767
+
+    def __init__(self, config: CrazyflieSwarmConfig) -> None:
+        self.config = config
+        self.cache_dir = config.cache_dir
+        self.lighthouse_ready_status = config.lighthouse_ready_status
         self._swarm = None
         self._logs: list[object] = []
         self._telemetry_cache: dict[str, dict[str, float]] = {}
         self._callbacks: list[tuple[object, object]] = []
         self._last_quality_warning: dict[str, float] = {}
         self._event: EventCallback = lambda _level, _message: None
+        self._bare_control_lock = threading.Lock()
+        self._bare_control_stop = threading.Event()
+        self._bare_control_thread: threading.Thread | None = None
+        self._bare_setpoint = (0.0, 0.0, 0.0, self._BARE_NEUTRAL_THRUST)
+        self._bare_control_error: Exception | None = None
+        self._bare_scf = None
 
     def connect(self, uris: tuple[str, ...], telemetry: TelemetryCallback, event: EventCallback) -> None:
         try:
@@ -760,8 +1082,12 @@ class CflibBackend:
                 pose_log.add_variable(variable, "float")
             health_log = LogConfig(name=f"health-{uri[-2:]}", period_in_ms=200)
             health_log.add_variable("pm.vbat", "float")
-            health_log.add_variable("lighthouse.status", "uint8_t")
-            health_log.add_variable("lighthouse.bsActive", "uint16_t")
+            if self._log_variable_exists(scf, "lighthouse.status"):
+                health_log.add_variable("lighthouse.status", "uint8_t")
+            if self._log_variable_exists(scf, "lighthouse.bsActive"):
+                health_log.add_variable("lighthouse.bsActive", "uint16_t")
+            if self._log_variable_exists(scf, "supervisor.info"):
+                health_log.add_variable("supervisor.info", "uint16_t")
             for log in (pose_log, health_log):
                 log.data_received_cb.add_callback(
                     lambda timestamp, data, _log, current_uri=uri: self._handle_log(
@@ -793,7 +1119,12 @@ class CflibBackend:
     @staticmethod
     def _configure_single(scf) -> None:
         scf.cf.param.set_value("stabilizer.estimator", "2")
-        scf.cf.param.set_value("commander.enHighLevel", "1")
+
+    @staticmethod
+    def _log_variable_exists(scf, complete_name: str) -> bool:
+        group, name = complete_name.split(".", 1)
+        toc = getattr(getattr(scf.cf.log, "toc", None), "toc", {})
+        return group in toc and name in toc[group]
 
     @staticmethod
     def _reset_estimator_single(scf) -> None:
@@ -802,6 +1133,16 @@ class CflibBackend:
         scf.cf.param.set_value("kalman.resetEstimation", "0")
 
     def disconnect(self) -> None:
+        if self.config.bare_mode:
+            try:
+                self._shutdown_bare_control()
+            except Exception:
+                pass
+        if self._swarm is not None:
+            try:
+                self._swarm.parallel_safe(self._stop_motors_single)
+            except Exception:
+                pass
         for caller, callback in self._callbacks:
             try:
                 caller.remove_callback(callback)
@@ -820,11 +1161,69 @@ class CflibBackend:
             self._swarm.close_links()
             self._swarm = None
 
+    def arm_all(self) -> bool | None:
+        swarm = self._require_swarm()
+        if self.config.bare_mode:
+            swarm.parallel_safe(self._arm_bare_single)
+        else:
+            swarm.parallel_safe(self._arm_positioned_single)
+        return self._wait_for_armed_confirmation()
+
+    def _wait_for_armed_confirmation(self, timeout_s: float = 1.0) -> bool | None:
+        swarm = self._require_swarm()
+        uris = tuple(swarm._cfs)
+        if not uris or not all("supervisor.info" in self._telemetry_cache.get(uri, {}) for uri in uris):
+            return None
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            values = [int(self._telemetry_cache.get(uri, {}).get("supervisor.info", 0)) for uri in uris]
+            if any(value & (1 << 6) for value in values):
+                return False
+            if all(value & (1 << 1) for value in values):
+                return True
+            time.sleep(0.05)
+        return False
+
+    def disarm_all(self) -> None:
+        if self.config.bare_mode:
+            self._shutdown_bare_control()
+        self._require_swarm().parallel_safe(self._disarm_single)
+
+    @staticmethod
+    def _arm_positioned_single(scf) -> None:
+        scf.cf.commander.send_notify_setpoint_stop()
+        platform = getattr(scf.cf, "platform", None)
+        if platform is not None and hasattr(platform, "send_arming_request"):
+            platform.send_arming_request(True)
+
+    @staticmethod
+    def _arm_bare_single(scf) -> None:
+        platform = getattr(scf.cf, "platform", None)
+        if platform is not None and hasattr(platform, "send_arming_request"):
+            platform.send_arming_request(True)
+        # The RPYT commander deliberately ignores non-zero thrust until one
+        # zero-thrust packet has been received.
+        scf.cf.commander.send_setpoint(0.0, 0.0, 0.0, 0)
+
+    @staticmethod
+    def _disarm_single(scf) -> None:
+        scf.cf.commander.send_stop_setpoint()
+        platform = getattr(scf.cf, "platform", None)
+        if platform is not None and hasattr(platform, "send_arming_request"):
+            platform.send_arming_request(False)
+
     def takeoff_all(self, height_m: float, duration_s: float) -> None:
+        if self.config.bare_mode:
+            self._bare_takeoff(height_m, duration_s)
+            return
         self._require_swarm().parallel_safe(self._takeoff_single, self._args(height_m, duration_s))
         time.sleep(duration_s + 0.5)
 
     def takeoff_all_with_offsets(self, height_m: float, offsets: dict[str, float], duration_s: float) -> None:
+        if self.config.bare_mode:
+            uri = next(iter(self._require_swarm()._cfs))
+            self._bare_takeoff(height_m + float(offsets.get(uri, 0.0)), duration_s)
+            return
         args = {
             uri: [height_m + float(offsets.get(uri, 0.0)), duration_s]
             for uri in self._require_swarm()._cfs
@@ -837,10 +1236,13 @@ class CflibBackend:
         scf.cf.high_level_commander.takeoff(height_m, duration_s)
 
     def land_all(self, duration_s: float) -> None:
+        if self.config.bare_mode:
+            self._bare_land(duration_s)
+            return
         swarm = self._require_swarm()
         swarm.parallel_safe(self._land_single, self._args(duration_s))
         time.sleep(duration_s + 0.5)
-        swarm.parallel_safe(self._stop_single)
+        swarm.parallel_safe(self._stop_motors_single)
 
     @staticmethod
     def _land_single(scf, duration_s: float) -> None:
@@ -851,6 +1253,9 @@ class CflibBackend:
         scf.cf.high_level_commander.stop()
 
     def move_all_relative(self, dx: float, dy: float, dz: float, duration_s: float) -> None:
+        if self.config.bare_mode:
+            self._bare_move(dx, dy, dz, duration_s)
+            return
         self._require_swarm().parallel_safe(self._move_single, self._args(dx, dy, dz, duration_s))
         time.sleep(duration_s + 0.2)
 
@@ -858,6 +1263,9 @@ class CflibBackend:
         swarm = self._require_swarm()
         if uri not in swarm._cfs:
             raise RuntimeError(f"Crazyflie 未连接：{uri}")
+        if self.config.bare_mode:
+            self._bare_move(dx, dy, dz, duration_s)
+            return
         self._move_single(swarm._cfs[uri], dx, dy, dz, duration_s)
         time.sleep(duration_s + 0.2)
 
@@ -866,18 +1274,59 @@ class CflibBackend:
         scf.cf.high_level_commander.go_to(dx, dy, dz, 0.0, duration_s, relative=True)
 
     def hover_all(self, duration_s: float) -> None:
+        if self.config.bare_mode:
+            self._set_bare_motion(0.0, 0.0, 0.0)
+            self._wait_bare(duration_s)
+            return
         self._require_swarm().parallel_safe(self._hover_single, self._args(duration_s))
         time.sleep(duration_s)
 
-    def go_to_positions(self, stages: Sequence[dict[str, Position]], duration_s: float) -> None:
+    def stop_motion_all(self) -> None:
+        if self.config.bare_mode:
+            self._set_bare_motion(0.0, 0.0, 0.0)
+            return
+        self._require_swarm().parallel_safe(self._hover_single, self._args(0.5))
+
+    def start_manual_control(self) -> None:
+        if not self.config.bare_mode:
+            raise RuntimeError("手动气压定高只适用于无定位单机模式")
+        self._start_bare_control()
+
+    def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
+        if not self.config.bare_mode:
+            raise RuntimeError("手动气压定高只适用于无定位单机模式")
+        self._start_bare_control()
+        dead_zone = 0.08
+        vertical = 0.0 if abs(vertical) < dead_zone else max(-1.0, min(1.0, vertical))
+        forward = 0.0 if abs(forward) < dead_zone else max(-1.0, min(1.0, forward))
+        lateral = 0.0 if abs(lateral) < dead_zone else max(-1.0, min(1.0, lateral))
+        tilt = max(1.0, min(10.0, self.config.bare_tilt_degrees))
+        # Crazyflie body axes: positive roll moves right.  The cflib RPYT
+        # packet handles the firmware's pitch sign, while our previous bare
+        # movement convention uses negative pitch for forward motion.
+        self._set_bare_motion(lateral * tilt, -forward * tilt, vertical * 0.5)
+
+    def stop_motors_all(self) -> None:
+        if self.config.bare_mode:
+            self._shutdown_bare_control()
+        self._require_swarm().parallel_safe(self._stop_motors_single)
+
+    def go_to_positions(
+        self, stages: Sequence[dict[str, Position]], duration_s: float,
+        cancel_check: CancelCheck | None = None,
+    ) -> None:
         swarm = self._require_swarm()
         for stage in stages:
+            if cancel_check is not None:
+                cancel_check()
             args = {
                 uri: [position.x, position.y, position.z, duration_s]
                 for uri, position in stage.items()
             }
             swarm.parallel_safe(self._go_absolute_single, args)
             time.sleep(duration_s + 0.25)
+            if cancel_check is not None:
+                cancel_check()
 
     @staticmethod
     def _go_absolute_single(scf, x: float, y: float, z: float, duration_s: float) -> None:
@@ -891,6 +1340,7 @@ class CflibBackend:
 
     def hover_one_by_one(
         self, height_m: float, height_offsets_m: dict[str, float], hover_s: float, duration_s: float,
+        cancel_check: CancelCheck | None = None,
     ) -> None:
         """Run a sequential takeoff/hover/land acceptance test.
 
@@ -900,14 +1350,22 @@ class CflibBackend:
 
         swarm = self._require_swarm()
         for uri in tuple(swarm._cfs):
+            if cancel_check is not None:
+                cancel_check()
             scf = swarm._cfs[uri]
             target_height = height_m + float(height_offsets_m.get(uri, 0.0))
             self._takeoff_single(scf, target_height, duration_s)
             time.sleep(duration_s + 0.3)
+            if cancel_check is not None:
+                cancel_check()
             self._hover_single(scf, hover_s)
             time.sleep(hover_s)
+            if cancel_check is not None:
+                cancel_check()
             self._land_single(scf, duration_s)
             time.sleep(duration_s + 0.3)
+            if cancel_check is not None:
+                cancel_check()
             self._stop_single(scf)
 
     @staticmethod
@@ -922,14 +1380,146 @@ class CflibBackend:
         scf.cf.high_level_commander.go_to(0.0, 0.0, 0.0, 0.0, duration_s, relative=True)
 
     def emergency_stop_all(self) -> None:
+        if self.config.bare_mode:
+            self._shutdown_bare_control()
         self._require_swarm().parallel_safe(self._emergency_single)
 
     @staticmethod
     def _emergency_single(scf) -> None:
         supervisor = getattr(scf.cf, "supervisor", None)
-        if supervisor is None or not hasattr(supervisor, "send_emergency_stop"):
-            raise RuntimeError("当前 Crazyflie 固件/库不支持 supervisor emergency stop")
-        supervisor.send_emergency_stop()
+        if supervisor is not None and hasattr(supervisor, "send_emergency_stop"):
+            supervisor.send_emergency_stop()
+            return
+        # cflib 0.1.28 exposes the firmware-compatible fallback as cf.loc.
+        localization = getattr(scf.cf, "loc", None)
+        if localization is not None and hasattr(localization, "send_emergency_stop"):
+            localization.send_emergency_stop()
+            return
+        scf.cf.commander.send_stop_setpoint()
+        raise RuntimeError("当前 cflib/固件不支持锁存急停，已退化为电机停止")
+
+    @staticmethod
+    def _stop_motors_single(scf) -> None:
+        try:
+            scf.cf.high_level_commander.stop()
+        finally:
+            scf.cf.commander.send_stop_setpoint()
+            platform = getattr(scf.cf, "platform", None)
+            if platform is not None and hasattr(platform, "send_arming_request"):
+                platform.send_arming_request(False)
+
+    def _bare_takeoff(self, height_m: float, duration_s: float) -> None:
+        self._start_bare_control()
+        ascent_speed = max(0.05, min(0.3, self.config.bare_ascent_speed_mps))
+        ascent_time = min(max(0.4, height_m / ascent_speed), max(0.4, duration_s))
+        self._set_bare_motion(0.0, 0.0, ascent_speed)
+        if not self._wait_bare(ascent_time):
+            self._set_bare_motion(0.0, 0.0, 0.0)
+
+    def _bare_land(self, duration_s: float) -> None:
+        self._start_bare_control()
+        descent_speed = max(0.05, min(0.3, self.config.bare_descent_speed_mps))
+        expected_time = self.config.bare_max_takeoff_height_m / descent_speed + 0.35
+        self._set_bare_motion(0.0, 0.0, -descent_speed)
+        self._wait_bare(min(max(0.7, expected_time), max(0.7, duration_s)))
+        self.stop_motors_all()
+
+    def _bare_move(self, dx: float, dy: float, dz: float, duration_s: float) -> None:
+        self._start_bare_control()
+        tilt = max(1.0, min(10.0, self.config.bare_tilt_degrees))
+        pitch = -math.copysign(tilt, dx) if dx else 0.0
+        roll = -math.copysign(tilt, dy) if dy else 0.0
+        vertical = 0.0
+        if dz:
+            vertical = math.copysign(min(0.15, abs(dz) / max(0.1, duration_s)), dz)
+        self._set_bare_motion(roll, pitch, vertical)
+        pulse = min(max(0.08, duration_s), max(0.08, self.config.bare_move_pulse_s))
+        if not self._wait_bare(pulse):
+            self._set_bare_motion(0.0, 0.0, 0.0)
+
+    def _start_bare_control(self) -> None:
+        thread = self._bare_control_thread
+        if thread is not None:
+            self._raise_bare_error()
+            if thread.is_alive():
+                return
+            raise RuntimeError("无定位姿态控制流已停止；请停止电机后重新解锁")
+        scf = self._only_scf()
+        toc = getattr(getattr(scf.cf.param, "toc", None), "toc", {})
+        if "flightmode" not in toc or "althold" not in toc["flightmode"]:
+            raise RuntimeError("当前 Crazyflie 固件不支持 flightmode.althold，已拒绝无定位起飞")
+        scf.cf.commander.send_setpoint(0.0, 0.0, 0.0, 0)
+        scf.cf.param.set_value("flightmode.althold", "1")
+        time.sleep(0.08)
+        with self._bare_control_lock:
+            self._bare_scf = scf
+            self._bare_setpoint = (0.0, 0.0, 0.0, self._BARE_NEUTRAL_THRUST)
+            self._bare_control_error = None
+        self._bare_control_stop.clear()
+        self._bare_control_thread = threading.Thread(
+            target=self._bare_control_loop,
+            name="Crazyflie-Bare-RPYT",
+            daemon=True,
+        )
+        self._bare_control_thread.start()
+
+    def _bare_control_loop(self) -> None:
+        period_s = 1.0 / max(20.0, min(100.0, self.config.bare_setpoint_rate_hz))
+        while not self._bare_control_stop.is_set():
+            with self._bare_control_lock:
+                scf = self._bare_scf
+                roll, pitch, yawrate, thrust = self._bare_setpoint
+            try:
+                if scf is None:
+                    return
+                scf.cf.commander.send_setpoint(roll, pitch, yawrate, thrust)
+            except Exception as exc:
+                with self._bare_control_lock:
+                    self._bare_control_error = exc
+                self._bare_control_stop.set()
+                self._event("SAFETY", f"无定位姿态控制流中断：{exc}")
+                return
+            self._bare_control_stop.wait(period_s)
+
+    def _set_bare_motion(self, roll: float, pitch: float, vertical_speed: float) -> None:
+        self._raise_bare_error()
+        vertical_speed = max(-0.5, min(0.5, float(vertical_speed)))
+        thrust = int(round(self._BARE_NEUTRAL_THRUST * (1.0 + vertical_speed)))
+        with self._bare_control_lock:
+            self._bare_setpoint = (float(roll), float(pitch), 0.0, max(1, min(65535, thrust)))
+
+    def _wait_bare(self, duration_s: float) -> bool:
+        stopped = self._bare_control_stop.wait(max(0.0, float(duration_s)))
+        self._raise_bare_error()
+        return stopped
+
+    def _raise_bare_error(self) -> None:
+        with self._bare_control_lock:
+            error = self._bare_control_error
+        if error is not None:
+            raise RuntimeError(f"无定位姿态控制流失败：{error}") from error
+
+    def _shutdown_bare_control(self) -> None:
+        self._bare_control_stop.set()
+        thread = self._bare_control_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=0.5)
+        with self._bare_control_lock:
+            scf = self._bare_scf
+            self._bare_scf = None
+            self._bare_control_thread = None
+            self._bare_setpoint = (0.0, 0.0, 0.0, 0)
+        if scf is not None:
+            try:
+                scf.cf.param.set_value("flightmode.althold", "0")
+            except Exception:
+                pass
+
+    def _only_scf(self):
+        swarm = self._require_swarm()
+        if len(swarm._cfs) != 1:
+            raise RuntimeError("无定位姿态控制只支持一架 Crazyflie")
+        return next(iter(swarm._cfs.values()))
 
     def _args(self, *values: float) -> dict[str, list[float]]:
         return {uri: list(values) for uri in self._require_swarm()._cfs}

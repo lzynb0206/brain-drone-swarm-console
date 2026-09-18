@@ -75,6 +75,10 @@ class MainView(QWidget):
         self._stimulus_window: SSVEPStimulusWindow | None = None
         self._continuous_recording = False
         self._height_calibrating = False
+        self._active_joystick: str | None = None
+        self._manual_vertical = 0.0
+        self._manual_forward = 0.0
+        self._manual_lateral = 0.0
         self._height_calibration = (
             HeightCalibrationService(
                 experiment_recorder.root / "calibration",
@@ -177,6 +181,7 @@ class MainView(QWidget):
         self.update()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._center_joysticks(send=True)
         self.deactivate()
         if self.swarm_gateway is not None:
             self.swarm_gateway.disconnect()
@@ -215,6 +220,11 @@ class MainView(QWidget):
         point = QPointF(x, y)
         for rect, action in reversed(self._regions):
             if rect.contains(point):
+                if action in {"manual-stick-height", "manual-stick-direction"}:
+                    self._active_joystick = action
+                    self._update_manual_stick(action, x, y)
+                    self.grabMouse()
+                    return
                 self._activate(action, x, y)
                 return
         super().mousePressEvent(event)
@@ -222,9 +232,59 @@ class MainView(QWidget):
     def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
         x = event.position().x() * 1280 / max(1, self.width())
         y = event.position().y() * 720 / max(1, self.height())
+        if self._active_joystick is not None:
+            self._update_manual_stick(self._active_joystick, x, y)
+            return
         interactive = any(rect.contains(QPointF(x, y)) for rect, _ in self._regions)
         self.setCursor(Qt.PointingHandCursor if interactive else Qt.ArrowCursor)
         super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if self._active_joystick is not None:
+            active = self._active_joystick
+            self._active_joystick = None
+            if active == "manual-stick-height":
+                self._manual_vertical = 0.0
+            else:
+                self._manual_forward = 0.0
+                self._manual_lateral = 0.0
+            self.releaseMouse()
+            self._send_manual_input()
+            self.update()
+            return
+        super().mouseReleaseEvent(event)
+
+    def _update_manual_stick(self, stick: str, x: float, y: float) -> None:
+        if stick == "manual-stick-height":
+            center_y, travel = 386.0, 82.0
+            self._manual_vertical = max(-1.0, min(1.0, (center_y - y) / travel))
+        else:
+            center_x, center_y, travel = 760.0, 386.0, 82.0
+            dx, dy = x - center_x, y - center_y
+            length = math.hypot(dx, dy)
+            if length > travel:
+                dx, dy = dx * travel / length, dy * travel / length
+            self._manual_lateral = max(-1.0, min(1.0, dx / travel))
+            self._manual_forward = max(-1.0, min(1.0, -dy / travel))
+        self._send_manual_input()
+        self.update()
+
+    def _send_manual_input(self) -> None:
+        message = self.actions.set_manual_control(
+            self._manual_vertical, self._manual_forward, self._manual_lateral,
+        )
+        if message:
+            self._active_joystick = None
+            self._manual_vertical = self._manual_forward = self._manual_lateral = 0.0
+            self.releaseMouse()
+            self._notify(message)
+
+    def _center_joysticks(self, send: bool = False) -> None:
+        self._active_joystick = None
+        self._manual_vertical = self._manual_forward = self._manual_lateral = 0.0
+        if send:
+            self.actions.set_manual_control(0.0, 0.0, 0.0)
+        self.update()
 
     def keyPressEvent(self, event) -> None:  # type: ignore[override]
         # This works while the application has focus on both macOS and Windows.
@@ -375,16 +435,26 @@ class MainView(QWidget):
         elif action == "swarm-connect":
             self._notify(self.actions.connect_swarm())
         elif action == "swarm-disconnect":
+            self._center_joysticks(send=True)
             self._notify(self.actions.disconnect_swarm())
         elif action == "swarm-arm":
             self._notify(self.actions.arm_swarm())
         elif action == "swarm-disarm":
+            self._center_joysticks(send=True)
             self._notify(self.actions.disarm_swarm())
+        elif action == "swarm-stop-motion":
+            self._notify(self.actions.stop_swarm_motion())
+        elif action == "swarm-motor-stop":
+            self._center_joysticks(send=True)
+            self._request_motor_stop()
         elif action == "bci-control-toggle":
             source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
             self._notify(self.actions.set_bci_control_enabled(not self.actions.bci_control_enabled, source))
         elif action == "swarm-emergency-stop":
+            self._center_joysticks(send=False)
             self._notify(self.actions.emergency_stop())
+        elif action == "swarm-emergency-reset":
+            self._notify(self.actions.reset_emergency_after_reboot())
         elif action == "soldier-export":
             path = self.actions.export_soldier_report()
             self._notify(f"报告已导出：{path}")
@@ -397,6 +467,22 @@ class MainView(QWidget):
             self._notify(self.actions.toggle_layout())
         elif action == "workspace-help":
             self._notify("操作提示：选择模块后点击控件；所有结果会在底部提示")
+
+    def _request_motor_stop(self) -> None:
+        status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
+        if status is not None and status.airborne:
+            answer = QMessageBox.warning(
+                self,
+                "确认立即停止电机",
+                "无人机仍在空中。继续会立即关闭电机，飞机将直接下落。\n\n"
+                "一般情况请优先点击“降落”；只有失控时才继续。",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self._notify("已取消电机停转")
+                return
+        self._notify(self.actions.stop_swarm_motors())
 
     def _open_ssvep_stimulus(self) -> None:
         if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
@@ -1044,15 +1130,15 @@ class MainView(QWidget):
         c.rect(16, 24, 920, 678, None, "#20354b")
         now = datetime.now().strftime("%H:%M:%S")
         c.text(24, 5, 140, 25, now, 12, "#c4d7e5")
-        c.text(85, 5, 140, 25, now, 12, "#59697a")
         uavs = list(self.swarm_gateway.list_uavs()) if self.swarm_gateway is not None else []
         gateway_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
         connected = bool(gateway_status and gateway_status.connected)
         c.line(568, 0, 584, 27, CYAN, 1)
         c.line(584, 27, 872, 27, CYAN, 1)
         c.line(872, 27, 888, 0, CYAN, 1)
-        c.circle(605, 18, 6, GREEN if connected else YELLOW)
-        c.text(617, 3, 160, 28, "遥测已连接" if connected else "遥测未连接", 13, TEXT, True)
+        # Keep the status icon and label visually centred in the header frame.
+        c.circle(673, 18, 6, GREEN if connected else YELLOW)
+        c.text(688, 3, 126, 28, "遥测已连接" if connected else "遥测未连接", 13, TEXT, True)
         average_battery = sum(uav.battery for uav in uavs) / len(uavs) if uavs else 0.0
         c.text(1124, 4, 134, 26, f"平均电量 {average_battery:.0f}%" if uavs else "无实机遥测", 12, TEXT, True, Qt.AlignRight)
         points = [
@@ -1103,10 +1189,23 @@ class MainView(QWidget):
         gateway_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
         connected = bool(gateway_status and gateway_status.connected)
         armed = bool(gateway_status and gateway_status.armed)
-        status_color = RED if self.actions.emergency_stopped else (GREEN if connected else YELLOW)
+        airborne = bool(gateway_status and gateway_status.airborne)
+        emergency = bool(self.actions.emergency_stopped or (gateway_status and gateway_status.emergency))
+        state = gateway_status.state if gateway_status is not None else "disconnected"
+        status_color = (
+            RED if emergency or state in {"flight_error", "stop_error"} else
+            YELLOW if state in {"taking_off", "stopping_motors"} else
+            GREEN if connected else YELLOW
+        )
         status_text = (
-            "急停锁定" if self.actions.emergency_stopped else
+            "急停锁定 · 需重启" if emergency else
+            "正在停止电机" if state == "stopping_motors" else
+            "手动辅助操控中" if state == "manual_flight" else
+            "正在起飞并保高" if state == "taking_off" else
+            "飞行状态异常 · 请处置" if airborne and not armed else
+            "飞行中 · 控制已解锁" if armed and airborne else
             "实机已解锁" if armed else
+            "实机已连接 · 待解锁" if connected and bool(gateway_status and gateway_status.control_enabled) else
             "只读遥测已连接" if connected else
             "实机未连接"
         )
@@ -1117,50 +1216,68 @@ class MainView(QWidget):
         c.text(45, 122, 210, 38, gateway_status.message if gateway_status else "蜂群接口未配置", 11, MUTED)
         c.button(45, 170, 96, 35, "断开" if connected else "连接", connected, accent=CYAN)
         self._hit(45, 170, 96, 35, "swarm-disconnect" if connected else "swarm-connect")
-        c.button(151, 170, 96, 35, "锁定" if armed else "解锁", armed, accent=YELLOW)
+        c.button(151, 170, 96, 35, "停止操控" if armed else "启动操控", armed, accent=YELLOW)
         self._hit(151, 170, 96, 35, "swarm-disarm" if armed else "swarm-arm")
-        c.button(45, 217, 96, 35, "起飞", False, accent=GREEN)
-        c.button(151, 217, 96, 35, "降落", False, accent=BLUE)
-        self._hit(45, 217, 96, 35, "swarm-command:takeoff")
-        self._hit(151, 217, 96, 35, "swarm-command:land")
-        c.button(45, 268, 202, 39,
+        c.button(45, 215, 202, 35, "停止电机", False, accent=RED)
+        self._hit(45, 215, 202, 35, "swarm-motor-stop")
+        c.button(45, 260, 202, 37,
                  "脑控执行：开" if self.actions.bci_control_enabled else "脑控执行：关",
                  self.actions.bci_control_enabled, accent=RED)
-        self._hit(45, 268, 202, 39, "bci-control-toggle")
-        c.button(45, 309, 96, 24, "配置 URI", False, accent=CYAN)
-        c.button(151, 309, 96, 24, "单机控制", False, accent=YELLOW)
-        self._hit(45, 307, 96, 28, "swarm-configure-uris")
-        self._hit(151, 307, 96, 28, "swarm-single-control")
-        c.button(45, 343, 202, 28,
-                 "完成高度校准" if self._height_calibrating else "采集高度校准",
+        self._hit(45, 260, 202, 37, "bci-control-toggle")
+        c.button(45, 307, 96, 32, "配置 URI", False, accent=CYAN)
+        c.button(151, 307, 96, 32, "单机控制", False, accent=YELLOW)
+        self._hit(45, 307, 96, 32, "swarm-configure-uris")
+        self._hit(151, 307, 96, 32, "swarm-single-control")
+        c.button(45, 349, 202, 32,
+                 "完成校准" if self._height_calibrating else "高度校准",
                  self._height_calibrating, accent=GREEN)
-        self._hit(45, 340, 202, 34, "height-calibration-toggle")
-        # diamond connector
-        c.line(640, 267, 752, 380, "#252c3a")
-        c.line(752, 380, 640, 493, "#252c3a")
-        c.line(640, 493, 528, 380, "#252c3a")
-        c.line(528, 380, 640, 267, "#252c3a")
-        directions = [(640, 267, 48, "#6ac584", "↑", "forward"), (528, 380, 48, "#f0d15a", "←", "left"),
-                      (752, 380, 48, "#ee8d43", "→", "right"), (640, 493, 48, "#5799dd", "↓", "backward")]
-        for x, y, r, color, arrow, action in directions:
-            # restrained glow
-            c.circle(x, y, r + 12, QColor(QColor(color).red(), QColor(color).green(), QColor(color).blue(), 22))
-            c.circle(x, y, r, color)
-            c.text(x - r, y - r, r * 2, r * 2, arrow, 35, TEXT, False, Qt.AlignCenter)
-            self._hit(x - r, y - r, r * 2, r * 2, f"swarm-command:{action}")
-        c.circle(640, 380, 33, "#df4c4e")
-        c.text(612, 350, 56, 62, "悬停\n/确认", 10, TEXT, True, Qt.AlignCenter)
-        self._hit(607, 347, 66, 66, "swarm-command:hover")
+        self._hit(45, 349, 202, 32, "height-calibration-toggle")
+
+        # Virtual gamepad.  The backend streams the latest values at 50 Hz;
+        # mouse events only update normalized targets and never perform radio I/O.
+        height_cx, height_cy, stick_r, travel = 470.0, 386.0, 100.0, 82.0
+        direction_cx, direction_cy = 760.0, 386.0
+        c.text(370, 226, 200, 30, "左杆 · 高度升降", 15, TEXT, True, Qt.AlignCenter)
+        c.text(650, 226, 220, 30, "右杆 · 前后左右", 15, TEXT, True, Qt.AlignCenter)
+        c.circle(height_cx, height_cy, stick_r + 8, QColor(72, 231, 248, 18), CYAN, 2)
+        c.circle(height_cx, height_cy, stick_r, "#17243a", "#35516d", 2)
+        c.line(height_cx, height_cy - 72, height_cx, height_cy + 72, "#45627e", 3)
+        c.text(height_cx - 22, height_cy - 96, 44, 26, "升", 12, GREEN, True, Qt.AlignCenter)
+        c.text(height_cx - 22, height_cy + 70, 44, 26, "降", 12, BLUE, True, Qt.AlignCenter)
+        height_knob_y = height_cy - self._manual_vertical * travel
+        c.circle(height_cx, height_knob_y, 32, "#38c889", "#b8ffe0", 2)
+        c.text(height_cx - 30, height_knob_y - 16, 60, 32,
+               f"{self._manual_vertical * 100:+.0f}%", 10, TEXT, True, Qt.AlignCenter)
+        self._hit(height_cx - stick_r, height_cy - stick_r, stick_r * 2, stick_r * 2,
+                  "manual-stick-height")
+
+        c.circle(direction_cx, direction_cy, stick_r + 8, QColor(87, 153, 221, 20), BLUE, 2)
+        c.circle(direction_cx, direction_cy, stick_r, "#17243a", "#35516d", 2)
+        c.line(direction_cx - 72, direction_cy, direction_cx + 72, direction_cy, "#45627e", 2)
+        c.line(direction_cx, direction_cy - 72, direction_cx, direction_cy + 72, "#45627e", 2)
+        c.text(direction_cx - 24, direction_cy - 99, 48, 24, "前", 12, GREEN, True, Qt.AlignCenter)
+        c.text(direction_cx - 24, direction_cy + 75, 48, 24, "后", 12, BLUE, True, Qt.AlignCenter)
+        c.text(direction_cx - 99, direction_cy - 12, 32, 24, "左", 12, YELLOW, True, Qt.AlignCenter)
+        c.text(direction_cx + 67, direction_cy - 12, 32, 24, "右", 12, YELLOW, True, Qt.AlignCenter)
+        direction_knob_x = direction_cx + self._manual_lateral * travel
+        direction_knob_y = direction_cy - self._manual_forward * travel
+        c.circle(direction_knob_x, direction_knob_y, 32, "#5799dd", "#d4e9ff", 2)
+        self._hit(direction_cx - stick_r, direction_cy - stick_r, stick_r * 2, stick_r * 2,
+                  "manual-stick-direction")
+        c.text(350, 530, 540, 32,
+               "未安装定位模块：可辅助保高，但无法水平定点，仍需人工修正漂移",
+               11, YELLOW, True, Qt.AlignCenter)
         confidence = self._latest_recognition.confidence if self._latest_recognition is not None else 0.0
         result_label = self._latest_recognition.label if self._latest_recognition is not None else "等待 EEG"
         c.text(456, 603, 280, 30, f"FBCCA：{result_label}", 13, MUTED)
         c.line(448, 653, 448 + 350 * max(0.0, min(1.0, confidence)), 653, "#63a9e9", 7)
         c.line(448 + 350 * max(0.0, min(1.0, confidence)), 653, 798, 653, "#35425a", 6)
         c.text(806, 628, 100, 51, f"置信度\n{confidence * 100:.1f}%", 14, TEXT, True)
-        c.circle(1168, 608, 64, "#a52d32" if self.actions.emergency_stopped else "#ee8284", RED, 4)
-        c.circle(1168, 608, 73, QColor(239, 78, 80, 28))
-        c.text(1104, 545, 128, 126, "已急停" if self.actions.emergency_stopped else "紧急停止", 19, TEXT, True, Qt.AlignCenter)
-        self._hit(1095, 535, 146, 146, "swarm-emergency-stop")
+        c.circle(1148, 608, 64, "#a52d32" if emergency else "#ee8284", RED, 4)
+        c.circle(1148, 608, 73, QColor(239, 78, 80, 28))
+        emergency_label = "确认已重启\n复位并断开" if emergency else "紧急停止"
+        c.text(1084, 545, 128, 126, emergency_label, 13 if emergency else 19, TEXT, True, Qt.AlignCenter)
+        self._hit(1075, 535, 146, 146, "swarm-emergency-reset" if emergency else "swarm-emergency-stop")
         self._paint_soldier_bottom_toggle(c)
 
     def _soldier_status(self, c: Canvas) -> None:

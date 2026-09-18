@@ -79,6 +79,9 @@ class WorkbenchService:
 
     def _on_gateway_event(self, level: str, message: str) -> None:
         self._record(f"{level.upper()}  {message}")
+        if "急停" in message and level.upper() in {"ERROR", "SAFETY"}:
+            self.emergency_stopped = True
+            self.bci_control_enabled = False
         if self.experiment_recorder is not None:
             self.experiment_recorder.record_command_event(level.upper(), message)
 
@@ -158,10 +161,9 @@ class WorkbenchService:
     ) -> str:
         labels = {
             "takeoff": "起飞", "land": "降落", "forward": "前进", "backward": "后退",
-            "left": "左转", "right": "右转", "hover": "悬停", "formation": "队形切换",
+            "left": "左移", "right": "右移", "hover": "悬停", "formation": "队形切换",
             "switch_formation": "循环切换队形", "led_test": "LED连通性测试",
             "relative_square": "相对方形飞行测试", "hover_one_by_one": "逐架悬停验收",
-            "hover_sync_test": "同步悬停验收", "relative_forward_back": "相对前后验收",
             "hover_sync_test": "同步悬停验收", "relative_forward_back": "相对前后验收",
         }
         if self.emergency_stopped:
@@ -208,7 +210,6 @@ class WorkbenchService:
             return self._record("蜂群接口未配置")
         try:
             self.swarm_gateway.connect()
-            self.emergency_stopped = False
             return self._record("Crazyflie 连接任务已在后台启动")
         except RuntimeError as exc:
             return self._record(f"连接失败：{exc}")
@@ -232,8 +233,44 @@ class WorkbenchService:
     def disarm_swarm(self) -> str:
         self.bci_control_enabled = False
         if self.swarm_gateway is not None:
-            self.swarm_gateway.disarm()
+            try:
+                self.swarm_gateway.disarm()
+            except RuntimeError as exc:
+                return self._record(f"锁定失败：{exc}")
         return self._record("实机控制和脑控执行均已锁定")
+
+    def stop_swarm_motion(self) -> str:
+        if self.swarm_gateway is None:
+            return self._record("蜂群接口未配置")
+        try:
+            self.swarm_gateway.stop_motion()
+            self.command_history.insert(0, "停止移动/保持高度")
+            del self.command_history[8:]
+            return self._record("已请求停止水平移动并保持当前高度")
+        except RuntimeError as exc:
+            return self._record(f"停止移动失败：{exc}")
+
+    def stop_swarm_motors(self) -> str:
+        if self.swarm_gateway is None:
+            return self._record("蜂群接口未配置")
+        self.bci_control_enabled = False
+        try:
+            self.swarm_gateway.stop_motors()
+            self.command_history.insert(0, "电机立即停转")
+            del self.command_history[8:]
+            return self._record("正在停止电机；完成后重新起飞需要再次解锁")
+        except RuntimeError as exc:
+            return self._record(f"电机停止失败：{exc}")
+
+    def set_manual_control(self, vertical: float, forward: float, lateral: float) -> str | None:
+        """Update the on-screen sticks without flooding the audit log."""
+        if self.swarm_gateway is None:
+            return "无人机接口未配置"
+        try:
+            self.swarm_gateway.set_manual_input(vertical, forward, lateral)
+        except RuntimeError as exc:
+            return f"摇杆控制失败：{exc}"
+        return None
 
     def set_bci_control_enabled(self, enabled: bool, eeg_source: str) -> str:
         if not enabled:
@@ -303,7 +340,19 @@ class WorkbenchService:
         self.emergency_stopped = True
         self.bci_control_enabled = False
         self.command_history.insert(0, "紧急停止")
-        return self._record(f"本地控制已锁定{hardware_message}")
+        return self._record(f"本地控制已锁定{hardware_message}；请断电重启无人机后再复位")
+
+    def reset_emergency_after_reboot(self) -> str:
+        if self.swarm_gateway is None:
+            return self._record("蜂群接口未配置")
+        try:
+            self.swarm_gateway.disconnect()
+            self.swarm_gateway.reset_after_emergency_reboot()
+        except RuntimeError as exc:
+            return self._record(f"急停复位失败：{exc}")
+        self.emergency_stopped = False
+        self.bci_control_enabled = False
+        return self._record("上位机急停锁已复位；请重新连接并解锁（本操作不能代替无人机断电重启）")
 
     def run_self_test(self) -> str:
         self.self_test_run = True

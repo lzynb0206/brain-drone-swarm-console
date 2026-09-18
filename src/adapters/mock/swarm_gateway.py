@@ -23,37 +23,94 @@ class MockSwarmGateway:
         )
         self._connected = True
         self._armed = True
+        self._airborne = False
         self._listeners = []
         self._command_listeners = []
+        self.manual_input = (0.0, 0.0, 0.0)
 
     def connect(self) -> None:
+        if self.emergency_stopped:
+            raise RuntimeError("急停锁仍未复位")
         self._connected = True
 
     def disconnect(self) -> None:
         self._connected = False
         self._armed = False
+        self._airborne = False
 
     def status(self) -> SwarmStatus:
-        return SwarmStatus("mock", "connected" if self._connected else "disconnected", self._connected,
-                           self._armed, True, "仅供测试")
+        state = "emergency" if self.emergency_stopped else ("connected" if self._connected else "disconnected")
+        return SwarmStatus(
+            "mock", state, self._connected, self._armed, True, "仅供测试",
+            airborne=self._airborne, emergency=self.emergency_stopped,
+        )
 
     def arm(self) -> None:
+        if not self._connected:
+            raise RuntimeError("蜂群尚未连接")
+        if self.emergency_stopped:
+            raise RuntimeError("系统处于急停锁定状态")
         self._armed = True
 
     def disarm(self) -> None:
+        if self._airborne:
+            raise RuntimeError("飞行中不能只锁定控制，请先降落或停止电机")
         self._armed = False
 
     def list_uavs(self) -> Sequence[UAVTelemetry]:
         return self._uavs
 
     def send_command(self, command: SwarmCommand) -> None:
+        if not self._connected:
+            raise RuntimeError("蜂群尚未连接")
         if self.emergency_stopped:
             raise RuntimeError("Swarm is emergency-stopped")
+        if command.action not in {"land", "led_test"} and not self._armed:
+            raise RuntimeError("实机控制尚未解锁")
+        if command.action in {"forward", "backward", "left", "right", "hover"} and not self._airborne:
+            raise RuntimeError("无人机尚未起飞")
         self.command_log.append(command)
+        if command.action == "takeoff":
+            self._airborne = True
+        elif command.action == "land":
+            self._airborne = False
+            self._armed = False
         for listener in tuple(self._listeners):
             listener("INFO", f"飞行指令完成：{command.action}")
         for listener in tuple(self._command_listeners):
             listener("COMPLETED", "测试适配器已执行", command)
+
+    def stop_motion(self) -> None:
+        if not self._airborne:
+            raise RuntimeError("无人机尚未起飞")
+        command = SwarmCommand("stop_motion")
+        self.command_log.append(command)
+        for listener in tuple(self._listeners):
+            listener("INFO", "操作员停止移动并进入保持状态")
+        for listener in tuple(self._command_listeners):
+            listener("COMPLETED", "测试适配器已停止移动", command)
+
+    def stop_motors(self) -> None:
+        if not self._connected:
+            raise RuntimeError("蜂群尚未连接")
+        command = SwarmCommand("motor_stop")
+        self.command_log.append(command)
+        self._airborne = False
+        self._armed = False
+        for listener in tuple(self._listeners):
+            listener("WARN", "电机停止调用已完成")
+        for listener in tuple(self._command_listeners):
+            listener("COMPLETED", "测试适配器已停止电机", command)
+
+    def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
+        if not self._connected:
+            raise RuntimeError("蜂群尚未连接")
+        if not self._armed:
+            raise RuntimeError("实机控制尚未解锁")
+        values = tuple(max(-1.0, min(1.0, float(value))) for value in (vertical, forward, lateral))
+        self.manual_input = values
+        if values[0] > 0.08:
+            self._airborne = True
 
     def configure_uris(self, uris) -> None:
         if self._connected:
@@ -72,4 +129,11 @@ class MockSwarmGateway:
 
     def emergency_stop(self) -> None:
         self.emergency_stopped = True
+        self._airborne = False
+        self._armed = False
         self.command_log.append(SwarmCommand("emergency_stop"))
+
+    def reset_after_emergency_reboot(self) -> None:
+        if self._connected:
+            raise RuntimeError("请先断开连接")
+        self.emergency_stopped = False

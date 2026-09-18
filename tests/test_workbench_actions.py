@@ -4,10 +4,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
 from src.bci.config import COMMANDS
@@ -40,6 +41,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertEqual(len(COMMANDS), len(self.service.mappings))
 
     def test_swarm_commands_and_emergency_stop_use_gateway(self) -> None:
+        self.service.send_swarm_command("takeoff")
         self.service.send_swarm_command("forward")
         self.assertEqual("forward", self.gateway.command_log[-1].action)
         self.service.emergency_stop()
@@ -47,6 +49,31 @@ class WorkbenchServiceTest(unittest.TestCase):
         before = len(self.gateway.command_log)
         message = self.service.send_swarm_command("left")
         self.assertIn("拒绝", message)
+        self.assertEqual(before, len(self.gateway.command_log))
+
+    def test_stop_motion_motor_stop_and_emergency_recovery_are_distinct(self) -> None:
+        self.service.send_swarm_command("takeoff")
+        message = self.service.stop_swarm_motion()
+        self.assertIn("停止水平移动", message)
+        self.assertEqual("stop_motion", self.gateway.command_log[-1].action)
+
+        message = self.service.stop_swarm_motors()
+        self.assertIn("重新起飞需要再次解锁", message)
+        self.assertEqual("motor_stop", self.gateway.command_log[-1].action)
+        self.assertFalse(self.gateway.status().emergency)
+
+        self.gateway.arm()
+        self.service.emergency_stop()
+        self.assertTrue(self.service.emergency_stopped)
+        message = self.service.reset_emergency_after_reboot()
+        self.assertIn("重新连接并解锁", message)
+        self.assertFalse(self.service.emergency_stopped)
+        self.assertFalse(self.gateway.status().connected)
+
+    def test_virtual_sticks_update_gateway_without_creating_discrete_commands(self) -> None:
+        before = len(self.gateway.command_log)
+        self.assertIsNone(self.service.set_manual_control(0.7, -0.3, 0.2))
+        self.assertEqual((0.7, -0.3, 0.2), self.gateway.manual_input)
         self.assertEqual(before, len(self.gateway.command_log))
 
     def test_csv_replay_cannot_enable_hardware_bci_control(self) -> None:
@@ -59,6 +86,7 @@ class WorkbenchServiceTest(unittest.TestCase):
             gateway = MockSwarmGateway()
             recorder = ExperimentRecorder(directory)
             service = WorkbenchService(gateway, MockSystemMonitor(), recorder)
+            service.send_swarm_command("takeoff")
             service.send_swarm_command("forward")
             rows = recorder.command_log_path.read_text(encoding="utf-8-sig").splitlines()
         command_id = gateway.command_log[-1].command_id
@@ -96,6 +124,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.view._activate("algorithm-load")
         self.view._activate("controller-slider:Kp", x=910)
         self.view._activate("data-tab:数据浏览")
+        self.view._activate("swarm-command:takeoff")
         self.view._activate("swarm-command:right")
 
         self.assertEqual(15, self.view.actions.paradigm_frequency)
@@ -104,6 +133,23 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual(100, self.view.actions.controller_values["Kp"])
         self.assertEqual("数据浏览", self.view.actions.data_tab)
         self.assertEqual("right", self.gateway.command_log[-1].action)
+
+    def test_flight_stop_actions_are_routed_to_distinct_gateway_operations(self) -> None:
+        self.view._activate("swarm-command:takeoff")
+        self.view._activate("swarm-stop-motion")
+        self.assertEqual("stop_motion", self.gateway.command_log[-1].action)
+        with patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.Yes):
+            self.view._activate("swarm-motor-stop")
+        self.assertEqual("motor_stop", self.gateway.command_log[-1].action)
+
+    def test_virtual_joystick_helpers_update_and_center_axes(self) -> None:
+        self.view._update_manual_stick("manual-stick-height", 470, 304)
+        self.assertEqual(1.0, self.gateway.manual_input[0])
+        self.view._update_manual_stick("manual-stick-direction", 842, 304)
+        self.assertAlmostEqual(2 ** -0.5, self.gateway.manual_input[1])
+        self.assertAlmostEqual(2 ** -0.5, self.gateway.manual_input[2])
+        self.view._center_joysticks(send=True)
+        self.assertEqual((0.0, 0.0, 0.0), self.gateway.manual_input)
 
     def test_real_mouse_click_hits_painted_algorithm_card(self) -> None:
         self.view.resize(1280, 720)

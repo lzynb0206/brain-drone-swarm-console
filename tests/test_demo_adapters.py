@@ -19,6 +19,7 @@ class DemoAdaptersTest(unittest.TestCase):
     def test_swarm_command_and_emergency_stop(self) -> None:
         gateway = MockSwarmGateway()
         self.assertEqual(4, len(gateway.list_uavs()))
+        gateway.send_command(SwarmCommand("takeoff"))
         gateway.send_command(SwarmCommand("forward", parameters={"speed_mps": 2.0}))
         gateway.emergency_stop()
         self.assertEqual("emergency_stop", gateway.command_log[-1].action)
