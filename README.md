@@ -109,20 +109,21 @@ python main.py
 
 打开“单兵面板 → 脑控”，依次点击连接、解锁，再进行单机/多机分阶段测试。完整流程见 [硬件接入说明](docs/CRAZYFLIE_HARDWARE_INTEGRATION.md)。
 
-没有 Lighthouse/Flow Deck 时只能使用无定位单机模式：控制页改为双虚拟摇杆，左杆控制
-气压定高的升降速度，右杆控制横滚/俯仰；松手后摇杆回中。该模式无法锁定水平位置，飞机
-仍会漂移，不能把“气压保高”理解成定点悬停。普通“停止电机”可重新解锁；真正的
-“紧急停止”会锁住飞控，必须断电重启无人机后再在界面复位并重新连接。
-
-单架 Flow Deck 只开放人工验收：
+单架 Flow Deck 使用与官方 Crazyflie Client Hover 辅助模式相同的控制接口：
 
 ```bash
 export BDS_SWARM_BACKEND=flowdeck
 export BDS_CRAZYFLIE_URIS='实际单机URI'
-export BDS_SWARM_GEOFENCE='以起飞点为原点实测填写'
 export BDS_HARDWARE_CONTROL_ENABLED=true
 python main.py
 ```
+
+程序连接后读取 `deck.bcFlow` / `deck.bcFlow2`，未检测到 Flow Deck 会拒绝操控。启动
+Flow Hover 后持续发送机体系 `vx/vy` 和离地目标高度：左杆改变目标高度，右杆控制前后
+左右速度，启动时按 0.2m/s 渐升至 0.4m，松杆把水平速度归零并保持最后目标高度。
+Flow V1/V2 的目标高度分别不超过
+1.0m/2.0m，同时还会检查下视测距和光流质量。AI Deck 只做硬件识别，摄像头数据尚未
+伪装成已接入。普通“停止电机”可重新解锁；“紧急停止”仍需断电重启后复位。
 
 ### 训练并启用 FB-EEGNet
 

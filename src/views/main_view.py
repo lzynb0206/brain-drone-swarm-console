@@ -1190,6 +1190,7 @@ class MainView(QWidget):
         connected = bool(gateway_status and gateway_status.connected)
         armed = bool(gateway_status and gateway_status.armed)
         airborne = bool(gateway_status and gateway_status.airborne)
+        flow_mode = bool(gateway_status and gateway_status.backend == "flowdeck")
         emergency = bool(self.actions.emergency_stopped or (gateway_status and gateway_status.emergency))
         state = gateway_status.state if gateway_status is not None else "disconnected"
         status_color = (
@@ -1200,8 +1201,8 @@ class MainView(QWidget):
         status_text = (
             "急停锁定 · 需重启" if emergency else
             "正在停止电机" if state == "stopping_motors" else
-            "手动辅助操控中" if state == "manual_flight" else
-            "正在起飞并保高" if state == "taking_off" else
+            "Flow Hover 操控中" if state == "manual_flight" else
+            "正在建立 Flow Hover" if state == "taking_off" else
             "飞行状态异常 · 请处置" if airborne and not armed else
             "飞行中 · 控制已解锁" if armed and airborne else
             "实机已解锁" if armed else
@@ -1216,10 +1217,17 @@ class MainView(QWidget):
         c.text(45, 122, 210, 38, gateway_status.message if gateway_status else "蜂群接口未配置", 11, MUTED)
         c.button(45, 170, 96, 35, "断开" if connected else "连接", connected, accent=CYAN)
         self._hit(45, 170, 96, 35, "swarm-disconnect" if connected else "swarm-connect")
-        c.button(151, 170, 96, 35, "停止操控" if armed else "启动操控", armed, accent=YELLOW)
+        control_label = (
+            "停止 Hover" if armed and flow_mode else
+            "启动 Flow Hover" if flow_mode else
+            "停止操控" if armed else "解锁控制"
+        )
+        c.button(151, 170, 96, 35, control_label, armed, accent=YELLOW)
         self._hit(151, 170, 96, 35, "swarm-disarm" if armed else "swarm-arm")
-        c.button(45, 215, 202, 35, "停止电机", False, accent=RED)
-        self._hit(45, 215, 202, 35, "swarm-motor-stop")
+        c.button(45, 215, 96, 35, "受控降落", False, accent=GREEN)
+        self._hit(45, 215, 96, 35, "swarm-command:land")
+        c.button(151, 215, 96, 35, "停止电机", False, accent=RED)
+        self._hit(151, 215, 96, 35, "swarm-motor-stop")
         c.button(45, 260, 202, 37,
                  "脑控执行：开" if self.actions.bci_control_enabled else "脑控执行：关",
                  self.actions.bci_control_enabled, accent=RED)
@@ -1228,13 +1236,19 @@ class MainView(QWidget):
         c.button(151, 307, 96, 32, "单机控制", False, accent=YELLOW)
         self._hit(45, 307, 96, 32, "swarm-configure-uris")
         self._hit(151, 307, 96, 32, "swarm-single-control")
-        c.button(45, 349, 202, 32,
-                 "完成校准" if self._height_calibrating else "高度校准",
-                 self._height_calibrating, accent=GREEN)
-        self._hit(45, 349, 202, 32, "height-calibration-toggle")
+        if flow_mode:
+            flow_ready = bool(gateway_status and gateway_status.positioning_ok)
+            c.button(45, 349, 202, 32,
+                     "Flow Deck 就绪" if flow_ready else "等待 Flow 质量",
+                     flow_ready, accent=GREEN if flow_ready else YELLOW)
+        else:
+            c.button(45, 349, 202, 32,
+                     "完成校准" if self._height_calibrating else "高度校准",
+                     self._height_calibrating, accent=GREEN)
+            self._hit(45, 349, 202, 32, "height-calibration-toggle")
 
-        # Virtual gamepad.  The backend streams the latest values at 50 Hz;
-        # mouse events only update normalized targets and never perform radio I/O.
+        # Official Flow Hover semantics: the backend streams body-frame vx/vy
+        # and absolute ground distance. Mouse events only update normalized targets.
         height_cx, height_cy, stick_r, travel = 470.0, 386.0, 100.0, 82.0
         direction_cx, direction_cy = 760.0, 386.0
         c.text(370, 226, 200, 30, "左杆 · 高度升降", 15, TEXT, True, Qt.AlignCenter)
@@ -1248,8 +1262,9 @@ class MainView(QWidget):
         c.circle(height_cx, height_knob_y, 32, "#38c889", "#b8ffe0", 2)
         c.text(height_cx - 30, height_knob_y - 16, 60, 32,
                f"{self._manual_vertical * 100:+.0f}%", 10, TEXT, True, Qt.AlignCenter)
-        self._hit(height_cx - stick_r, height_cy - stick_r, stick_r * 2, stick_r * 2,
-                  "manual-stick-height")
+        if flow_mode:
+            self._hit(height_cx - stick_r, height_cy - stick_r, stick_r * 2, stick_r * 2,
+                      "manual-stick-height")
 
         c.circle(direction_cx, direction_cy, stick_r + 8, QColor(87, 153, 221, 20), BLUE, 2)
         c.circle(direction_cx, direction_cy, stick_r, "#17243a", "#35516d", 2)
@@ -1262,11 +1277,13 @@ class MainView(QWidget):
         direction_knob_x = direction_cx + self._manual_lateral * travel
         direction_knob_y = direction_cy - self._manual_forward * travel
         c.circle(direction_knob_x, direction_knob_y, 32, "#5799dd", "#d4e9ff", 2)
-        self._hit(direction_cx - stick_r, direction_cy - stick_r, stick_r * 2, stick_r * 2,
-                  "manual-stick-direction")
+        if flow_mode:
+            self._hit(direction_cx - stick_r, direction_cy - stick_r, stick_r * 2, stick_r * 2,
+                      "manual-stick-direction")
         c.text(350, 530, 540, 32,
-               "未安装定位模块：可辅助保高，但无法水平定点，仍需人工修正漂移",
-               11, YELLOW, True, Qt.AlignCenter)
+               "Flow Hover：左杆改变目标高度，右杆控制机体系速度，松杆保持高度并停止水平速度"
+               if flow_mode else "当前不是 Flow Deck 模式，虚拟摇杆已禁用",
+               10 if flow_mode else 11, GREEN if flow_mode else YELLOW, True, Qt.AlignCenter)
         confidence = self._latest_recognition.confidence if self._latest_recognition is not None else 0.0
         result_label = self._latest_recognition.label if self._latest_recognition is not None else "等待 EEG"
         c.text(456, 603, 280, 30, f"FBCCA：{result_label}", 13, MUTED)

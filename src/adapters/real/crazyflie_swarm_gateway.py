@@ -73,7 +73,7 @@ class CrazyflieSwarmConfig:
     uris: tuple[str, ...]
     control_enabled: bool = False
     bounds: FlightBounds | None = None
-    default_height_m: float = 0.5
+    default_height_m: float = 0.4
     move_distance_m: float = 0.25
     move_speed_mps: float = 0.15
     minimum_battery_voltage: float = 3.6
@@ -83,25 +83,14 @@ class CrazyflieSwarmConfig:
     telemetry_timeout_s: float = 1.5
     lighthouse_ready_status: int = 2
     lighthouse_failure_samples: int = 3
-    # Explicitly constructed swarm configurations retain the positioned
-    # default; from_environment() selects bare mode for this deployment.
-    require_lighthouse: bool = True
     cache_dir: Path = Path(".cache/cflib")
     height_offsets_m: dict[str, float] = field(default_factory=dict)
     positioning_mode: str = "lighthouse"
-    bare_max_takeoff_height_m: float = 0.35
-    bare_ascent_speed_mps: float = 0.15
-    bare_descent_speed_mps: float = 0.15
-    bare_move_distance_m: float = 0.08
-    bare_move_pulse_s: float = 0.25
-    bare_tilt_degrees: float = 4.0
-    bare_setpoint_rate_hz: float = 50.0
-
-    @property
-    def bare_mode(self) -> bool:
-        """Whether this is a single Crazyflie without external positioning."""
-
-        return self.positioning_mode == "lighthouse" and not self.require_lighthouse
+    flow_min_height_m: float = 0.2
+    flow_max_height_m: float = 2.0
+    flow_max_horizontal_speed_mps: float = 0.5
+    flow_max_vertical_speed_mps: float = 0.5
+    flow_setpoint_rate_hz: float = 5.0
 
     @classmethod
     def from_environment(cls, positioning_mode: str | None = None) -> "CrazyflieSwarmConfig":
@@ -127,7 +116,7 @@ class CrazyflieSwarmConfig:
             uris=uris,
             control_enabled=os.getenv("BDS_HARDWARE_CONTROL_ENABLED", "false").strip().lower() in {"1", "true", "yes"},
             bounds=bounds,
-            default_height_m=float(os.getenv("BDS_SWARM_TAKEOFF_HEIGHT", "0.5")),
+            default_height_m=float(os.getenv("BDS_SWARM_TAKEOFF_HEIGHT", "0.4")),
             move_distance_m=float(os.getenv("BDS_SWARM_MOVE_DISTANCE", "0.25")),
             move_speed_mps=float(os.getenv("BDS_SWARM_MOVE_SPEED", "0.15")),
             minimum_battery_voltage=float(os.getenv("BDS_SWARM_MIN_VBAT", "3.6")),
@@ -135,20 +124,14 @@ class CrazyflieSwarmConfig:
             formation_spacing_m=float(os.getenv("BDS_SWARM_FORMATION_SPACING", "0.8")),
             formation_max_error_m=float(os.getenv("BDS_SWARM_FORMATION_MAX_ERROR", "0.15")),
             lighthouse_failure_samples=int(os.getenv("BDS_LIGHTHOUSE_FAILURE_SAMPLES", "3")),
-            require_lighthouse=(
-                mode == "lighthouse"
-                and os.getenv("BDS_REQUIRE_LIGHTHOUSE", "false").strip().lower() not in {"0", "false", "no"}
-            ),
             cache_dir=Path(os.getenv("BDS_CFLIB_CACHE", ".cache/cflib")).expanduser(),
             height_offsets_m=height_offsets,
             positioning_mode=mode,
-            bare_max_takeoff_height_m=float(os.getenv("BDS_BARE_MAX_TAKEOFF_HEIGHT", "0.35")),
-            bare_ascent_speed_mps=float(os.getenv("BDS_BARE_ASCENT_SPEED", "0.15")),
-            bare_descent_speed_mps=float(os.getenv("BDS_BARE_DESCENT_SPEED", "0.15")),
-            bare_move_distance_m=float(os.getenv("BDS_BARE_MOVE_DISTANCE", "0.08")),
-            bare_move_pulse_s=float(os.getenv("BDS_BARE_MOVE_PULSE", "0.25")),
-            bare_tilt_degrees=float(os.getenv("BDS_BARE_TILT_DEGREES", "4.0")),
-            bare_setpoint_rate_hz=float(os.getenv("BDS_BARE_SETPOINT_RATE", "50")),
+            flow_min_height_m=float(os.getenv("BDS_FLOW_MIN_HEIGHT", "0.2")),
+            flow_max_height_m=float(os.getenv("BDS_FLOW_MAX_HEIGHT", "2.0")),
+            flow_max_horizontal_speed_mps=float(os.getenv("BDS_FLOW_MAX_XY_SPEED", "0.5")),
+            flow_max_vertical_speed_mps=float(os.getenv("BDS_FLOW_MAX_Z_SPEED", "0.5")),
+            flow_setpoint_rate_hz=float(os.getenv("BDS_FLOW_SETPOINT_RATE", "5")),
         )
 
 
@@ -195,8 +178,6 @@ class CrazyflieSwarmGateway:
     def connect(self) -> None:
         if not self.config.uris:
             raise RuntimeError("未配置 BDS_CRAZYFLIE_URIS，不能连接 Crazyflie")
-        if self.config.bare_mode and len(self.config.uris) != 1:
-            raise RuntimeError("无定位模式只允许连接一架 Crazyflie")
         if self.config.positioning_mode == "flowdeck" and len(self.config.uris) != 1:
             raise RuntimeError("Flow Deck 模式只允许配置一架 Crazyflie")
         with self._lock:
@@ -237,9 +218,7 @@ class CrazyflieSwarmGateway:
 
     def status(self) -> SwarmStatus:
         with self._lock:
-            backend = "bare" if self.config.bare_mode else (
-                "flowdeck" if self.config.positioning_mode == "flowdeck" else "crazyflie"
-            )
+            backend = "flowdeck" if self.config.positioning_mode == "flowdeck" else "crazyflie"
             return SwarmStatus(
                 backend=backend,
                 state=self._state,
@@ -282,11 +261,11 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("系统处于急停锁定状态，必须重新连接后才能解锁")
             if self._motor_stop_in_progress:
                 raise RuntimeError("电机停止操作尚未完成，请稍候再解锁")
-            self._validate_ready(require_bounds=not self.config.bare_mode)
+            self._validate_ready(require_bounds=self.config.positioning_mode == "lighthouse")
             confirmed = self._backend.arm_all()
             if confirmed is False:
                 raise RuntimeError("飞控拒绝解锁，请检查电池、机体姿态和飞控锁定状态")
-            if self.config.bare_mode:
+            if self.config.positioning_mode == "flowdeck":
                 try:
                     self._backend.start_manual_control()
                 except Exception:
@@ -295,10 +274,11 @@ class CrazyflieSwarmGateway:
                     self._backend.disarm_all()
                     raise
             self._armed = True
-            self._state = "connected"
+            self._airborne = self.config.positioning_mode == "flowdeck"
+            self._state = "manual_flight" if self._airborne else "connected"
             self._message = (
-                "气压定高摇杆已启动；上推左杆起飞，水平不会定点"
-                if self.config.bare_mode else
+                f"Flow Hover 正在渐升至 {self.config.default_height_m:.2f}m；松杆保持悬停"
+                if self.config.positioning_mode == "flowdeck" else
                 "实机控制已解锁" if confirmed is not None else
                 "解锁请求已发送；当前固件未提供状态确认"
             )
@@ -361,10 +341,7 @@ class CrazyflieSwarmGateway:
         with self._lock:
             if not self._emergency:
                 self._state = "airborne"
-                self._message = (
-                    "已停止姿态点动并保持气压高度；无定位时仍可能水平漂移"
-                    if self.config.bare_mode else "已停止移动并保持当前位置"
-                )
+                self._message = "已停止移动并保持当前 Flow Hover 高度"
         self._record("INFO", "操作员停止移动并进入保持状态")
 
     def stop_motors(self) -> None:
@@ -387,7 +364,7 @@ class CrazyflieSwarmGateway:
         threading.Thread(target=self._stop_motors_backend, name="Crazyflie-Motor-Stop", daemon=True).start()
 
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
-        """Feed normalized virtual-stick values to the low-latency RPYT stream."""
+        """Feed normalized virtual-stick values to the official Flow Hover stream."""
         values = tuple(max(-1.0, min(1.0, float(value))) for value in (vertical, forward, lateral))
         with self._lock:
             if not self._connected:
@@ -396,17 +373,16 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("系统处于急停锁定状态")
             if not self._armed:
                 raise RuntimeError("请先点击“启动操控”")
-            if not self.config.bare_mode:
-                raise RuntimeError("虚拟摇杆当前仅用于无定位单机气压定高模式")
+            if self.config.positioning_mode != "flowdeck":
+                raise RuntimeError("虚拟摇杆需要 Flow Deck Hover 模式")
             if self._motor_stop_in_progress:
                 raise RuntimeError("电机正在停止")
         self._backend.set_manual_input(*values)
         with self._lock:
-            if values[0] > 0.08:
-                self._airborne = True
-                self._state = "manual_flight"
+            self._airborne = True
+            self._state = "manual_flight"
             self._message = (
-                "摇杆输入：升降 {:+.0f}% / 前后 {:+.0f}% / 左右 {:+.0f}%（仅气压保高）"
+                "Flow Hover：升降 {:+.0f}% / 前后 {:+.0f}% / 左右 {:+.0f}%"
                 .format(values[0] * 100, values[1] * 100, values[2] * 100)
             )
 
@@ -451,8 +427,9 @@ class CrazyflieSwarmGateway:
                 self._connected = True
                 self._state = "connected"
                 self._message = (
-                    "无线电和遥测已连接；无定位模式水平会漂移"
-                    if self.config.bare_mode else "遥测已连接；实机控制仍处于锁定状态"
+                    "Flow Deck、测距和光流遥测已连接；Hover 尚未启动"
+                    if self.config.positioning_mode == "flowdeck"
+                    else "遥测已连接；实机控制仍处于锁定状态"
                 )
             self._record("INFO", f"已连接 {len(self.config.uris)} 架 Crazyflie")
             while not self._stop_event.is_set():
@@ -576,11 +553,7 @@ class CrazyflieSwarmGateway:
                             self._message = "同步悬停验收完成，电机已停止"
         elif action == "takeoff":
             height = float(command.parameters.get("height_m", self.config.default_height_m))
-            if self.config.bare_mode:
-                height = min(height, max(0.15, self.config.bare_max_takeoff_height_m))
-                speed = max(0.05, self.config.bare_ascent_speed_mps)
-            else:
-                speed = max(0.05, self.config.move_speed_mps)
+            speed = max(0.05, self.config.move_speed_mps)
             duration = max(2.0, height / speed)
             with self._lock:
                 self._airborne = True
@@ -597,10 +570,7 @@ class CrazyflieSwarmGateway:
             with self._lock:
                 self._airborne = True
                 self._state = "airborne"
-                self._message = (
-                    "已进入气压定高；无水平定位，机体仍会漂移"
-                    if self.config.bare_mode else "已起飞并保持目标位置"
-                )
+                self._message = "已起飞并保持目标位置"
         elif action == "land":
             self._backend.land_all(3.0)
             self._raise_if_cancelled(generation)
@@ -637,10 +607,7 @@ class CrazyflieSwarmGateway:
             self._backend.move_all_relative(-distance, 0.0, 0.0, duration)
             self._raise_if_cancelled(generation)
         else:
-            default_distance = (
-                self.config.bare_move_distance_m if self.config.bare_mode else self.config.move_distance_m
-            )
-            distance = float(command.parameters.get("distance_m", default_distance))
+            distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
             vectors = {
                 "forward": (distance, 0.0, 0.0),
                 "backward": (-distance, 0.0, 0.0),
@@ -648,11 +615,7 @@ class CrazyflieSwarmGateway:
                 "right": (0.0, -distance, 0.0),
             }
             dx, dy, dz = vectors[action]
-            duration = (
-                max(0.08, self.config.bare_move_pulse_s)
-                if self.config.bare_mode
-                else max(1.0, distance / max(0.05, self.config.move_speed_mps))
-            )
+            duration = max(1.0, distance / max(0.05, self.config.move_speed_mps))
             if command.uav_id:
                 self._backend.move_one_relative(self._resolve_uri(command.uav_id), dx, dy, dz, duration)
             else:
@@ -690,14 +653,16 @@ class CrazyflieSwarmGateway:
 
     def _validate_command(self, command: SwarmCommand) -> None:
         action = command.action.strip().lower()
-        if self.config.bare_mode and action in {
+        if self.config.positioning_mode == "flowdeck" and action in {
             "formation", "switch_formation", "relative_square", "relative_forward_back",
             "hover_one_by_one", "hover_sync_test",
         }:
-            raise RuntimeError("无定位单机模式禁止蜂群、队形和自动测试动作")
+            raise RuntimeError("Flow Deck Hover 是单机相对定位模式，禁止蜂群和绝对队形动作")
         if action in {"land", "led_test"}:
             return
-        self._validate_ready(require_bounds=action != "hover" and not self.config.bare_mode)
+        self._validate_ready(
+            require_bounds=action != "hover" and self.config.positioning_mode == "lighthouse"
+        )
         if action in {"takeoff", "hover_one_by_one", "hover_sync_test"}:
             if self._airborne:
                 raise RuntimeError("无人机已经处于飞行状态")
@@ -705,7 +670,7 @@ class CrazyflieSwarmGateway:
             for uav in self._uavs.values():
                 uri = self._resolve_uri(uav.uav_id)
                 target_height = height + self.config.height_offsets_m.get(uri, 0.0)
-                if not self.config.bare_mode and (
+                if self.config.positioning_mode == "lighthouse" and (
                     not self.config.bounds or not self.config.bounds.contains(
                         Position(uav.position.x, uav.position.y, target_height)
                     )
@@ -750,7 +715,7 @@ class CrazyflieSwarmGateway:
             current = self._uavs[uri].position
             planned[uri] = Position(current.x + dx, current.y + dy, current.z)
         targets = list(planned.values())
-        if not self.config.bare_mode and (
+        if self.config.positioning_mode == "lighthouse" and (
             not self.config.bounds or any(not self.config.bounds.contains(target) for target in targets)
         ):
             raise RuntimeError("移动目标超出场地围栏")
@@ -892,6 +857,9 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError(f"{uav.uav_id} 遥测超时")
             if uav.battery_voltage is None or uav.battery_voltage < self.config.minimum_battery_voltage:
                 raise RuntimeError(f"{uav.uav_id} 电压不足")
+            if not uav.positioning_ok:
+                mode_label = "Flow Deck 测距/光流" if self.config.positioning_mode == "flowdeck" else "Lighthouse"
+                raise RuntimeError(f"{uav.uav_id} {mode_label}尚未就绪")
 
     def _on_telemetry(self, uri: str, timestamp: float, data: dict[str, float]) -> None:
         position = Position(float(data.get("stateEstimate.x", 0.0)), float(data.get("stateEstimate.y", 0.0)),
@@ -908,6 +876,8 @@ class CrazyflieSwarmGateway:
             self.config.positioning_mode == "flowdeck"
             and all(key in data for key in ("stateEstimate.x", "stateEstimate.y", "stateEstimate.z"))
             and all(math.isfinite(value) for value in (position.x, position.y, position.z))
+            and 0.0 < float(data.get("range.zrange", 0.0)) < 4000.0
+            and float(data.get("motion.squal", 0.0)) > 0.0
         )
         positioning_ok = lighthouse_ok or local_flow_ok
         supervisor_info = int(data.get("supervisor.info", 0))
@@ -923,10 +893,13 @@ class CrazyflieSwarmGateway:
                 position=position, battery_voltage=voltage, positioning_ok=positioning_ok,
                 last_update_timestamp=float(timestamp) if timestamp > 1_000_000_000 else time.time(),
             )
-            # Flow Deck has no external absolute-reference health flag; its mode
-            # is restricted to one aircraft and cannot be enabled for BCI control.
-            if self._airborne and self.config.require_lighthouse:
-                self._lighthouse_failure_counts[uri] = 0 if lighthouse_ok else self._lighthouse_failure_counts.get(uri, 0) + 1
+            if self._airborne:
+                current_positioning_ok = (
+                    local_flow_ok if self.config.positioning_mode == "flowdeck" else lighthouse_ok
+                )
+                self._lighthouse_failure_counts[uri] = (
+                    0 if current_positioning_ok else self._lighthouse_failure_counts.get(uri, 0) + 1
+                )
                 should_trip = self._lighthouse_failure_counts[uri] >= self.config.lighthouse_failure_samples
             else:
                 self._lighthouse_failure_counts[uri] = 0
@@ -942,7 +915,8 @@ class CrazyflieSwarmGateway:
         if newly_locked:
             self._record("ERROR", f"{name} 飞控报告锁定状态，需要断电重启")
         if should_trip:
-            self._trip_emergency(f"{name} Lighthouse 连续 {self.config.lighthouse_failure_samples} 次未就绪")
+            source = "Flow Deck" if self.config.positioning_mode == "flowdeck" else "Lighthouse"
+            self._trip_emergency(f"{name} {source} 连续 {self.config.lighthouse_failure_samples} 次未就绪")
 
     def _on_backend_event(self, level: str, message: str) -> None:
         if level.upper() == "SAFETY":
@@ -1028,8 +1002,6 @@ class CrazyflieSwarmGateway:
 class CflibBackend:
     """Thin cflib implementation isolated for hardware-free unit testing."""
 
-    _BARE_NEUTRAL_THRUST = 32767
-
     def __init__(self, config: CrazyflieSwarmConfig) -> None:
         self.config = config
         self.cache_dir = config.cache_dir
@@ -1040,12 +1012,18 @@ class CflibBackend:
         self._callbacks: list[tuple[object, object]] = []
         self._last_quality_warning: dict[str, float] = {}
         self._event: EventCallback = lambda _level, _message: None
-        self._bare_control_lock = threading.Lock()
-        self._bare_control_stop = threading.Event()
-        self._bare_control_thread: threading.Thread | None = None
-        self._bare_setpoint = (0.0, 0.0, 0.0, self._BARE_NEUTRAL_THRUST)
-        self._bare_control_error: Exception | None = None
-        self._bare_scf = None
+        self._flow_control_lock = threading.Lock()
+        self._flow_control_stop = threading.Event()
+        self._flow_control_thread: threading.Thread | None = None
+        self._flow_control_error: Exception | None = None
+        self._flow_scf = None
+        self._flow_velocity = (0.0, 0.0, 0.0)
+        self._flow_vertical_speed = 0.0
+        self._flow_detected_max_height = config.flow_max_height_m
+        self._flow_target_height = self._clamp_flow_height(config.default_height_m)
+        self._flow_takeoff_target: float | None = None
+        self._flow_landing = False
+        self._detected_decks: dict[str, dict[str, bool]] = {}
 
     def connect(self, uris: tuple[str, ...], telemetry: TelemetryCallback, event: EventCallback) -> None:
         try:
@@ -1060,12 +1038,8 @@ class CflibBackend:
         self._swarm = Swarm(set(uris), factory=CachedCfFactory(rw_cache=str(self.cache_dir)))
         self._swarm.open_links()
         self._swarm.parallel_safe(self._configure_single)
-        # Do not use Swarm.reset_estimators() here.  cflib waits indefinitely
-        # for Kalman position variance to converge, which means a bare
-        # Crazyflie (no Lighthouse/Flow deck) never reaches the connected
-        # state even though its radio link is healthy.  Reset the estimator
-        # without waiting; flight readiness is still checked separately by
-        # the gateway before arming or accepting a movement command.
+        # Reset without the blocking convergence loop.  Readiness is decided
+        # from live Flow/Lighthouse telemetry by the gateway.
         self._swarm.parallel_safe(self._reset_estimator_single)
         for uri, scf in self._swarm._cfs.items():  # cflib Swarm currently exposes connected CFs here.
             lost_callback = lambda _uri, message, current_uri=uri: event(
@@ -1082,6 +1056,15 @@ class CflibBackend:
                 pose_log.add_variable(variable, "float")
             health_log = LogConfig(name=f"health-{uri[-2:]}", period_in_ms=200)
             health_log.add_variable("pm.vbat", "float")
+            if self.config.positioning_mode == "flowdeck":
+                for variable, variable_type in (
+                    ("range.zrange", "uint16_t"),
+                    ("motion.squal", "uint8_t"),
+                    ("motion.deltaX", "int16_t"),
+                    ("motion.deltaY", "int16_t"),
+                ):
+                    if self._log_variable_exists(scf, variable):
+                        health_log.add_variable(variable, variable_type)
             if self._log_variable_exists(scf, "lighthouse.status"):
                 health_log.add_variable("lighthouse.status", "uint8_t")
             if self._log_variable_exists(scf, "lighthouse.bsActive"):
@@ -1116,8 +1099,47 @@ class CflibBackend:
             self._last_quality_warning[uri] = now
             self._event("WARN", f"{uri} 无线电链路质量偏低：{value:.0f}%")
 
-    @staticmethod
-    def _configure_single(scf) -> None:
+    def _configure_single(self, scf) -> None:
+        uri = str(getattr(scf.cf, "link_uri", "Crazyflie"))
+        values = getattr(scf.cf.param, "values", {})
+        deck_values = values.get("deck", {}) if isinstance(values, dict) else {}
+
+        def present(name: str) -> bool:
+            try:
+                return int(deck_values.get(name, 0)) != 0
+            except (TypeError, ValueError):
+                return False
+
+        decks = {
+            "flow_v1": present("bcFlow"),
+            "flow_v2": present("bcFlow2"),
+            "lighthouse": present("bcLighthouse4"),
+            "ai": present("bcAI"),
+        }
+        self._detected_decks[uri] = decks
+        if self.config.positioning_mode == "flowdeck" and not (decks["flow_v1"] or decks["flow_v2"]):
+            raise RuntimeError("未检测到 Flow Deck（deck.bcFlow/deck.bcFlow2 均为 0）")
+        if self.config.positioning_mode == "lighthouse" and not decks["lighthouse"]:
+            raise RuntimeError("未检测到 Lighthouse Deck（deck.bcLighthouse4=0）")
+        if self.config.positioning_mode == "flowdeck":
+            missing_logs = [
+                name for name in ("range.zrange", "motion.squal")
+                if not self._log_variable_exists(scf, name)
+            ]
+            if missing_logs:
+                raise RuntimeError(
+                    "Flow Deck 固件遥测不完整，缺少：" + ", ".join(missing_logs)
+                )
+            official_limit = 2.0 if decks["flow_v2"] else 1.0
+            self._flow_detected_max_height = min(self.config.flow_max_height_m, official_limit)
+            self._event(
+                "INFO",
+                f"{uri} 已检测 Flow Deck {'V2' if decks['flow_v2'] else 'V1'}"
+                f"；Hover 高度上限 {self._flow_detected_max_height:.1f}m"
+                + ("；同时检测到 AI Deck" if decks["ai"] else ""),
+            )
+        elif decks["ai"]:
+            self._event("WARN", f"{uri} 同时检测到 Lighthouse 与 AI Deck，请确认 UART1 冲突已处理")
         scf.cf.param.set_value("stabilizer.estimator", "2")
 
     @staticmethod
@@ -1133,9 +1155,9 @@ class CflibBackend:
         scf.cf.param.set_value("kalman.resetEstimation", "0")
 
     def disconnect(self) -> None:
-        if self.config.bare_mode:
+        if self.config.positioning_mode == "flowdeck":
             try:
-                self._shutdown_bare_control()
+                self._shutdown_flow_control()
             except Exception:
                 pass
         if self._swarm is not None:
@@ -1163,10 +1185,7 @@ class CflibBackend:
 
     def arm_all(self) -> bool | None:
         swarm = self._require_swarm()
-        if self.config.bare_mode:
-            swarm.parallel_safe(self._arm_bare_single)
-        else:
-            swarm.parallel_safe(self._arm_positioned_single)
+        swarm.parallel_safe(self._arm_positioned_single)
         return self._wait_for_armed_confirmation()
 
     def _wait_for_armed_confirmation(self, timeout_s: float = 1.0) -> bool | None:
@@ -1185,8 +1204,8 @@ class CflibBackend:
         return False
 
     def disarm_all(self) -> None:
-        if self.config.bare_mode:
-            self._shutdown_bare_control()
+        if self.config.positioning_mode == "flowdeck":
+            self._shutdown_flow_control()
         self._require_swarm().parallel_safe(self._disarm_single)
 
     @staticmethod
@@ -1197,15 +1216,6 @@ class CflibBackend:
             platform.send_arming_request(True)
 
     @staticmethod
-    def _arm_bare_single(scf) -> None:
-        platform = getattr(scf.cf, "platform", None)
-        if platform is not None and hasattr(platform, "send_arming_request"):
-            platform.send_arming_request(True)
-        # The RPYT commander deliberately ignores non-zero thrust until one
-        # zero-thrust packet has been received.
-        scf.cf.commander.send_setpoint(0.0, 0.0, 0.0, 0)
-
-    @staticmethod
     def _disarm_single(scf) -> None:
         scf.cf.commander.send_stop_setpoint()
         platform = getattr(scf.cf, "platform", None)
@@ -1213,16 +1223,16 @@ class CflibBackend:
             platform.send_arming_request(False)
 
     def takeoff_all(self, height_m: float, duration_s: float) -> None:
-        if self.config.bare_mode:
-            self._bare_takeoff(height_m, duration_s)
+        if self.config.positioning_mode == "flowdeck":
+            self._start_flow_control(height_m)
             return
         self._require_swarm().parallel_safe(self._takeoff_single, self._args(height_m, duration_s))
         time.sleep(duration_s + 0.5)
 
     def takeoff_all_with_offsets(self, height_m: float, offsets: dict[str, float], duration_s: float) -> None:
-        if self.config.bare_mode:
+        if self.config.positioning_mode == "flowdeck":
             uri = next(iter(self._require_swarm()._cfs))
-            self._bare_takeoff(height_m + float(offsets.get(uri, 0.0)), duration_s)
+            self._start_flow_control(height_m + float(offsets.get(uri, 0.0)))
             return
         args = {
             uri: [height_m + float(offsets.get(uri, 0.0)), duration_s]
@@ -1236,8 +1246,8 @@ class CflibBackend:
         scf.cf.high_level_commander.takeoff(height_m, duration_s)
 
     def land_all(self, duration_s: float) -> None:
-        if self.config.bare_mode:
-            self._bare_land(duration_s)
+        if self.config.positioning_mode == "flowdeck":
+            self._land_flow(duration_s)
             return
         swarm = self._require_swarm()
         swarm.parallel_safe(self._land_single, self._args(duration_s))
@@ -1253,8 +1263,8 @@ class CflibBackend:
         scf.cf.high_level_commander.stop()
 
     def move_all_relative(self, dx: float, dy: float, dz: float, duration_s: float) -> None:
-        if self.config.bare_mode:
-            self._bare_move(dx, dy, dz, duration_s)
+        if self.config.positioning_mode == "flowdeck":
+            self._move_flow_relative(dx, dy, dz, duration_s)
             return
         self._require_swarm().parallel_safe(self._move_single, self._args(dx, dy, dz, duration_s))
         time.sleep(duration_s + 0.2)
@@ -1263,8 +1273,8 @@ class CflibBackend:
         swarm = self._require_swarm()
         if uri not in swarm._cfs:
             raise RuntimeError(f"Crazyflie 未连接：{uri}")
-        if self.config.bare_mode:
-            self._bare_move(dx, dy, dz, duration_s)
+        if self.config.positioning_mode == "flowdeck":
+            self._move_flow_relative(dx, dy, dz, duration_s)
             return
         self._move_single(swarm._cfs[uri], dx, dy, dz, duration_s)
         time.sleep(duration_s + 0.2)
@@ -1274,41 +1284,45 @@ class CflibBackend:
         scf.cf.high_level_commander.go_to(dx, dy, dz, 0.0, duration_s, relative=True)
 
     def hover_all(self, duration_s: float) -> None:
-        if self.config.bare_mode:
-            self._set_bare_motion(0.0, 0.0, 0.0)
-            self._wait_bare(duration_s)
+        if self.config.positioning_mode == "flowdeck":
+            self._set_flow_motion(0.0, 0.0, 0.0, 0.0)
+            self._wait_flow(duration_s)
             return
         self._require_swarm().parallel_safe(self._hover_single, self._args(duration_s))
         time.sleep(duration_s)
 
     def stop_motion_all(self) -> None:
-        if self.config.bare_mode:
-            self._set_bare_motion(0.0, 0.0, 0.0)
+        if self.config.positioning_mode == "flowdeck":
+            self._set_flow_motion(0.0, 0.0, 0.0, 0.0)
             return
         self._require_swarm().parallel_safe(self._hover_single, self._args(0.5))
 
     def start_manual_control(self) -> None:
-        if not self.config.bare_mode:
-            raise RuntimeError("手动气压定高只适用于无定位单机模式")
-        self._start_bare_control()
+        if self.config.positioning_mode != "flowdeck":
+            raise RuntimeError("Flow Hover 手动控制需要 Flow Deck 模式")
+        self._start_flow_control(self.config.default_height_m)
 
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
-        if not self.config.bare_mode:
-            raise RuntimeError("手动气压定高只适用于无定位单机模式")
-        self._start_bare_control()
+        if self.config.positioning_mode != "flowdeck":
+            raise RuntimeError("Flow Hover 手动控制需要 Flow Deck 模式")
+        self._start_flow_control(self.config.default_height_m)
         dead_zone = 0.08
         vertical = 0.0 if abs(vertical) < dead_zone else max(-1.0, min(1.0, vertical))
         forward = 0.0 if abs(forward) < dead_zone else max(-1.0, min(1.0, forward))
         lateral = 0.0 if abs(lateral) < dead_zone else max(-1.0, min(1.0, lateral))
-        tilt = max(1.0, min(10.0, self.config.bare_tilt_degrees))
-        # Crazyflie body axes: positive roll moves right.  The cflib RPYT
-        # packet handles the firmware's pitch sign, while our previous bare
-        # movement convention uses negative pitch for forward motion.
-        self._set_bare_motion(lateral * tilt, -forward * tilt, vertical * 0.5)
+        xy_speed = max(0.05, self.config.flow_max_horizontal_speed_mps)
+        z_speed = max(0.05, self.config.flow_max_vertical_speed_mps)
+        # Official body-frame convention: +X forward, +Y left.
+        self._set_flow_motion(
+            forward * xy_speed,
+            -lateral * xy_speed,
+            vertical * z_speed,
+            0.0,
+        )
 
     def stop_motors_all(self) -> None:
-        if self.config.bare_mode:
-            self._shutdown_bare_control()
+        if self.config.positioning_mode == "flowdeck":
+            self._shutdown_flow_control()
         self._require_swarm().parallel_safe(self._stop_motors_single)
 
     def go_to_positions(
@@ -1380,8 +1394,8 @@ class CflibBackend:
         scf.cf.high_level_commander.go_to(0.0, 0.0, 0.0, 0.0, duration_s, relative=True)
 
     def emergency_stop_all(self) -> None:
-        if self.config.bare_mode:
-            self._shutdown_bare_control()
+        if self.config.positioning_mode == "flowdeck":
+            self._shutdown_flow_control()
         self._require_swarm().parallel_safe(self._emergency_single)
 
     @staticmethod
@@ -1408,117 +1422,159 @@ class CflibBackend:
             if platform is not None and hasattr(platform, "send_arming_request"):
                 platform.send_arming_request(False)
 
-    def _bare_takeoff(self, height_m: float, duration_s: float) -> None:
-        self._start_bare_control()
-        ascent_speed = max(0.05, min(0.3, self.config.bare_ascent_speed_mps))
-        ascent_time = min(max(0.4, height_m / ascent_speed), max(0.4, duration_s))
-        self._set_bare_motion(0.0, 0.0, ascent_speed)
-        if not self._wait_bare(ascent_time):
-            self._set_bare_motion(0.0, 0.0, 0.0)
-
-    def _bare_land(self, duration_s: float) -> None:
-        self._start_bare_control()
-        descent_speed = max(0.05, min(0.3, self.config.bare_descent_speed_mps))
-        expected_time = self.config.bare_max_takeoff_height_m / descent_speed + 0.35
-        self._set_bare_motion(0.0, 0.0, -descent_speed)
-        self._wait_bare(min(max(0.7, expected_time), max(0.7, duration_s)))
-        self.stop_motors_all()
-
-    def _bare_move(self, dx: float, dy: float, dz: float, duration_s: float) -> None:
-        self._start_bare_control()
-        tilt = max(1.0, min(10.0, self.config.bare_tilt_degrees))
-        pitch = -math.copysign(tilt, dx) if dx else 0.0
-        roll = -math.copysign(tilt, dy) if dy else 0.0
-        vertical = 0.0
-        if dz:
-            vertical = math.copysign(min(0.15, abs(dz) / max(0.1, duration_s)), dz)
-        self._set_bare_motion(roll, pitch, vertical)
-        pulse = min(max(0.08, duration_s), max(0.08, self.config.bare_move_pulse_s))
-        if not self._wait_bare(pulse):
-            self._set_bare_motion(0.0, 0.0, 0.0)
-
-    def _start_bare_control(self) -> None:
-        thread = self._bare_control_thread
+    def _start_flow_control(self, target_height_m: float) -> None:
+        """Start the same body-velocity/absolute-height stream used by cfclient Hover."""
+        thread = self._flow_control_thread
         if thread is not None:
-            self._raise_bare_error()
+            self._raise_flow_error()
             if thread.is_alive():
                 return
-            raise RuntimeError("无定位姿态控制流已停止；请停止电机后重新解锁")
+            raise RuntimeError("Flow Hover 控制流已停止；请停止电机后重新启动操控")
         scf = self._only_scf()
-        toc = getattr(getattr(scf.cf.param, "toc", None), "toc", {})
-        if "flightmode" not in toc or "althold" not in toc["flightmode"]:
-            raise RuntimeError("当前 Crazyflie 固件不支持 flightmode.althold，已拒绝无定位起飞")
-        scf.cf.commander.send_setpoint(0.0, 0.0, 0.0, 0)
-        scf.cf.param.set_value("flightmode.althold", "1")
-        time.sleep(0.08)
-        with self._bare_control_lock:
-            self._bare_scf = scf
-            self._bare_setpoint = (0.0, 0.0, 0.0, self._BARE_NEUTRAL_THRUST)
-            self._bare_control_error = None
-        self._bare_control_stop.clear()
-        self._bare_control_thread = threading.Thread(
-            target=self._bare_control_loop,
-            name="Crazyflie-Bare-RPYT",
+        target_height = self._clamp_flow_height(target_height_m)
+        scf.cf.commander.send_notify_setpoint_stop()
+        with self._flow_control_lock:
+            self._flow_scf = scf
+            self._flow_velocity = (0.0, 0.0, 0.0)
+            # cflib MotionCommander starts at ground distance 0 and integrates
+            # a vertical velocity until the requested take-off height is reached.
+            self._flow_vertical_speed = min(0.2, self.config.flow_max_vertical_speed_mps)
+            self._flow_target_height = 0.0
+            self._flow_takeoff_target = target_height
+            self._flow_control_error = None
+            self._flow_landing = False
+        self._flow_control_stop.clear()
+        self._flow_control_thread = threading.Thread(
+            target=self._flow_control_loop,
+            name="Crazyflie-Flow-Hover",
             daemon=True,
         )
-        self._bare_control_thread.start()
+        self._flow_control_thread.start()
 
-    def _bare_control_loop(self) -> None:
-        period_s = 1.0 / max(20.0, min(100.0, self.config.bare_setpoint_rate_hz))
-        while not self._bare_control_stop.is_set():
-            with self._bare_control_lock:
-                scf = self._bare_scf
-                roll, pitch, yawrate, thrust = self._bare_setpoint
+    def _flow_control_loop(self) -> None:
+        # Official cflib MotionCommander refreshes its Hover setpoint every 0.2 s.
+        period_s = 1.0 / max(5.0, min(100.0, self.config.flow_setpoint_rate_hz))
+        previous = time.monotonic()
+        while not self._flow_control_stop.is_set():
+            now = time.monotonic()
+            elapsed = min(0.25, max(0.0, now - previous))
+            previous = now
+            with self._flow_control_lock:
+                scf = self._flow_scf
+                vx, vy, yawrate = self._flow_velocity
+                minimum = (
+                    0.0 if self._flow_takeoff_target is not None else
+                    0.05 if self._flow_landing else self.config.flow_min_height_m
+                )
+                maximum = max(minimum, self._flow_detected_max_height)
+                self._flow_target_height = max(
+                    minimum,
+                    min(maximum, self._flow_target_height + self._flow_vertical_speed * elapsed),
+                )
+                if (
+                    self._flow_takeoff_target is not None
+                    and self._flow_target_height >= self._flow_takeoff_target
+                ):
+                    self._flow_target_height = self._flow_takeoff_target
+                    self._flow_takeoff_target = None
+                    self._flow_vertical_speed = 0.0
+                target_height = self._flow_target_height
             try:
                 if scf is None:
                     return
-                scf.cf.commander.send_setpoint(roll, pitch, yawrate, thrust)
+                scf.cf.commander.send_hover_setpoint(vx, vy, yawrate, target_height)
             except Exception as exc:
-                with self._bare_control_lock:
-                    self._bare_control_error = exc
-                self._bare_control_stop.set()
-                self._event("SAFETY", f"无定位姿态控制流中断：{exc}")
+                with self._flow_control_lock:
+                    self._flow_control_error = exc
+                self._flow_control_stop.set()
+                self._event("SAFETY", f"Flow Hover 控制流中断：{exc}")
                 return
-            self._bare_control_stop.wait(period_s)
+            self._flow_control_stop.wait(period_s)
 
-    def _set_bare_motion(self, roll: float, pitch: float, vertical_speed: float) -> None:
-        self._raise_bare_error()
-        vertical_speed = max(-0.5, min(0.5, float(vertical_speed)))
-        thrust = int(round(self._BARE_NEUTRAL_THRUST * (1.0 + vertical_speed)))
-        with self._bare_control_lock:
-            self._bare_setpoint = (float(roll), float(pitch), 0.0, max(1, min(65535, thrust)))
+    def _set_flow_motion(
+        self, velocity_x: float, velocity_y: float, vertical_speed: float, yawrate: float,
+    ) -> None:
+        self._raise_flow_error()
+        max_xy = max(0.05, self.config.flow_max_horizontal_speed_mps)
+        max_z = max(0.05, self.config.flow_max_vertical_speed_mps)
+        with self._flow_control_lock:
+            self._flow_velocity = (
+                max(-max_xy, min(max_xy, float(velocity_x))),
+                max(-max_xy, min(max_xy, float(velocity_y))),
+                float(yawrate),
+            )
+            self._flow_vertical_speed = max(-max_z, min(max_z, float(vertical_speed)))
+            if abs(vertical_speed) > 1e-6:
+                self._flow_takeoff_target = None
 
-    def _wait_bare(self, duration_s: float) -> bool:
-        stopped = self._bare_control_stop.wait(max(0.0, float(duration_s)))
-        self._raise_bare_error()
+    def _move_flow_relative(self, dx: float, dy: float, dz: float, duration_s: float) -> None:
+        self._start_flow_control(self.config.default_height_m)
+        duration = max(0.1, float(duration_s))
+        self._set_flow_motion(dx / duration, dy / duration, dz / duration, 0.0)
+        try:
+            self._wait_flow(duration)
+        finally:
+            self._set_flow_motion(0.0, 0.0, 0.0, 0.0)
+
+    def _land_flow(self, duration_s: float) -> None:
+        self._start_flow_control(self.config.default_height_m)
+        with self._flow_control_lock:
+            current_height = self._flow_target_height
+            self._flow_velocity = (0.0, 0.0, 0.0)
+            self._flow_landing = True
+            self._flow_takeoff_target = None
+            self._flow_vertical_speed = -max(
+                0.08,
+                (current_height - 0.05) / max(0.5, float(duration_s)),
+            )
+        self._wait_flow(max(0.5, float(duration_s)))
+        self._shutdown_flow_control()
+        self._require_swarm().parallel_safe(self._stop_motors_single)
+
+    def _wait_flow(self, duration_s: float) -> bool:
+        stopped = self._flow_control_stop.wait(max(0.0, float(duration_s)))
+        self._raise_flow_error()
         return stopped
 
-    def _raise_bare_error(self) -> None:
-        with self._bare_control_lock:
-            error = self._bare_control_error
+    def _raise_flow_error(self) -> None:
+        with self._flow_control_lock:
+            error = self._flow_control_error
         if error is not None:
-            raise RuntimeError(f"无定位姿态控制流失败：{error}") from error
+            raise RuntimeError(f"Flow Hover 控制流失败：{error}") from error
 
-    def _shutdown_bare_control(self) -> None:
-        self._bare_control_stop.set()
-        thread = self._bare_control_thread
+    def _shutdown_flow_control(self) -> None:
+        self._flow_control_stop.set()
+        thread = self._flow_control_thread
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=0.5)
-        with self._bare_control_lock:
-            scf = self._bare_scf
-            self._bare_scf = None
-            self._bare_control_thread = None
-            self._bare_setpoint = (0.0, 0.0, 0.0, 0)
+        with self._flow_control_lock:
+            scf = self._flow_scf
+            self._flow_scf = None
+            self._flow_control_thread = None
+            self._flow_velocity = (0.0, 0.0, 0.0)
+            self._flow_vertical_speed = 0.0
+            self._flow_takeoff_target = None
+            self._flow_landing = False
         if scf is not None:
             try:
-                scf.cf.param.set_value("flightmode.althold", "0")
+                scf.cf.commander.send_notify_setpoint_stop()
             except Exception:
                 pass
+
+    def _clamp_flow_height(self, height_m: float) -> float:
+        minimum = max(0.05, self.config.flow_min_height_m)
+        maximum = max(minimum, min(self.config.flow_max_height_m, self._flow_detected_max_height))
+        return max(minimum, min(maximum, float(height_m)))
+
+    @property
+    def flow_target_height(self) -> float:
+        with self._flow_control_lock:
+            return self._flow_target_height
 
     def _only_scf(self):
         swarm = self._require_swarm()
         if len(swarm._cfs) != 1:
-            raise RuntimeError("无定位姿态控制只支持一架 Crazyflie")
+            raise RuntimeError("Flow Hover 只支持一架 Crazyflie")
         return next(iter(swarm._cfs.values()))
 
     def _args(self, *values: float) -> dict[str, list[float]]:

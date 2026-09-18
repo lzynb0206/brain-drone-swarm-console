@@ -35,23 +35,6 @@ python -m pip install -r requirements.txt
 
 ## 分阶段启用
 
-### 0. 无定位单机模式
-
-当前只有 Crazyflie 和 Crazyradio、没有 Lighthouse/Flow Deck 时，使用
-`BDS_REQUIRE_LIGHTHOUSE=false`。程序不再以 Lighthouse 状态阻止解锁，并将网关状态
-标记为 `bare`。该模式只允许一架飞机和人工基础动作；自动脑控、蜂群队形和多机测试
-动作仍被拒绝。由于无定位坐标不可用于可靠判定边界，`bare` 模式不执行电子围栏检查。
-界面采用和 Crazyflie Client `Altitude hold` 相同的控制思路：点击“启动操控”后持续发送
-RPYT 控制流并启用 `flightmode.althold`。左杆上推/下拉控制升降速度，右杆控制前后左右的
-小角度姿态；松手自动回中。气压计只辅助高度，不能锁定水平位置，飞机仍会漂移。以后接入
-并标定 Lighthouse 后，将该变量改为 `true`，定位与电子围栏检查会同时恢复。
-
-控制页的三个停止操作含义不同：
-
-- “摇杆回中”：升降速度和横滚/俯仰回到中位，电机继续工作；无定位时仍可能漂移。
-- “停止电机”：立即断桨，空中使用会坠落，但它不是锁存急停，之后可以重新启动操控。
-- “紧急停止”：触发固件锁存急停。Crazyflie 必须断电重启，再点界面上的复位、重新连接和解锁。
-
 ### 1. 无桨、只读遥测
 
 ```bash
@@ -75,7 +58,20 @@ export BDS_HARDWARE_CONTROL_ENABLED=true
 
 ### 3. 单机 Flow Deck 人工验收
 
-`BDS_SWARM_BACKEND=flowdeck` 时只允许一个 URI。它使用 Flow Deck 的局部位置估计和高层相对移动，必须把起飞点作为局部原点重新测量围栏。由于没有 Lighthouse 绝对参考，程序位置会漂移，所以代码禁止该模式开启自动脑控，只用于允许人工低速、低高度验收。
+`BDS_SWARM_BACKEND=flowdeck` 时只允许一个 URI。程序读取官方固件参数
+`deck.bcFlow` / `deck.bcFlow2`，并使用 cflib `send_hover_setpoint(vx, vy, yawrate,
+zdistance)`：`vx/vy` 是机体系水平速度，`zdistance` 是 Flow 下视测距对应的离地目标高度。
+左杆不是直接改变电机油门，而是以速度逐步修改目标高度；右杆控制前后左右速度；松杆后
+水平速度归零并保持最后目标高度。启动时按官方 MotionCommander 的方式，以 0.2m/s
+渐升到默认 0.4m，而不是瞬间跳到目标高度。Flow V1 最大目标高度限制为 1.0m，Flow V2 限制为
+2.0m，还会检查 `range.zrange` 和 `motion.squal`。由于没有 Lighthouse 绝对参考，程序
+仍禁止该模式自动执行脑控和多机队形，只开放人工低速、低高度验收。
+
+Flow 模式停止操作含义：
+
+- “受控降落”：逐步降低 Flow 目标高度，落地后停止电机。
+- “停止电机”：立即断桨；空中使用会直接下落，界面要求二次确认。
+- “紧急停止”：触发固件锁存急停；Crazyflie 必须断电重启，再复位并重新连接。
 
 ### 4. 多机人工动作
 

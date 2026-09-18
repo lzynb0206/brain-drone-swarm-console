@@ -33,6 +33,8 @@ class FakeBackend:
                 "pm.vbat": 4.0,
                 "lighthouse.status": 2.0,
                 "lighthouse.bsActive": 1.0,
+                "range.zrange": 35.0,
+                "motion.squal": 80.0,
             })
         self.connected.set()
 
@@ -141,13 +143,12 @@ class CrazyflieGatewayTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "GEOFENCE"):
             gateway.arm()
 
-    def test_bare_single_mode_skips_lighthouse_and_geofence(self) -> None:
+    def test_flow_single_mode_uses_hover_without_lighthouse_geofence(self) -> None:
         backend = FakeBackend()
         config = CrazyflieSwarmConfig(
             uris=("radio://test/01",),
             control_enabled=True,
-            bounds=None,
-            require_lighthouse=False,
+            bounds=None, positioning_mode="flowdeck",
         )
         gateway = CrazyflieSwarmGateway(config, backend)
         gateway.connect()
@@ -158,19 +159,18 @@ class CrazyflieGatewayTest(unittest.TestCase):
         while not gateway.status().connected and time.time() < deadline:
             time.sleep(0.005)
 
-        self.assertEqual("bare", gateway.status().backend)
+        self.assertEqual("flowdeck", gateway.status().backend)
         gateway.arm()
         self.assertIn(("manual_start",), backend.calls)
-        gateway.send_command(SwarmCommand("takeoff"))
-        self.wait_for_call(backend, "takeoff")
-        with self.assertRaisesRegex(RuntimeError, "无定位单机模式"):
+        self.assertTrue(gateway.status().airborne)
+        with self.assertRaisesRegex(RuntimeError, "Flow Deck Hover"):
             gateway.send_command(SwarmCommand("formation", parameters={"name": "line"}))
 
-    def test_bare_virtual_sticks_are_clamped_and_low_latency(self) -> None:
+    def test_flow_virtual_sticks_are_clamped_and_low_latency(self) -> None:
         backend = FakeBackend()
         config = CrazyflieSwarmConfig(
             uris=("radio://test/01",), control_enabled=True,
-            bounds=None, require_lighthouse=False,
+            bounds=None, positioning_mode="flowdeck",
         )
         gateway = CrazyflieSwarmGateway(config, backend)
         gateway.connect()
@@ -236,7 +236,8 @@ class CrazyflieGatewayTest(unittest.TestCase):
         backend = BlockingTakeoffBackend()
         config = CrazyflieSwarmConfig(
             uris=("radio://test/01",), control_enabled=True,
-            bounds=None, require_lighthouse=False,
+            positioning_mode="lighthouse",
+            bounds=FlightBounds(-1, 1, -1, 1, 0, 1),
         )
         gateway = CrazyflieSwarmGateway(config, backend)
         gateway.connect()
@@ -262,11 +263,11 @@ class CrazyflieGatewayTest(unittest.TestCase):
         self.assertFalse(any(call[0] == "hover" for call in backend.calls))
         gateway.arm()
 
-    def test_stop_motion_uses_high_priority_bare_control(self) -> None:
+    def test_stop_motion_uses_high_priority_flow_hover(self) -> None:
         backend = FakeBackend()
         config = CrazyflieSwarmConfig(
             uris=("radio://test/01",), control_enabled=True,
-            bounds=None, require_lighthouse=False,
+            bounds=None, positioning_mode="flowdeck",
         )
         gateway = CrazyflieSwarmGateway(config, backend)
         gateway.connect()
@@ -276,11 +277,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
         while not gateway.status().connected and time.time() < deadline:
             time.sleep(0.005)
         gateway.arm()
-        gateway.send_command(SwarmCommand("takeoff"))
-        self.wait_for_call(backend, "hover")
-        deadline = time.time() + 1
-        while not gateway.status().airborne and time.time() < deadline:
-            time.sleep(0.005)
+        self.assertTrue(gateway.status().airborne)
         gateway.stop_motion()
         self.assertIn(("stop_motion",), backend.calls)
 
@@ -413,25 +410,87 @@ class CrazyflieGatewayTest(unittest.TestCase):
         CflibBackend._emergency_single(Scf())
         self.assertEqual(["loc-emergency"], calls)
 
-    def test_bare_backend_streams_althold_and_returns_direction_to_neutral(self) -> None:
+    def test_flow_hardware_self_check_detects_flow_v2_and_ai_deck(self) -> None:
+        events: list[tuple[str, str]] = []
+
+        class Param:
+            values = {"deck": {"bcFlow": "0", "bcFlow2": "1", "bcAI": "1"}}
+
+            def __init__(self) -> None:
+                self.writes: list[tuple[str, str]] = []
+
+            def set_value(self, name, value) -> None:
+                self.writes.append((name, value))
+
+        class Log:
+            toc = type("Toc", (), {
+                "toc": {"range": {"zrange": object()}, "motion": {"squal": object()}},
+            })()
+
+        class Cf:
+            link_uri = "radio://test/01"
+            param = Param()
+            log = Log()
+
+        class Scf:
+            cf = Cf()
+
+        backend = CflibBackend(CrazyflieSwarmConfig(
+            uris=("radio://test/01",), positioning_mode="flowdeck",
+        ))
+        backend._event = lambda level, message: events.append((level, message))
+        backend._configure_single(Scf())
+
+        self.assertEqual(2.0, backend._flow_detected_max_height)
+        self.assertIn(("stabilizer.estimator", "2"), Scf.cf.param.writes)
+        self.assertTrue(any("Flow Deck V2" in message and "AI Deck" in message for _, message in events))
+
+    def test_flow_hardware_self_check_rejects_missing_quality_logs(self) -> None:
+        class Param:
+            values = {"deck": {"bcFlow": "1"}}
+
+            def set_value(self, name, value) -> None:
+                return None
+
+        class Log:
+            toc = type("Toc", (), {"toc": {}})()
+
+        class Cf:
+            link_uri = "radio://test/01"
+            param = Param()
+            log = Log()
+
+        class Scf:
+            cf = Cf()
+
+        backend = CflibBackend(CrazyflieSwarmConfig(
+            uris=("radio://test/01",), positioning_mode="flowdeck",
+        ))
+        with self.assertRaisesRegex(RuntimeError, "range.zrange.*motion.squal"):
+            backend._configure_single(Scf())
+
+    def test_flow_backend_streams_official_hover_setpoints(self) -> None:
         class Commander:
             def __init__(self) -> None:
-                self.setpoints: list[tuple[float, float, float, int]] = []
+                self.hover_setpoints: list[tuple[float, float, float, float]] = []
                 self.stopped = False
+                self.notified = 0
 
-            def send_setpoint(self, roll, pitch, yawrate, thrust) -> None:
-                self.setpoints.append((roll, pitch, yawrate, thrust))
+            def send_hover_setpoint(self, vx, vy, yawrate, height) -> None:
+                self.hover_setpoints.append((vx, vy, yawrate, height))
+
+            def send_notify_setpoint_stop(self) -> None:
+                self.notified += 1
 
             def send_stop_setpoint(self) -> None:
                 self.stopped = True
 
         class Param:
             def __init__(self) -> None:
-                self.toc = type("Toc", (), {"toc": {"flightmode": {"althold": object()}}})()
-                self.values: list[tuple[str, str]] = []
+                self.values = {"deck": {"bcFlow2": "1"}}
 
             def set_value(self, name, value) -> None:
-                self.values.append((name, value))
+                return None
 
         class Platform:
             def __init__(self) -> None:
@@ -468,35 +527,35 @@ class CrazyflieGatewayTest(unittest.TestCase):
                         callback(self._cfs[uri], *args)
 
         config = CrazyflieSwarmConfig(
-            uris=("radio://test/01",), require_lighthouse=False,
-            bare_move_pulse_s=0.08, bare_setpoint_rate_hz=100.0,
+            uris=("radio://test/01",), positioning_mode="flowdeck",
+            flow_setpoint_rate_hz=100.0,
         )
         backend = CflibBackend(config)
         scf = Scf()
         backend._swarm = Swarm(scf)
 
         self.assertIsNone(backend.arm_all())
-        backend._start_bare_control()
-        backend._set_bare_motion(0.0, 0.0, 0.15)
+        backend._start_flow_control(0.4)
         time.sleep(0.04)
-        self.assertIn(("flightmode.althold", "1"), scf.cf.param.values)
-        self.assertTrue(any(item[3] > 32767 for item in scf.cf.commander.setpoints))
+        self.assertTrue(scf.cf.commander.hover_setpoints)
+        self.assertLess(scf.cf.commander.hover_setpoints[0][3], 0.1)
+        self.assertGreaterEqual(scf.cf.commander.hover_setpoints[-1][3], scf.cf.commander.hover_setpoints[0][3])
 
+        height_before_manual_climb = backend.flow_target_height
         backend.set_manual_input(0.5, 1.0, -0.5)
-        roll, pitch, yawrate, thrust = backend._bare_setpoint
-        self.assertEqual(-2.0, roll)
-        self.assertEqual(-4.0, pitch)
-        self.assertEqual(0.0, yawrate)
-        self.assertGreater(thrust, 32767)
+        self.assertEqual((0.5, 0.25, 0.0), backend._flow_velocity)
+        self.assertEqual(0.25, backend._flow_vertical_speed)
+        time.sleep(0.04)
+        self.assertTrue(any(item[0] > 0 and item[1] > 0 for item in scf.cf.commander.hover_setpoints))
+        self.assertGreater(backend.flow_target_height, height_before_manual_climb)
 
-        backend.move_all_relative(0.08, 0.0, 0.0, 0.08)
-        self.assertTrue(any(item[1] < 0 for item in scf.cf.commander.setpoints))
-        self.assertEqual((0.0, 0.0, 0.0, 32767), backend._bare_setpoint)
+        backend.stop_motion_all()
+        self.assertEqual((0.0, 0.0, 0.0), backend._flow_velocity)
+        self.assertEqual(0.0, backend._flow_vertical_speed)
 
         backend.stop_motors_all()
         self.assertTrue(scf.cf.commander.stopped)
         self.assertEqual(False, scf.cf.platform.requests[-1])
-        self.assertIn(("flightmode.althold", "0"), scf.cf.param.values)
 
 
 if __name__ == "__main__":

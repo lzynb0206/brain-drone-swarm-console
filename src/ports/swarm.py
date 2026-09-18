@@ -42,7 +42,7 @@ class SwarmGateway(Protocol):
         ...
 
     def stop_motion(self) -> None:
-        """停止当前水平动作并保持飞行；无定位模式只能保持姿态/高度，不能定点。"""
+        """停止水平速度并保持飞行；Flow Hover 保留当前目标高度。"""
         ...
 
     def stop_motors(self) -> None:
@@ -50,7 +50,7 @@ class SwarmGateway(Protocol):
         ...
 
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
-        """更新虚拟摇杆输入，三个轴均为 -1.0 到 1.0。"""
+        """更新 Flow Hover 输入：高度速度、机体前向速度、机体横向速度。"""
         ...
 
     def emergency_stop(self) -> None:
