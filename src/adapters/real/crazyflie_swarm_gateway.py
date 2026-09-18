@@ -1,4 +1,4 @@
-"""Crazyflie swarm adapter with explicit arming and safety gates.
+"""Single-Crazyflie Flow Deck adapter with explicit arming and safety gates.
 
 The UI only enqueues commands.  All cflib work runs on one background thread so
 Qt never waits for radio connection, estimator reset, or a timed movement.
@@ -7,13 +7,11 @@ Qt never waits for radio connection, estimator reset, or a timed movement.
 from __future__ import annotations
 
 import math
-import json
 import os
 import queue
 import threading
 import time
-from dataclasses import dataclass, field, replace
-from itertools import permutations
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Protocol, Sequence
 
@@ -22,9 +20,6 @@ from src.domain import DeviceStatus, Position, SwarmCommand, SwarmStatus, UAVTel
 
 TelemetryCallback = Callable[[str, float, dict[str, float]], None]
 EventCallback = Callable[[str, str], None]
-CancelCheck = Callable[[], None]
-
-
 class CrazyflieBackend(Protocol):
     def connect(self, uris: tuple[str, ...], telemetry: TelemetryCallback, event: EventCallback) -> None: ...
     def disconnect(self) -> None: ...
@@ -40,52 +35,20 @@ class CrazyflieBackend(Protocol):
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None: ...
     def emergency_stop_all(self) -> None: ...
     def move_one_relative(self, uri: str, dx: float, dy: float, dz: float, duration_s: float) -> None: ...
-    def go_to_positions(
-        self, stages: Sequence[dict[str, Position]], duration_s: float,
-        cancel_check: CancelCheck | None = None,
-    ) -> None: ...
     def set_led_all(self, red: int, green: int, blue: int, duration_s: float) -> None: ...
-    def hover_one_by_one(
-        self, height_m: float, height_offsets_m: dict[str, float], hover_s: float, duration_s: float,
-        cancel_check: CancelCheck | None = None,
-    ) -> None: ...
-
-
-@dataclass(frozen=True)
-class FlightBounds:
-    min_x: float
-    max_x: float
-    min_y: float
-    max_y: float
-    min_z: float
-    max_z: float
-
-    def contains(self, position: Position) -> bool:
-        return (
-            self.min_x <= position.x <= self.max_x
-            and self.min_y <= position.y <= self.max_y
-            and self.min_z <= position.z <= self.max_z
-        )
 
 
 @dataclass(frozen=True)
 class CrazyflieSwarmConfig:
     uris: tuple[str, ...]
     control_enabled: bool = False
-    bounds: FlightBounds | None = None
     default_height_m: float = 0.4
     move_distance_m: float = 0.25
     move_speed_mps: float = 0.15
     minimum_battery_voltage: float = 3.6
-    minimum_spacing_m: float = 0.55
-    formation_spacing_m: float = 0.8
-    formation_max_error_m: float = 0.15
     telemetry_timeout_s: float = 1.5
-    lighthouse_ready_status: int = 2
-    lighthouse_failure_samples: int = 3
+    flow_failure_samples: int = 3
     cache_dir: Path = Path(".cache/cflib")
-    height_offsets_m: dict[str, float] = field(default_factory=dict)
-    positioning_mode: str = "lighthouse"
     flow_min_height_m: float = 0.2
     flow_max_height_m: float = 2.0
     flow_max_horizontal_speed_mps: float = 0.5
@@ -93,40 +56,17 @@ class CrazyflieSwarmConfig:
     flow_setpoint_rate_hz: float = 5.0
 
     @classmethod
-    def from_environment(cls, positioning_mode: str | None = None) -> "CrazyflieSwarmConfig":
+    def from_environment(cls) -> "CrazyflieSwarmConfig":
         uris = tuple(value.strip() for value in os.getenv("BDS_CRAZYFLIE_URIS", "").split(",") if value.strip())
-        bounds_text = os.getenv("BDS_SWARM_GEOFENCE", "").strip()
-        bounds = None
-        if bounds_text:
-            values = [float(value.strip()) for value in bounds_text.split(",")]
-            if len(values) != 6:
-                raise ValueError("BDS_SWARM_GEOFENCE 必须是 minX,maxX,minY,maxY,minZ,maxZ")
-            bounds = FlightBounds(*values)
-        try:
-            height_offsets = {
-                str(key): float(value)
-                for key, value in json.loads(os.getenv("BDS_HEIGHT_OFFSETS_JSON", "{}")).items()
-            }
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise ValueError("BDS_HEIGHT_OFFSETS_JSON 必须是 URI 到米制补偿值的 JSON 对象") from exc
-        mode = (positioning_mode or os.getenv("BDS_POSITIONING_MODE", "lighthouse")).strip().lower()
-        if mode not in {"lighthouse", "flowdeck"}:
-            raise ValueError("BDS_POSITIONING_MODE 只能是 lighthouse 或 flowdeck")
         return cls(
             uris=uris,
             control_enabled=os.getenv("BDS_HARDWARE_CONTROL_ENABLED", "false").strip().lower() in {"1", "true", "yes"},
-            bounds=bounds,
             default_height_m=float(os.getenv("BDS_SWARM_TAKEOFF_HEIGHT", "0.4")),
             move_distance_m=float(os.getenv("BDS_SWARM_MOVE_DISTANCE", "0.25")),
             move_speed_mps=float(os.getenv("BDS_SWARM_MOVE_SPEED", "0.15")),
             minimum_battery_voltage=float(os.getenv("BDS_SWARM_MIN_VBAT", "3.6")),
-            minimum_spacing_m=float(os.getenv("BDS_SWARM_MIN_SPACING", "0.55")),
-            formation_spacing_m=float(os.getenv("BDS_SWARM_FORMATION_SPACING", "0.8")),
-            formation_max_error_m=float(os.getenv("BDS_SWARM_FORMATION_MAX_ERROR", "0.15")),
-            lighthouse_failure_samples=int(os.getenv("BDS_LIGHTHOUSE_FAILURE_SAMPLES", "3")),
+            flow_failure_samples=int(os.getenv("BDS_FLOW_FAILURE_SAMPLES", "3")),
             cache_dir=Path(os.getenv("BDS_CFLIB_CACHE", ".cache/cflib")).expanduser(),
-            height_offsets_m=height_offsets,
-            positioning_mode=mode,
             flow_min_height_m=float(os.getenv("BDS_FLOW_MIN_HEIGHT", "0.2")),
             flow_max_height_m=float(os.getenv("BDS_FLOW_MAX_HEIGHT", "2.0")),
             flow_max_horizontal_speed_mps=float(os.getenv("BDS_FLOW_MAX_XY_SPEED", "0.5")),
@@ -140,14 +80,11 @@ class _CommandCancelled(RuntimeError):
 
 
 class CrazyflieSwarmGateway:
-    """Queue-based real swarm gateway; no synthetic aircraft are ever created."""
+    """Queue-based real Flow Deck gateway; no synthetic aircraft are created."""
 
     _ALLOWED_ACTIONS = {
-        "takeoff", "land", "forward", "backward", "left", "right", "hover",
-        "formation", "switch_formation", "led_test", "relative_square", "hover_one_by_one",
-        "hover_sync_test", "relative_forward_back",
+        "takeoff", "land", "forward", "backward", "left", "right", "hover", "led_test",
     }
-    _FORMATIONS = ("line", "diamond", "square")
 
     def __init__(self, config: CrazyflieSwarmConfig, backend: CrazyflieBackend | None = None) -> None:
         self.config = config
@@ -169,17 +106,16 @@ class CrazyflieSwarmGateway:
         self._airborne = False
         self._emergency = False
         self._uavs: dict[str, UAVTelemetry] = {}
-        self._lighthouse_failure_counts: dict[str, int] = {}
+        self._flow_failure_counts: dict[str, int] = {}
         self._events: list[tuple[str, str, float]] = []
         self._event_listeners: list[Callable[[str, str], None]] = []
         self._command_listeners: list[Callable[[str, str, SwarmCommand], None]] = []
-        self._formation_mode = "line"
 
     def connect(self) -> None:
         if not self.config.uris:
             raise RuntimeError("未配置 BDS_CRAZYFLIE_URIS，不能连接 Crazyflie")
-        if self.config.positioning_mode == "flowdeck" and len(self.config.uris) != 1:
-            raise RuntimeError("Flow Deck 模式只允许配置一架 Crazyflie")
+        if len(self.config.uris) != 1:
+            raise RuntimeError("Flow Deck 控制只允许配置一架 Crazyflie")
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return
@@ -218,9 +154,8 @@ class CrazyflieSwarmGateway:
 
     def status(self) -> SwarmStatus:
         with self._lock:
-            backend = "flowdeck" if self.config.positioning_mode == "flowdeck" else "crazyflie"
             return SwarmStatus(
-                backend=backend,
+                backend="flowdeck",
                 state=self._state,
                 connected=self._connected,
                 armed=self._armed,
@@ -261,27 +196,21 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("系统处于急停锁定状态，必须重新连接后才能解锁")
             if self._motor_stop_in_progress:
                 raise RuntimeError("电机停止操作尚未完成，请稍候再解锁")
-            self._validate_ready(require_bounds=self.config.positioning_mode == "lighthouse")
+            self._validate_ready()
             confirmed = self._backend.arm_all()
             if confirmed is False:
                 raise RuntimeError("飞控拒绝解锁，请检查电池、机体姿态和飞控锁定状态")
-            if self.config.positioning_mode == "flowdeck":
-                try:
-                    self._backend.start_manual_control()
-                except Exception:
-                    # Never leave the firmware armed when the continuous
-                    # setpoint stream could not be established.
-                    self._backend.disarm_all()
-                    raise
+            try:
+                self._backend.start_manual_control()
+            except Exception:
+                # Never leave the firmware armed when the continuous
+                # setpoint stream could not be established.
+                self._backend.disarm_all()
+                raise
             self._armed = True
-            self._airborne = self.config.positioning_mode == "flowdeck"
-            self._state = "manual_flight" if self._airborne else "connected"
-            self._message = (
-                f"Flow Hover 正在渐升至 {self.config.default_height_m:.2f}m；松杆保持悬停"
-                if self.config.positioning_mode == "flowdeck" else
-                "实机控制已解锁" if confirmed is not None else
-                "解锁请求已发送；当前固件未提供状态确认"
-            )
+            self._airborne = True
+            self._state = "manual_flight"
+            self._message = f"Flow Hover 正在渐升至 {self.config.default_height_m:.2f}m；松杆保持悬停"
             self._record("INFO", "实机控制已由操作员显式解锁")
 
     def disarm(self) -> None:
@@ -373,8 +302,6 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("系统处于急停锁定状态")
             if not self._armed:
                 raise RuntimeError("请先点击“启动操控”")
-            if self.config.positioning_mode != "flowdeck":
-                raise RuntimeError("虚拟摇杆需要 Flow Deck Hover 模式")
             if self._motor_stop_in_progress:
                 raise RuntimeError("电机正在停止")
         self._backend.set_manual_input(*values)
@@ -426,11 +353,7 @@ class CrazyflieSwarmGateway:
             with self._lock:
                 self._connected = True
                 self._state = "connected"
-                self._message = (
-                    "Flow Deck、测距和光流遥测已连接；Hover 尚未启动"
-                    if self.config.positioning_mode == "flowdeck"
-                    else "遥测已连接；实机控制仍处于锁定状态"
-                )
+                self._message = "Flow Deck、测距和光流遥测已连接；Hover 尚未启动"
             self._record("INFO", f"已连接 {len(self.config.uris)} 架 Crazyflie")
             while not self._stop_event.is_set():
                 try:
@@ -485,72 +408,8 @@ class CrazyflieSwarmGateway:
         with self._lock:
             self._validate_command(command)
         action = command.action.strip().lower()
-        cancel_check = lambda: self._raise_if_cancelled(generation)
         if action == "led_test":
             self._backend.set_led_all(0, 80, 255, float(command.parameters.get("duration_s", 1.0)))
-        elif action == "hover_one_by_one":
-            height = float(command.parameters.get("height_m", self.config.default_height_m))
-            hover_s = max(0.5, float(command.parameters.get("hover_s", 2.0)))
-            duration = max(2.0, height / max(0.05, self.config.move_speed_mps))
-            with self._lock:
-                self._airborne = True
-            landed = False
-            try:
-                self._backend.hover_one_by_one(
-                    height, self.config.height_offsets_m, hover_s, duration, cancel_check,
-                )
-                landed = True
-            except _CommandCancelled:
-                raise
-            except Exception:
-                # A partially completed acceptance run must never leave its state
-                # ambiguous.  Ask every connected aircraft to land before failing.
-                self._raise_if_cancelled(generation)
-                self._backend.land_all(3.0)
-                landed = True
-                raise
-            finally:
-                if landed:
-                    with self._lock:
-                        if generation == self._command_generation and not self._emergency:
-                            self._airborne = False
-                            self._armed = False
-                            self._state = "connected"
-                            self._message = "逐架悬停验收完成，电机已停止"
-        elif action == "hover_sync_test":
-            height = float(command.parameters.get("height_m", self.config.default_height_m))
-            hover_s = max(0.5, float(command.parameters.get("hover_s", 2.0)))
-            duration = max(2.0, height / max(0.05, self.config.move_speed_mps))
-            with self._lock:
-                self._airborne = True
-            landed = False
-            try:
-                takeoff_with_offsets = getattr(self._backend, "takeoff_all_with_offsets", None)
-                if self.config.height_offsets_m and callable(takeoff_with_offsets):
-                    takeoff_with_offsets(height, self.config.height_offsets_m, duration)
-                else:
-                    self._backend.takeoff_all(height, duration)
-                self._raise_if_cancelled(generation)
-                self._backend.hover_all(hover_s)
-                self._raise_if_cancelled(generation)
-                self._backend.land_all(duration)
-                self._raise_if_cancelled(generation)
-                landed = True
-            except _CommandCancelled:
-                raise
-            except Exception:
-                self._raise_if_cancelled(generation)
-                self._backend.land_all(3.0)
-                landed = True
-                raise
-            finally:
-                if landed:
-                    with self._lock:
-                        if generation == self._command_generation and not self._emergency:
-                            self._airborne = False
-                            self._armed = False
-                            self._state = "connected"
-                            self._message = "同步悬停验收完成，电机已停止"
         elif action == "takeoff":
             height = float(command.parameters.get("height_m", self.config.default_height_m))
             speed = max(0.05, self.config.move_speed_mps)
@@ -559,11 +418,7 @@ class CrazyflieSwarmGateway:
                 self._airborne = True
                 self._state = "taking_off"
                 self._message = "正在起飞并进入保持状态…"
-            takeoff_with_offsets = getattr(self._backend, "takeoff_all_with_offsets", None)
-            if self.config.height_offsets_m and callable(takeoff_with_offsets):
-                takeoff_with_offsets(height, self.config.height_offsets_m, duration)
-            else:
-                self._backend.takeoff_all(height, duration)
+            self._backend.takeoff_all(height, duration)
             self._raise_if_cancelled(generation)
             self._backend.hover_all(0.4)
             self._raise_if_cancelled(generation)
@@ -582,30 +437,6 @@ class CrazyflieSwarmGateway:
                     self._message = "已降落并停止电机"
         elif action == "hover":
             self._backend.hover_all(0.5)
-        elif action in {"formation", "switch_formation"}:
-            name = str(command.parameters.get("name", ""))
-            if action == "switch_formation":
-                name = self._FORMATIONS[(self._FORMATIONS.index(self._formation_mode) + 1) % len(self._FORMATIONS)]
-            stages, targets = self._plan_formation(name)
-            duration = self._duration_for_positions(targets)
-            self._backend.go_to_positions(stages, duration, cancel_check)
-            self._raise_if_cancelled(generation)
-            self._verify_position_targets(targets)
-            self._formation_mode = name
-        elif action == "relative_square":
-            distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
-            duration = max(1.0, distance / max(0.05, self.config.move_speed_mps))
-            for dx, dy in ((distance, 0.0), (0.0, distance), (-distance, 0.0), (0.0, -distance)):
-                self._raise_if_cancelled(generation)
-                self._backend.move_all_relative(dx, dy, 0.0, duration)
-                self._raise_if_cancelled(generation)
-        elif action == "relative_forward_back":
-            distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
-            duration = max(1.0, distance / max(0.05, self.config.move_speed_mps))
-            self._backend.move_all_relative(distance, 0.0, 0.0, duration)
-            self._raise_if_cancelled(generation)
-            self._backend.move_all_relative(-distance, 0.0, 0.0, duration)
-            self._raise_if_cancelled(generation)
         else:
             distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
             vectors = {
@@ -653,87 +484,25 @@ class CrazyflieSwarmGateway:
 
     def _validate_command(self, command: SwarmCommand) -> None:
         action = command.action.strip().lower()
-        if self.config.positioning_mode == "flowdeck" and action in {
-            "formation", "switch_formation", "relative_square", "relative_forward_back",
-            "hover_one_by_one", "hover_sync_test",
-        }:
-            raise RuntimeError("Flow Deck Hover 是单机相对定位模式，禁止蜂群和绝对队形动作")
         if action in {"land", "led_test"}:
             return
-        self._validate_ready(
-            require_bounds=action != "hover" and self.config.positioning_mode == "lighthouse"
-        )
-        if action in {"takeoff", "hover_one_by_one", "hover_sync_test"}:
+        self._validate_ready()
+        if action == "takeoff":
             if self._airborne:
                 raise RuntimeError("无人机已经处于飞行状态")
             height = float(command.parameters.get("height_m", self.config.default_height_m))
-            for uav in self._uavs.values():
-                uri = self._resolve_uri(uav.uav_id)
-                target_height = height + self.config.height_offsets_m.get(uri, 0.0)
-                if self.config.positioning_mode == "lighthouse" and (
-                    not self.config.bounds or not self.config.bounds.contains(
-                        Position(uav.position.x, uav.position.y, target_height)
-                    )
-                ):
-                    raise RuntimeError(f"{uav.uav_id} 起飞目标超出场地围栏")
+            if not self.config.flow_min_height_m <= height <= self.config.flow_max_height_m:
+                raise RuntimeError(
+                    f"Flow Hover 目标高度必须在 {self.config.flow_min_height_m:.1f}–"
+                    f"{self.config.flow_max_height_m:.1f}m 之间"
+                )
             return
         if action == "hover":
             if not self._airborne:
                 raise RuntimeError("无人机尚未起飞")
             return
-        if action in {"formation", "switch_formation", "relative_square", "relative_forward_back"}:
-            if not self._airborne:
-                raise RuntimeError("无人机尚未起飞")
-            if action in {"formation", "switch_formation"}:
-                name = str(command.parameters.get("name", ""))
-                if action == "formation" and name not in self._FORMATIONS:
-                    raise RuntimeError(f"不支持的队形：{name}")
-                if len(self.config.uris) != 4:
-                    raise RuntimeError("一字、菱形、方形队形当前要求恰好 4 架无人机")
-            if action == "relative_square":
-                distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
-                self._validate_relative_path(
-                    ((distance, 0.0, 0.0), (0.0, distance, 0.0),
-                     (-distance, 0.0, 0.0), (0.0, -distance, 0.0)),
-                )
-            elif action == "relative_forward_back":
-                distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
-                self._validate_relative_path(
-                    ((distance, 0.0, 0.0), (-distance, 0.0, 0.0)),
-                )
-            return
         if not self._airborne:
             raise RuntimeError("无人机尚未起飞")
-        distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
-        dx, dy = {
-            "forward": (distance, 0.0), "backward": (-distance, 0.0),
-            "left": (0.0, distance), "right": (0.0, -distance),
-        }[action]
-        selected_uris = [self._resolve_uri(command.uav_id)] if command.uav_id else list(self._uavs)
-        planned = {uri: telemetry.position for uri, telemetry in self._uavs.items()}
-        for uri in selected_uris:
-            current = self._uavs[uri].position
-            planned[uri] = Position(current.x + dx, current.y + dy, current.z)
-        targets = list(planned.values())
-        if self.config.positioning_mode == "lighthouse" and (
-            not self.config.bounds or any(not self.config.bounds.contains(target) for target in targets)
-        ):
-            raise RuntimeError("移动目标超出场地围栏")
-        for index, first in enumerate(targets):
-            for second in targets[index + 1:]:
-                if math.dist((first.x, first.y, first.z), (second.x, second.y, second.z)) < self.config.minimum_spacing_m:
-                    raise RuntimeError("目标位置小于最小机间距")
-
-    def _validate_relative_path(self, vectors: Sequence[tuple[float, float, float]]) -> None:
-        """Validate every waypoint of a synchronized relative test path."""
-
-        planned = {uri: telemetry.position for uri, telemetry in self._uavs.items()}
-        for dx, dy, dz in vectors:
-            planned = {
-                uri: Position(value.x + dx, value.y + dy, value.z + dz)
-                for uri, value in planned.items()
-            }
-            self._validate_position_set(planned)
 
     def _resolve_uri(self, uav_id: str) -> str:
         if uav_id in self.config.uris:
@@ -743,114 +512,9 @@ class CrazyflieSwarmGateway:
                 return uri
         raise RuntimeError(f"找不到无人机：{uav_id}")
 
-    def _plan_formation(self, name: str) -> tuple[list[dict[str, Position]], dict[str, Position]]:
-        if name not in self._FORMATIONS:
-            raise RuntimeError(f"不支持的队形：{name}")
-        ordered = [self._uavs[uri] for uri in self.config.uris]
-        if len(ordered) != 4:
-            raise RuntimeError("形成队形前必须收到 4 架无人机的实时位置")
-        center_x = sum(item.position.x for item in ordered) / 4.0
-        center_y = sum(item.position.y for item in ordered) / 4.0
-        center_z = sum(item.position.z for item in ordered) / 4.0
-        spacing = self.config.formation_spacing_m
-        offsets = {
-            "line": ((-1.5 * spacing, 0.0), (-0.5 * spacing, 0.0), (0.5 * spacing, 0.0), (1.5 * spacing, 0.0)),
-            "diamond": ((-spacing, 0.0), (0.0, spacing), (spacing, 0.0), (0.0, -spacing)),
-            "square": ((-spacing / 2, -spacing / 2), (-spacing / 2, spacing / 2),
-                       (spacing / 2, spacing / 2), (spacing / 2, -spacing / 2)),
-        }[name]
-        current = {uri: self._uavs[uri].position for uri in self.config.uris}
-        candidates: list[tuple[float, dict[str, Position]]] = []
-        for assigned_offsets in permutations(offsets):
-            candidate = {
-                uri: Position(
-                    center_x + dx,
-                    center_y + dy,
-                    center_z + self.config.height_offsets_m.get(uri, 0.0),
-                )
-                for uri, (dx, dy) in zip(self.config.uris, assigned_offsets)
-            }
-            try:
-                self._validate_transition(current, candidate)
-            except RuntimeError:
-                continue
-            distance = sum(
-                math.dist(
-                    (current[uri].x, current[uri].y, current[uri].z),
-                    (candidate[uri].x, candidate[uri].y, candidate[uri].z),
-                )
-                for uri in self.config.uris
-            )
-            candidates.append((distance, candidate))
-        if not candidates:
-            raise RuntimeError("找不到同时满足围栏和机间距的队形转换路径")
-        targets = min(candidates, key=lambda item: item[0])[1]
-        midpoint = {
-            uri: Position(
-                (current[uri].x + targets[uri].x) / 2.0,
-                (current[uri].y + targets[uri].y) / 2.0,
-                (current[uri].z + targets[uri].z) / 2.0,
-            )
-            for uri in self.config.uris
-        }
-        self._validate_transition(current, midpoint)
-        self._validate_transition(midpoint, targets)
-        return [midpoint, targets], targets
-
-    def _validate_transition(
-        self, start: dict[str, Position], end: dict[str, Position], steps: int = 20,
-    ) -> None:
-        """Check the full linear transition, not only its endpoints."""
-
-        for step in range(steps + 1):
-            ratio = step / max(1, steps)
-            positions = {
-                uri: Position(
-                    start[uri].x + (end[uri].x - start[uri].x) * ratio,
-                    start[uri].y + (end[uri].y - start[uri].y) * ratio,
-                    start[uri].z + (end[uri].z - start[uri].z) * ratio,
-                )
-                for uri in start
-            }
-            self._validate_position_set(positions)
-
-    def _validate_position_set(self, positions: dict[str, Position]) -> None:
-        if self.config.bounds is None or any(not self.config.bounds.contains(value) for value in positions.values()):
-            raise RuntimeError("队形路径超出场地围栏")
-        values = list(positions.values())
-        for index, first in enumerate(values):
-            for second in values[index + 1:]:
-                if math.dist((first.x, first.y, first.z), (second.x, second.y, second.z)) < self.config.minimum_spacing_m:
-                    raise RuntimeError("队形路径小于最小机间距")
-
-    def _duration_for_positions(self, targets: dict[str, Position]) -> float:
-        displacement = max(
-            math.dist(
-                (self._uavs[uri].position.x, self._uavs[uri].position.y, self._uavs[uri].position.z),
-                (target.x, target.y, target.z),
-            )
-            for uri, target in targets.items()
-        )
-        return max(1.0, displacement / max(0.05, self.config.move_speed_mps))
-
-    def _verify_position_targets(self, targets: dict[str, Position]) -> None:
-        errors = {
-            uri: math.dist(
-                (self._uavs[uri].position.x, self._uavs[uri].position.y, self._uavs[uri].position.z),
-                (target.x, target.y, target.z),
-            )
-            for uri, target in targets.items()
-        }
-        failed = {uri: error for uri, error in errors.items() if error > self.config.formation_max_error_m}
-        if failed:
-            details = ", ".join(f"{uri.rsplit('/', 1)[-1]}={error:.2f}m" for uri, error in failed.items())
-            raise RuntimeError(f"队形坐标误差超限：{details}")
-
-    def _validate_ready(self, require_bounds: bool) -> None:
-        if require_bounds and self.config.bounds is None:
-            raise RuntimeError("未配置 BDS_SWARM_GEOFENCE，实机飞行被禁止")
+    def _validate_ready(self) -> None:
         if len(self._uavs) != len(self.config.uris):
-            raise RuntimeError("尚未收到全部无人机遥测")
+            raise RuntimeError("尚未收到 Crazyflie 遥测")
         now = time.time()
         for uav in self._uavs.values():
             if now - uav.last_update_timestamp > self.config.telemetry_timeout_s:
@@ -858,8 +522,7 @@ class CrazyflieSwarmGateway:
             if uav.battery_voltage is None or uav.battery_voltage < self.config.minimum_battery_voltage:
                 raise RuntimeError(f"{uav.uav_id} 电压不足")
             if not uav.positioning_ok:
-                mode_label = "Flow Deck 测距/光流" if self.config.positioning_mode == "flowdeck" else "Lighthouse"
-                raise RuntimeError(f"{uav.uav_id} {mode_label}尚未就绪")
+                raise RuntimeError(f"{uav.uav_id} Flow Deck 测距/光流尚未就绪")
 
     def _on_telemetry(self, uri: str, timestamp: float, data: dict[str, float]) -> None:
         position = Position(float(data.get("stateEstimate.x", 0.0)), float(data.get("stateEstimate.y", 0.0)),
@@ -867,19 +530,13 @@ class CrazyflieSwarmGateway:
         speed = math.sqrt(sum(float(data.get(key, 0.0)) ** 2 for key in ("stateEstimate.vx", "stateEstimate.vy", "stateEstimate.vz")))
         voltage = float(data.get("pm.vbat", 0.0))
         battery = max(0.0, min(100.0, (voltage - 3.0) / 1.2 * 100.0))
-        lighthouse_ok = (
-            int(data.get("lighthouse.status", 0)) == self.config.lighthouse_ready_status
-            and int(data.get("lighthouse.bsActive", 0)) > 0
-            and all(math.isfinite(value) for value in (position.x, position.y, position.z))
-        )
         local_flow_ok = (
-            self.config.positioning_mode == "flowdeck"
-            and all(key in data for key in ("stateEstimate.x", "stateEstimate.y", "stateEstimate.z"))
+            all(key in data for key in ("stateEstimate.x", "stateEstimate.y", "stateEstimate.z"))
             and all(math.isfinite(value) for value in (position.x, position.y, position.z))
             and 0.0 < float(data.get("range.zrange", 0.0)) < 4000.0
             and float(data.get("motion.squal", 0.0)) > 0.0
         )
-        positioning_ok = lighthouse_ok or local_flow_ok
+        positioning_ok = local_flow_ok
         supervisor_info = int(data.get("supervisor.info", 0))
         firmware_locked = bool(supervisor_info & (1 << 6))
         name = uri.rsplit("/", 1)[-1]
@@ -894,15 +551,12 @@ class CrazyflieSwarmGateway:
                 last_update_timestamp=float(timestamp) if timestamp > 1_000_000_000 else time.time(),
             )
             if self._airborne:
-                current_positioning_ok = (
-                    local_flow_ok if self.config.positioning_mode == "flowdeck" else lighthouse_ok
+                self._flow_failure_counts[uri] = (
+                    0 if local_flow_ok else self._flow_failure_counts.get(uri, 0) + 1
                 )
-                self._lighthouse_failure_counts[uri] = (
-                    0 if current_positioning_ok else self._lighthouse_failure_counts.get(uri, 0) + 1
-                )
-                should_trip = self._lighthouse_failure_counts[uri] >= self.config.lighthouse_failure_samples
+                should_trip = self._flow_failure_counts[uri] >= self.config.flow_failure_samples
             else:
-                self._lighthouse_failure_counts[uri] = 0
+                self._flow_failure_counts[uri] = 0
             if firmware_locked and not self._emergency:
                 self._command_generation += 1
                 self._discard_pending_commands("飞控进入锁定状态")
@@ -915,8 +569,7 @@ class CrazyflieSwarmGateway:
         if newly_locked:
             self._record("ERROR", f"{name} 飞控报告锁定状态，需要断电重启")
         if should_trip:
-            source = "Flow Deck" if self.config.positioning_mode == "flowdeck" else "Lighthouse"
-            self._trip_emergency(f"{name} {source} 连续 {self.config.lighthouse_failure_samples} 次未就绪")
+            self._trip_emergency(f"{name} Flow Deck 连续 {self.config.flow_failure_samples} 次未就绪")
 
     def _on_backend_event(self, level: str, message: str) -> None:
         if level.upper() == "SAFETY":
@@ -1005,7 +658,6 @@ class CflibBackend:
     def __init__(self, config: CrazyflieSwarmConfig) -> None:
         self.config = config
         self.cache_dir = config.cache_dir
-        self.lighthouse_ready_status = config.lighthouse_ready_status
         self._swarm = None
         self._logs: list[object] = []
         self._telemetry_cache: dict[str, dict[str, float]] = {}
@@ -1038,8 +690,8 @@ class CflibBackend:
         self._swarm = Swarm(set(uris), factory=CachedCfFactory(rw_cache=str(self.cache_dir)))
         self._swarm.open_links()
         self._swarm.parallel_safe(self._configure_single)
-        # Reset without the blocking convergence loop.  Readiness is decided
-        # from live Flow/Lighthouse telemetry by the gateway.
+        # Reset without the blocking convergence loop. Readiness is decided
+        # from live Flow Deck telemetry by the gateway.
         self._swarm.parallel_safe(self._reset_estimator_single)
         for uri, scf in self._swarm._cfs.items():  # cflib Swarm currently exposes connected CFs here.
             lost_callback = lambda _uri, message, current_uri=uri: event(
@@ -1056,19 +708,14 @@ class CflibBackend:
                 pose_log.add_variable(variable, "float")
             health_log = LogConfig(name=f"health-{uri[-2:]}", period_in_ms=200)
             health_log.add_variable("pm.vbat", "float")
-            if self.config.positioning_mode == "flowdeck":
-                for variable, variable_type in (
-                    ("range.zrange", "uint16_t"),
-                    ("motion.squal", "uint8_t"),
-                    ("motion.deltaX", "int16_t"),
-                    ("motion.deltaY", "int16_t"),
-                ):
-                    if self._log_variable_exists(scf, variable):
-                        health_log.add_variable(variable, variable_type)
-            if self._log_variable_exists(scf, "lighthouse.status"):
-                health_log.add_variable("lighthouse.status", "uint8_t")
-            if self._log_variable_exists(scf, "lighthouse.bsActive"):
-                health_log.add_variable("lighthouse.bsActive", "uint16_t")
+            for variable, variable_type in (
+                ("range.zrange", "uint16_t"),
+                ("motion.squal", "uint8_t"),
+                ("motion.deltaX", "int16_t"),
+                ("motion.deltaY", "int16_t"),
+            ):
+                if self._log_variable_exists(scf, variable):
+                    health_log.add_variable(variable, variable_type)
             if self._log_variable_exists(scf, "supervisor.info"):
                 health_log.add_variable("supervisor.info", "uint16_t")
             for log in (pose_log, health_log):
@@ -1113,33 +760,27 @@ class CflibBackend:
         decks = {
             "flow_v1": present("bcFlow"),
             "flow_v2": present("bcFlow2"),
-            "lighthouse": present("bcLighthouse4"),
             "ai": present("bcAI"),
         }
         self._detected_decks[uri] = decks
-        if self.config.positioning_mode == "flowdeck" and not (decks["flow_v1"] or decks["flow_v2"]):
+        if not (decks["flow_v1"] or decks["flow_v2"]):
             raise RuntimeError("未检测到 Flow Deck（deck.bcFlow/deck.bcFlow2 均为 0）")
-        if self.config.positioning_mode == "lighthouse" and not decks["lighthouse"]:
-            raise RuntimeError("未检测到 Lighthouse Deck（deck.bcLighthouse4=0）")
-        if self.config.positioning_mode == "flowdeck":
-            missing_logs = [
-                name for name in ("range.zrange", "motion.squal")
-                if not self._log_variable_exists(scf, name)
-            ]
-            if missing_logs:
-                raise RuntimeError(
-                    "Flow Deck 固件遥测不完整，缺少：" + ", ".join(missing_logs)
-                )
-            official_limit = 2.0 if decks["flow_v2"] else 1.0
-            self._flow_detected_max_height = min(self.config.flow_max_height_m, official_limit)
-            self._event(
-                "INFO",
-                f"{uri} 已检测 Flow Deck {'V2' if decks['flow_v2'] else 'V1'}"
-                f"；Hover 高度上限 {self._flow_detected_max_height:.1f}m"
-                + ("；同时检测到 AI Deck" if decks["ai"] else ""),
+        missing_logs = [
+            name for name in ("range.zrange", "motion.squal")
+            if not self._log_variable_exists(scf, name)
+        ]
+        if missing_logs:
+            raise RuntimeError(
+                "Flow Deck 固件遥测不完整，缺少：" + ", ".join(missing_logs)
             )
-        elif decks["ai"]:
-            self._event("WARN", f"{uri} 同时检测到 Lighthouse 与 AI Deck，请确认 UART1 冲突已处理")
+        official_limit = 2.0 if decks["flow_v2"] else 1.0
+        self._flow_detected_max_height = min(self.config.flow_max_height_m, official_limit)
+        self._event(
+            "INFO",
+            f"{uri} 已检测 Flow Deck {'V2' if decks['flow_v2'] else 'V1'}"
+            f"；Hover 高度上限 {self._flow_detected_max_height:.1f}m"
+            + ("；同时检测到 AI Deck" if decks["ai"] else ""),
+        )
         scf.cf.param.set_value("stabilizer.estimator", "2")
 
     @staticmethod
@@ -1155,11 +796,10 @@ class CflibBackend:
         scf.cf.param.set_value("kalman.resetEstimation", "0")
 
     def disconnect(self) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            try:
-                self._shutdown_flow_control()
-            except Exception:
-                pass
+        try:
+            self._shutdown_flow_control()
+        except Exception:
+            pass
         if self._swarm is not None:
             try:
                 self._swarm.parallel_safe(self._stop_motors_single)
@@ -1204,8 +844,7 @@ class CflibBackend:
         return False
 
     def disarm_all(self) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            self._shutdown_flow_control()
+        self._shutdown_flow_control()
         self._require_swarm().parallel_safe(self._disarm_single)
 
     @staticmethod
@@ -1223,88 +862,31 @@ class CflibBackend:
             platform.send_arming_request(False)
 
     def takeoff_all(self, height_m: float, duration_s: float) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            self._start_flow_control(height_m)
-            return
-        self._require_swarm().parallel_safe(self._takeoff_single, self._args(height_m, duration_s))
-        time.sleep(duration_s + 0.5)
-
-    def takeoff_all_with_offsets(self, height_m: float, offsets: dict[str, float], duration_s: float) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            uri = next(iter(self._require_swarm()._cfs))
-            self._start_flow_control(height_m + float(offsets.get(uri, 0.0)))
-            return
-        args = {
-            uri: [height_m + float(offsets.get(uri, 0.0)), duration_s]
-            for uri in self._require_swarm()._cfs
-        }
-        self._require_swarm().parallel_safe(self._takeoff_single, args)
-        time.sleep(duration_s + 0.5)
-
-    @staticmethod
-    def _takeoff_single(scf, height_m: float, duration_s: float) -> None:
-        scf.cf.high_level_commander.takeoff(height_m, duration_s)
+        self._start_flow_control(height_m)
 
     def land_all(self, duration_s: float) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            self._land_flow(duration_s)
-            return
-        swarm = self._require_swarm()
-        swarm.parallel_safe(self._land_single, self._args(duration_s))
-        time.sleep(duration_s + 0.5)
-        swarm.parallel_safe(self._stop_motors_single)
-
-    @staticmethod
-    def _land_single(scf, duration_s: float) -> None:
-        scf.cf.high_level_commander.land(0.0, duration_s)
-
-    @staticmethod
-    def _stop_single(scf) -> None:
-        scf.cf.high_level_commander.stop()
+        self._land_flow(duration_s)
 
     def move_all_relative(self, dx: float, dy: float, dz: float, duration_s: float) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            self._move_flow_relative(dx, dy, dz, duration_s)
-            return
-        self._require_swarm().parallel_safe(self._move_single, self._args(dx, dy, dz, duration_s))
-        time.sleep(duration_s + 0.2)
+        self._move_flow_relative(dx, dy, dz, duration_s)
 
     def move_one_relative(self, uri: str, dx: float, dy: float, dz: float, duration_s: float) -> None:
         swarm = self._require_swarm()
         if uri not in swarm._cfs:
             raise RuntimeError(f"Crazyflie 未连接：{uri}")
-        if self.config.positioning_mode == "flowdeck":
-            self._move_flow_relative(dx, dy, dz, duration_s)
-            return
-        self._move_single(swarm._cfs[uri], dx, dy, dz, duration_s)
-        time.sleep(duration_s + 0.2)
-
-    @staticmethod
-    def _move_single(scf, dx: float, dy: float, dz: float, duration_s: float) -> None:
-        scf.cf.high_level_commander.go_to(dx, dy, dz, 0.0, duration_s, relative=True)
+        self._move_flow_relative(dx, dy, dz, duration_s)
 
     def hover_all(self, duration_s: float) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            self._set_flow_motion(0.0, 0.0, 0.0, 0.0)
-            self._wait_flow(duration_s)
-            return
-        self._require_swarm().parallel_safe(self._hover_single, self._args(duration_s))
-        time.sleep(duration_s)
+        self._set_flow_motion(0.0, 0.0, 0.0, 0.0)
+        self._wait_flow(duration_s)
 
     def stop_motion_all(self) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            self._set_flow_motion(0.0, 0.0, 0.0, 0.0)
-            return
-        self._require_swarm().parallel_safe(self._hover_single, self._args(0.5))
+        self._set_flow_motion(0.0, 0.0, 0.0, 0.0)
 
     def start_manual_control(self) -> None:
-        if self.config.positioning_mode != "flowdeck":
-            raise RuntimeError("Flow Hover 手动控制需要 Flow Deck 模式")
         self._start_flow_control(self.config.default_height_m)
 
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
-        if self.config.positioning_mode != "flowdeck":
-            raise RuntimeError("Flow Hover 手动控制需要 Flow Deck 模式")
         self._start_flow_control(self.config.default_height_m)
         dead_zone = 0.08
         vertical = 0.0 if abs(vertical) < dead_zone else max(-1.0, min(1.0, vertical))
@@ -1321,30 +903,8 @@ class CflibBackend:
         )
 
     def stop_motors_all(self) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            self._shutdown_flow_control()
+        self._shutdown_flow_control()
         self._require_swarm().parallel_safe(self._stop_motors_single)
-
-    def go_to_positions(
-        self, stages: Sequence[dict[str, Position]], duration_s: float,
-        cancel_check: CancelCheck | None = None,
-    ) -> None:
-        swarm = self._require_swarm()
-        for stage in stages:
-            if cancel_check is not None:
-                cancel_check()
-            args = {
-                uri: [position.x, position.y, position.z, duration_s]
-                for uri, position in stage.items()
-            }
-            swarm.parallel_safe(self._go_absolute_single, args)
-            time.sleep(duration_s + 0.25)
-            if cancel_check is not None:
-                cancel_check()
-
-    @staticmethod
-    def _go_absolute_single(scf, x: float, y: float, z: float, duration_s: float) -> None:
-        scf.cf.high_level_commander.go_to(x, y, z, 0.0, duration_s, relative=False)
 
     def set_led_all(self, red: int, green: int, blue: int, duration_s: float) -> None:
         swarm = self._require_swarm()
@@ -1352,35 +912,6 @@ class CflibBackend:
         time.sleep(max(0.1, duration_s))
         swarm.parallel_safe(self._set_led_single, self._args(0, 0, 0))
 
-    def hover_one_by_one(
-        self, height_m: float, height_offsets_m: dict[str, float], hover_s: float, duration_s: float,
-        cancel_check: CancelCheck | None = None,
-    ) -> None:
-        """Run a sequential takeoff/hover/land acceptance test.
-
-        Only one aircraft is commanded airborne at a time.  The caller still
-        performs all normal geofence, battery, positioning and arming checks.
-        """
-
-        swarm = self._require_swarm()
-        for uri in tuple(swarm._cfs):
-            if cancel_check is not None:
-                cancel_check()
-            scf = swarm._cfs[uri]
-            target_height = height_m + float(height_offsets_m.get(uri, 0.0))
-            self._takeoff_single(scf, target_height, duration_s)
-            time.sleep(duration_s + 0.3)
-            if cancel_check is not None:
-                cancel_check()
-            self._hover_single(scf, hover_s)
-            time.sleep(hover_s)
-            if cancel_check is not None:
-                cancel_check()
-            self._land_single(scf, duration_s)
-            time.sleep(duration_s + 0.3)
-            if cancel_check is not None:
-                cancel_check()
-            self._stop_single(scf)
 
     @staticmethod
     def _set_led_single(scf, red: int, green: int, blue: int) -> None:
@@ -1389,13 +920,8 @@ class CflibBackend:
         scf.cf.param.set_value("ring.solidGreen", str(max(0, min(255, int(green)))))
         scf.cf.param.set_value("ring.solidBlue", str(max(0, min(255, int(blue)))))
 
-    @staticmethod
-    def _hover_single(scf, duration_s: float) -> None:
-        scf.cf.high_level_commander.go_to(0.0, 0.0, 0.0, 0.0, duration_s, relative=True)
-
     def emergency_stop_all(self) -> None:
-        if self.config.positioning_mode == "flowdeck":
-            self._shutdown_flow_control()
+        self._shutdown_flow_control()
         self._require_swarm().parallel_safe(self._emergency_single)
 
     @staticmethod

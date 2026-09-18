@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QInputDialog, QLabel, QMessageBox, QWidget
 from src.bci.config import COMMANDS, SSVEP_PROFILE_NAME, TARGET_FREQUENCIES_HZ, TRUE_LABELS
 from src.domain import EEGFrame, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
-from src.services import ExperimentRecorder, HeightCalibrationService, WorkbenchService
+from src.services import ExperimentRecorder, WorkbenchService
 from src.views.engineer_dashboard import EngineerDashboard
 from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 from src.workers import EEGWorker
@@ -74,20 +74,10 @@ class MainView(QWidget):
         self._pipeline_worker: EEGWorker | None = None
         self._stimulus_window: SSVEPStimulusWindow | None = None
         self._continuous_recording = False
-        self._height_calibrating = False
         self._active_joystick: str | None = None
         self._manual_vertical = 0.0
         self._manual_forward = 0.0
         self._manual_lateral = 0.0
-        self._height_calibration = (
-            HeightCalibrationService(
-                experiment_recorder.root / "calibration",
-                target_height_m=float(
-                    getattr(getattr(swarm_gateway, "config", None), "default_height_m", 0.5)
-                ),
-            )
-            if experiment_recorder is not None else None
-        )
         if eeg_stream is not None and intent_decoder is not None and experiment_recorder is not None:
             self._pipeline_worker = EEGWorker(
                 eeg_stream, intent_decoder, experiment_recorder, parent=self,
@@ -295,8 +285,6 @@ class MainView(QWidget):
         super().keyPressEvent(event)
 
     def _refresh_runtime(self) -> None:
-        if self._height_calibrating and self._height_calibration is not None and self.swarm_gateway is not None:
-            self._height_calibration.add_telemetry(self.swarm_gateway.list_uavs())
         self.update()
 
     def _hit(self, x: float, y: float, w: float, h: float, action: str) -> None:
@@ -424,14 +412,10 @@ class MainView(QWidget):
             self._edit_user_dialog(action.split(":", 1)[1])
         elif action.startswith("swarm-command:"):
             self._notify(self.actions.send_swarm_command(action.split(":", 1)[1]))
-        elif action.startswith("swarm-formation:"):
-            self._notify(self.actions.set_formation(action.split(":", 1)[1]))
         elif action == "swarm-configure-uris":
             self._configure_swarm_uris_dialog()
         elif action == "swarm-single-control":
             self._single_uav_control_dialog()
-        elif action == "height-calibration-toggle":
-            self._toggle_height_calibration()
         elif action == "swarm-connect":
             self._notify(self.actions.connect_swarm())
         elif action == "swarm-disconnect":
@@ -505,32 +489,6 @@ class MainView(QWidget):
         self._stimulus_window.raise_()
         self._stimulus_window.activateWindow()
         self._stimulus_window.setFocus(Qt.OtherFocusReason)
-
-    def _toggle_height_calibration(self) -> None:
-        if self._height_calibration is None or self.swarm_gateway is None:
-            self._notify("高度校准服务不可用")
-            return
-        if not self._height_calibrating:
-            status = self.swarm_gateway.status()
-            telemetry = tuple(self.swarm_gateway.list_uavs())
-            if not status.connected or not status.armed:
-                self._notify("高度校准前必须连接并解锁实机")
-                return
-            if not telemetry or any(not item.positioning_ok or item.altitude_m < 0.15 for item in telemetry):
-                self._notify("请先让全部无人机在 Lighthouse 下稳定悬停")
-                return
-            self._height_calibration.reset()
-            self._height_calibrating = True
-            self._notify("高度样本采集中；稳定悬停至少 6 秒后再次点击完成")
-            return
-        self._height_calibrating = False
-        try:
-            results, path = self._height_calibration.finish()
-        except ValueError as exc:
-            self._notify(f"高度校准失败：{exc}")
-            return
-        accepted = sum(1 for item in results.values() if item.accepted)
-        self._notify(f"高度校准完成：{accepted}/{len(results)} 架通过，结果已保存到 {path}")
 
     def _configure_swarm_uris_dialog(self) -> None:
         current = ""
@@ -847,7 +805,7 @@ class MainView(QWidget):
     def _research_mapping(self, c: Canvas) -> None:
         # 【真实接口接入点】UI-09 / M4.5：映射表应来自 CommandMappingRepository。
         # 解码 label/频率先经本映射转换为 SwarmCommand，再由安全仲裁器检查
-        # 置信度、二次确认、围栏、机间距、定位、电量、解锁和急停状态，
+        # 置信度、二次确认、Flow 质量、电量、解锁和急停状态，
         # 最后才调用 swarm_gateway.send_command。
         panels = [(192, 112, 896, 302), (192, 438, 896, 184), (192, 646, 896, 150)]
         for x, y, w, h in panels:
@@ -869,24 +827,17 @@ class MainView(QWidget):
             c.line(433, y + 26, 847, y + 26, "#273752")
         c.button(576, 380, 128, 28, "添加映射", True)
         self._hit(576, 380, 128, 28, "mapping-add")
-        c.text(217, 454, 360, 42, "受限实机验收与队形", 16, TEXT, True)
-        formations = (("一字队形", "line"), ("菱形队形", "diamond"), ("方形队形", "square"))
-        for i, (name, key) in enumerate(formations):
-            x = 280 + i * 160
-            c.button(x, 500, 144, 42, name)
-            self._hit(x, 500, 144, 42, f"swarm-formation:{key}")
+        c.text(217, 454, 360, 42, "Flow Deck 单机验收", 16, TEXT, True)
         acceptance = (
-            ("相对方形", "relative_square"),
-            ("LED无桨", "led_test"),
-            ("逐架悬停", "hover_one_by_one"),
-            ("同步悬停", "hover_sync_test"),
-            ("相对前后", "relative_forward_back"),
+            ("LED 无桨测试", "led_test"),
+            ("保持悬停", "hover"),
+            ("受控降落", "land"),
         )
         for index, (name, action) in enumerate(acceptance):
-            button_x = 235 + index * 166
-            c.button(button_x, 554, 150, 38, name)
-            self._hit(button_x, 554, 150, 38, f"swarm-command:{action}")
-        c.text(235, 595, 830, 23, "连接、解锁、定位、电量、围栏和机间距检查全部通过后才会进入后台队列", 11, "#596477", False, Qt.AlignCenter)
+            button_x = 310 + index * 190
+            c.button(button_x, 510, 170, 42, name)
+            self._hit(button_x, 510, 170, 42, f"swarm-command:{action}")
+        c.text(235, 575, 830, 23, "连接、Flow Deck 测距/光流、电量、解锁和急停检查通过后才会执行", 11, "#596477", False, Qt.AlignCenter)
         c.text(217, 663, 360, 42, "L3 战术意图 (占位)", 16, TEXT, True)
 
     def _research_data(self, c: Canvas) -> None:
@@ -1236,16 +1187,12 @@ class MainView(QWidget):
         c.button(151, 307, 96, 32, "单机控制", False, accent=YELLOW)
         self._hit(45, 307, 96, 32, "swarm-configure-uris")
         self._hit(151, 307, 96, 32, "swarm-single-control")
-        if flow_mode:
-            flow_ready = bool(gateway_status and gateway_status.positioning_ok)
-            c.button(45, 349, 202, 32,
-                     "Flow Deck 就绪" if flow_ready else "等待 Flow 质量",
-                     flow_ready, accent=GREEN if flow_ready else YELLOW)
-        else:
-            c.button(45, 349, 202, 32,
-                     "完成校准" if self._height_calibrating else "高度校准",
-                     self._height_calibrating, accent=GREEN)
-            self._hit(45, 349, 202, 32, "height-calibration-toggle")
+        # Flow readiness belongs to each UAV telemetry item, not SwarmStatus.
+        telemetry = tuple(self.swarm_gateway.list_uavs()) if self.swarm_gateway is not None else ()
+        flow_ready = connected and bool(telemetry) and all(item.positioning_ok for item in telemetry)
+        c.button(45, 349, 202, 32,
+                 "Flow Deck 就绪" if flow_ready else "等待 Flow 质量",
+                 flow_ready, accent=GREEN if flow_ready else YELLOW)
 
         # Official Flow Hover semantics: the backend streams body-frame vx/vy
         # and absolute ground distance. Mouse events only update normalized targets.

@@ -45,7 +45,7 @@ class RuntimeEngineerDataProvider:
             "device": [("Crazyflie", status.state, status.message),
                        ("EEG", "在线" if getattr(self.eeg_stream, "connected", False) else "离线",
                         str(getattr(self.eeg_stream, "source_name", "未配置")))],
-            "quality": [("Lighthouse", "等待遥测" if not status.connected else "见单机状态", "禁止用演示值代替"),
+            "quality": [("Flow Deck", "等待遥测" if not status.connected else "见单机状态", "range.zrange / motion.squal"),
                         ("EEG 信号质量", "由解码记录提供", "见 recognition_logs")],
             "data": [("实验记录", "本地文件", "data/raw_trials 与 recognition_logs"),
                      ("PostgreSQL 元数据", "未接入", "等待实验元数据 API")],

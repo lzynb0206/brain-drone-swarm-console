@@ -4,7 +4,6 @@ from src.adapters.real.csv_eeg_stream import CsvEEGStream
 from src.adapters.real.crazyflie_swarm_gateway import (
     CrazyflieSwarmConfig,
     CrazyflieSwarmGateway,
-    FlightBounds,
 )
 from src.adapters.real.disabled_swarm_gateway import DisabledSwarmGateway
 from src.adapters.real.lsl_eeg_stream import LSLEEGStream
@@ -14,6 +13,6 @@ from src.adapters.real.unavailable_eeg_stream import UnavailableEEGStream
 
 __all__ = [
     "CrazyflieSwarmConfig", "CrazyflieSwarmGateway", "CsvEEGStream", "DisabledSwarmGateway",
-    "FlightBounds", "LSLEEGStream", "RealSystemMonitor", "RuntimeEngineerDataProvider",
+    "LSLEEGStream", "RealSystemMonitor", "RuntimeEngineerDataProvider",
     "UnavailableEEGStream",
 ]

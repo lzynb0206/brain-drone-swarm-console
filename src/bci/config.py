@@ -8,11 +8,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# 传承蜂群六频配置。刺激界面、FBCCA 参考信号和标签映射只读取这一份配置。
-SSVEP_PROFILE_NAME = "传承蜂群六频"
-COMMANDS = ("起飞", "前进", "后退", "左转", "右转", "切换队形")
+# 六频单机控制配置。刺激界面、FBCCA 参考信号和标签映射只读取这一份配置。
+SSVEP_PROFILE_NAME = "单机 Flow 六频"
+COMMANDS = ("起飞", "前进", "后退", "左转", "右转", "降落")
 TARGET_FREQUENCIES_HZ = (11.0, 13.75, 15.0, 16.5, 18.33, 20.625)
-SWARM_EXTRA_FREQUENCY_HZ = TARGET_FREQUENCIES_HZ[-1]
 TRUE_LABELS = ("空闲",) + COMMANDS
 LABEL_TO_FREQUENCY = dict(zip(COMMANDS, TARGET_FREQUENCIES_HZ))
 

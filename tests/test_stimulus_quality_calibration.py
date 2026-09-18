@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import json
-import tempfile
 import unittest
-from pathlib import Path
 
 import numpy as np
 
 from src.bci.preprocessing import assess_signal_quality
 from src.bci.stimulus import measure_frequency
-from src.domain import DeviceStatus, Position, UAVTelemetry
-from src.services import HeightCalibrationService
 
 
 class StimulusMeasurementTest(unittest.TestCase):
@@ -36,25 +31,6 @@ class SignalQualityTest(unittest.TestCase):
         self.assertIn("平坦/方差过低", quality["channels"][0]["issues"])
         self.assertIn("50Hz工频占比过高", quality["channels"][1]["issues"])
         self.assertTrue(quality["channels"][2]["usable"])
-
-
-class HeightCalibrationTest(unittest.TestCase):
-    def test_saves_reviewable_offsets_without_applying_them(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            service = HeightCalibrationService(directory, minimum_samples=3)
-            for height in (0.48, 0.49, 0.49, 0.50):
-                service.add_telemetry((
-                    UAVTelemetry(
-                        "CF-01", 90, 0, height, "悬停", DeviceStatus.NORMAL,
-                        Position(0, 0, height), 4.0, True, 1.0,
-                    ),
-                ))
-            results, path = service.finish()
-            payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        self.assertTrue(results["CF-01"].accepted)
-        self.assertAlmostEqual(0.01, results["CF-01"].suggested_offset_m, delta=0.01)
-        self.assertFalse(payload["automatic_application"])
-
 
 if __name__ == "__main__":
     unittest.main()

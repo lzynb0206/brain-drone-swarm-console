@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-本仓库处于**真实接口逐步联调阶段**。账号系统连接 Spring Boot/PostgreSQL；科研界面可回放真实 CSV 或读取 LSL、运行纯 FBCCA 并保存实验记录；Crazyflie/Lighthouse 软件适配层和安全命令队列已经加入，但尚未在本仓库所在电脑上完成实验室实机验收。
+本仓库处于**真实接口逐步联调阶段**。账号系统连接 Spring Boot/PostgreSQL；科研界面可回放真实 CSV 或读取 LSL、运行纯 FBCCA 并保存实验记录；Crazyflie + Flow Deck 软件适配层和安全命令队列已经加入，但仍需完成现场实机验收。
 
 已经可运行的内容：
 
@@ -13,20 +13,18 @@
 - 原生 PySide6 全屏六频 SSVEP 刺激：`11 / 13.75 / 15 / 16.5 / 18.33 / 20.625 Hz`，支持 J 开始、K 停止、0 空闲、1–6 标签和 B 急停。
 - 刺激帧时间、实际刷新率、实测频率、频谱 `.npz/.png` 和开始/停止事件标记。
 - 工程师工作台：真实 Qt 左侧导航、运行时接口状态、真实本机性能和设备日志。
-- Crazyflie 蜂群连接、真实飞控解锁/锁定、起降、前后左右、停止移动、可恢复电机停转和锁存急停。
-- LED 无桨测试、逐架悬停、同步悬停、相对方形轨迹，以及一字/菱形/方形的分阶段绝对坐标转换和到位误差检查。
-- 单架 Flow Deck 人工验收模式；该模式禁止打开自动脑控执行。
-- 飞行安全门控：实时遥测、最低电压、Lighthouse 状态、场地围栏、最小机距和串行命令队列。
+- 单架 Crazyflie 连接、Flow Hover、前后左右/高度摇杆、受控降落、停止移动、可恢复电机停转和锁存急停。
+- Flow Deck V1/V2 与 AI Deck 参数检测；AI Deck 摄像头数据尚未接入。
+- 飞行安全门控：实时遥测、最低电压、Flow 下视距离/光流质量和串行命令队列。
 - 脑控执行默认关闭；只允许实时 LSL，且同一意图连续确认两次并经过冷却后提交。
 - `start-1.csv` 8 通道回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - 纯 FBCCA 六频实时识别；包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
 - 可选 FB-EEGNet 训练/验证/实时推理；没有匹配权重时自动保留真实 FBCCA，不伪造模型结果。
 - 识别日志、命令提交/完成/失败日志、连续原始 EEG 分块，以及包含真实标签和质量信息的同步 4 秒 `.npz` 试次。
-- 每架高度校准采样与建议补偿文件；结果必须人工复核，不会自动套用旧补偿值。
 
 尚待现场或外部团队提供的能力：
 
-- Crazyflie URI、实验室实测场地围栏、固件参数和实机安全验收。
+- 单架 Crazyflie URI、Flow Deck/固件参数和实机安全验收。
 - 目标识别/跟踪、生命体征和避障服务的协议、地址及数据字典。
 - 实验元数据 PostgreSQL 接口（当前原始 EEG 和索引保存在本地文件）。
 - 足量、平衡且由实验人员确认的六频加空闲训练数据；训练程序已实现，但仓库不附带可冒充有效模型的权重。
@@ -39,7 +37,7 @@
 ```text
 CSV / LSL → EEG QThread → 质量检查 → FBCCA / 可选 FB-EEGNet → 安全确认 → 可选蜂群命令
 PySide6 → HTTP + JWT → Spring Boot → PostgreSQL（账号与身份）
-PySide6 → CrazyflieSwarmGateway 后台队列 → cflib/Crazyradio → Crazyflie + Lighthouse
+PySide6 → CrazyflieSwarmGateway 后台队列 → cflib/Crazyradio → Crazyflie + Flow Deck
 ```
 
 真实接入集中在 `src/adapters/real/`，装配入口为 [src/container.py](src/container.py)。界面不会直接等待无线电或执行飞行动作。
@@ -89,34 +87,24 @@ python main.py
 
 注册时选择的演示身份会直接保存在 PostgreSQL 的 `app_users.role`。正式部署应关闭注册身份选择，由管理员接口授权。
 
-### Crazyflie 只读遥测与实机控制
+### Crazyflie + Flow Deck 只读遥测与实机控制
 
 第一次只启用只读遥测，不设置 `BDS_HARDWARE_CONTROL_ENABLED`：
 
 ```bash
-export BDS_SWARM_BACKEND=crazyflie
-export BDS_CRAZYFLIE_URIS='radio://.../CF1,radio://.../CF2'
-python main.py
-```
-
-现场完成净空、急停、Lighthouse、坐标轴和电量检查后，才可增加以下配置。围栏顺序为 `minX,maxX,minY,maxY,minZ,maxZ`，示例值不能直接照搬到真实场地：
-
-```bash
-export BDS_SWARM_GEOFENCE='现场测量后填写'
-export BDS_HARDWARE_CONTROL_ENABLED=true
-python main.py
-```
-
-打开“单兵面板 → 脑控”，依次点击连接、解锁，再进行单机/多机分阶段测试。完整流程见 [硬件接入说明](docs/CRAZYFLIE_HARDWARE_INTEGRATION.md)。
-
-单架 Flow Deck 使用与官方 Crazyflie Client Hover 辅助模式相同的控制接口：
-
-```bash
 export BDS_SWARM_BACKEND=flowdeck
 export BDS_CRAZYFLIE_URIS='实际单机URI'
+python main.py
+```
+
+现场完成净空、急停、Flow Deck 测距/光流和电量检查后，才可打开实机控制：
+
+```bash
 export BDS_HARDWARE_CONTROL_ENABLED=true
 python main.py
 ```
+
+打开“单兵面板 → 脑控”，依次点击连接、启动 Flow Hover，再用左杆控制高度、右杆控制前后左右。完整流程见 [硬件接入说明](docs/CRAZYFLIE_HARDWARE_INTEGRATION.md)。
 
 程序连接后读取 `deck.bcFlow` / `deck.bcFlow2`，未检测到 Flow Deck 会拒绝操控。启动
 Flow Hover 后持续发送机体系 `vx/vy` 和离地目标高度：左杆改变目标高度，右杆控制前后
@@ -163,7 +151,7 @@ src/
 │   ├── http/               # Spring Boot JWT 认证客户端
 │   └── real/               # CSV、LSL、Crazyflie、运行时监控
 ├── workers/                # QThread EEG 持续采集与4秒窗口
-├── services/               # 登录、记录、实机验收、高度校准与工作台状态
+├── services/               # 登录、实验记录、脑控安全与工作台状态
 └── views/                  # PySide6 主界面及全屏 SSVEP 刺激
 ```
 
@@ -173,7 +161,7 @@ src/
 QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 ```
 
-当前包含 Spring REST 登录客户端、CSV/LSL、六频 FBCCA、刺激测频、信号质量、实验记录、高度校准、Crazyflie 安全门控和界面交互测试。详细运行方法见 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。
+当前包含 Spring REST 登录客户端、CSV/LSL、六频 FBCCA、刺激测频、信号质量、实验记录、Flow Deck 安全门控和界面交互测试。详细运行方法见 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。
 
 ## 安全说明
 

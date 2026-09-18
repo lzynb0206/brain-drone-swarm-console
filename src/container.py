@@ -107,17 +107,13 @@ def create_default_container() -> ApplicationContainer:
         )
 
     swarm_backend = os.getenv("BDS_SWARM_BACKEND", "disabled").strip().lower()
-    if swarm_backend == "crazyflie":
+    if swarm_backend == "flowdeck":
         swarm_gateway: SwarmGateway = CrazyflieSwarmGateway(
-            CrazyflieSwarmConfig.from_environment("lighthouse")
-        )
-    elif swarm_backend == "flowdeck":
-        swarm_gateway = CrazyflieSwarmGateway(
-            CrazyflieSwarmConfig.from_environment("flowdeck")
+            CrazyflieSwarmConfig.from_environment()
         )
     else:
         swarm_gateway = DisabledSwarmGateway(
-            "蜂群接口未启用；设置 BDS_SWARM_BACKEND=crazyflie 或 flowdeck 并配置实机参数"
+            "无人机接口未启用；设置 BDS_SWARM_BACKEND=flowdeck 并配置实机参数"
         )
     system_monitor = RealSystemMonitor()
     engineer_data_provider = RuntimeEngineerDataProvider(eeg_stream, swarm_gateway)

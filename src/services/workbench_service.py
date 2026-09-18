@@ -161,10 +161,7 @@ class WorkbenchService:
     ) -> str:
         labels = {
             "takeoff": "起飞", "land": "降落", "forward": "前进", "backward": "后退",
-            "left": "左移", "right": "右移", "hover": "悬停", "formation": "队形切换",
-            "switch_formation": "循环切换队形", "led_test": "LED连通性测试",
-            "relative_square": "相对方形飞行测试", "hover_one_by_one": "逐架悬停验收",
-            "hover_sync_test": "同步悬停验收", "relative_forward_back": "相对前后验收",
+            "left": "左移", "right": "右移", "hover": "悬停", "led_test": "LED连通性测试",
         }
         if self.emergency_stopped:
             return self._record("系统处于急停状态，指令被安全策略拒绝")
@@ -189,12 +186,6 @@ class WorkbenchService:
         self.command_history.insert(0, label)
         del self.command_history[8:]
         return self._record(f"蜂群指令已提交：{label}")
-
-    def set_formation(self, name: str) -> str:
-        labels = {"line": "一字", "diamond": "菱形", "square": "方形"}
-        if name not in labels:
-            return self._record(f"未知队形：{name}")
-        return self.send_swarm_command("formation", parameters={"name": name})
 
     def configure_swarm_uris(self, uris: list[str]) -> str:
         if self.swarm_gateway is None:
@@ -285,8 +276,6 @@ class WorkbenchService:
         status = self.swarm_gateway.status()
         if not status.connected or not status.armed:
             return self._record("脑控执行被拒绝：请先连接并解锁实机控制")
-        if status.backend != "crazyflie":
-            return self._record("脑控执行被拒绝：Flow Deck 单机模式仅开放人工验收")
         self.bci_control_enabled = True
         return self._record("脑控执行已开启：同一意图连续确认两次后才提交")
 
@@ -311,7 +300,7 @@ class WorkbenchService:
             )
         action = {
             "起飞": "takeoff", "前进": "forward", "后退": "backward",
-            "左转": "left", "右转": "right", "切换队形": "switch_formation",
+            "左转": "left", "右转": "right", "降落": "land",
         }.get(mapped_label)
         if action is None:
             return None

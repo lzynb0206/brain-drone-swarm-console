@@ -57,7 +57,7 @@ src/
 ├── bci/                     # 六频配置、质量检测、FBCCA、混合解码
 ├── ml/                      # FB-EEGNet 训练、评估和可选推理
 ├── workers/                 # EEG 后台采集、同步试次和连续录制
-├── services/                # 业务用例、记录、验收和高度校准
+├── services/                # 业务用例、实验记录和脑控安全
 ├── views/                   # PySide6页面
 ├── widgets/                 # 可复用面板、仪表、图表组件
 └── resources/               # QSS、图片、字体等资源
@@ -95,6 +95,6 @@ src/
 ## 6. 当前迁移状态
 
 1. **已完成**：UI-01 至 UI-13 的前端翻译、角色路由和主要科研交互。
-2. **已完成**：Spring认证、CSV/LSL、六频刺激、FBCCA、记录、Crazyflie/Flow Deck适配、安全命令队列和受限验收工具。
-3. **需要现场验收**：Crazyradio、Lighthouse、Flow Deck、队形误差、高度补偿和硬件急停；代码存在不等于已经通过实机测试。
+2. **已完成**：Spring认证、CSV/LSL、六频刺激、FBCCA、记录、单架 Crazyflie/Flow Deck 适配和安全命令队列。
+3. **需要现场验收**：Crazyradio、Flow Deck、Flow Hover 和硬件急停；代码存在不等于已经通过实机测试。
 4. **仍待外部协议**：视觉/避障、多模态生命体征、实验元数据API、生产RBAC与不可篡改审计。

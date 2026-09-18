@@ -7,14 +7,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
+from src.adapters.real import CrazyflieSwarmConfig, CrazyflieSwarmGateway
 from src.bci.config import COMMANDS
 from src.domain import Role, User
 from src.services import ExperimentRecorder, WorkbenchService
 from src.views.main_view import MainView
+from src.widgets.scifi_canvas import Canvas
 
 
 class WorkbenchServiceTest(unittest.TestCase):
@@ -161,6 +164,18 @@ class MainViewActionRoutingTest(unittest.TestCase):
         QTest.mouseClick(self.view, Qt.LeftButton, pos=QPoint(100, 485))
 
         self.assertEqual("FBCCA", self.view.actions.algorithm)
+
+    def test_unconnected_flow_page_renders_completely(self) -> None:
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(uris=("radio://test/01",)))
+        view = MainView(swarm_gateway=gateway)
+        image = QImage(1280, 720, QImage.Format_ARGB32)
+        painter = QPainter(image)
+        try:
+            view._soldier_brain(Canvas(painter, 1280, 720))
+        finally:
+            painter.end()
+            view.close()
+        self.assertGreaterEqual(len(view._regions), 10)
 
 
 if __name__ == "__main__":
