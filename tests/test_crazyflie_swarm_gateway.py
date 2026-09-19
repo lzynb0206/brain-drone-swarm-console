@@ -95,6 +95,52 @@ class CrazyflieGatewayTest(unittest.TestCase):
         move = self.wait_for_call(backend, "move")
         self.assertEqual((0.2, 0.0, 0.0), move[1:4])
 
+    def test_controlled_landing_can_be_armed_again(self) -> None:
+        gateway, backend = self.make_gateway()
+        gateway.arm()
+        gateway.send_command(SwarmCommand("land"))
+        self.wait_for_call(backend, "land")
+        deadline = time.time() + 1
+        while gateway.status().armed and time.time() < deadline:
+            time.sleep(0.005)
+
+        landed = gateway.status()
+        self.assertFalse(landed.armed)
+        self.assertFalse(landed.airborne)
+        self.assertFalse(landed.emergency)
+        self.assertIn("可再次解锁", landed.message)
+
+        gateway.arm()
+        self.assertEqual(2, sum(1 for call in backend.calls if call[0] == "arm"))
+        self.assertEqual(2, sum(1 for call in backend.calls if call[0] == "manual_start"))
+
+    def test_pre_arm_reports_crash_state_separately_from_emergency_lock(self) -> None:
+        class Swarm:
+            _cfs = {"radio://test/01": object()}
+
+            def parallel_safe(self, callback, args_dict=None) -> None:
+                raise AssertionError("crashed aircraft must not receive an arm request")
+
+        backend = CflibBackend(CrazyflieSwarmConfig(uris=("radio://test/01",)))
+        backend._swarm = Swarm()
+        backend._telemetry_cache = {"radio://test/01": {"supervisor.info": float(1 << 7)}}
+
+        with self.assertRaisesRegex(RuntimeError, "坠机状态"):
+            backend.arm_all()
+
+    def test_pre_arm_uses_can_be_armed_without_requiring_can_fly(self) -> None:
+        class Swarm:
+            _cfs = {"radio://test/01": object()}
+
+        backend = CflibBackend(CrazyflieSwarmConfig(uris=("radio://test/01",)))
+        backend._swarm = Swarm()
+        # Bit 0 is the official arming gate. Bit 3 may still be false before
+        # the firmware completes its arming/flying state transition.
+        backend._telemetry_cache = {"radio://test/01": {"supervisor.info": 1.0}}
+
+        self.assertTrue(backend._wait_for_armable_confirmation(timeout_s=0.01))
+        self.assertTrue(backend._wait_for_landed_confirmation())
+
     def test_removed_multi_aircraft_action_is_rejected(self) -> None:
         gateway, _ = self.make_gateway()
         gateway.arm()
@@ -170,6 +216,45 @@ class CrazyflieGatewayTest(unittest.TestCase):
         backend._configure_single(Scf())
         self.assertEqual(2.0, backend._flow_detected_max_height)
         self.assertTrue(any("Flow Deck V2" in message and "AI Deck" in message for _, message in events))
+
+    def test_hardware_self_check_waits_for_async_parameter_values(self) -> None:
+        class Param:
+            def __init__(self) -> None:
+                self.values = {}
+                self.is_updated = False
+                self.writes = []
+
+            def set_value(self, name, value) -> None:
+                self.writes.append((name, value))
+
+        class Log:
+            toc = type("Toc", (), {"toc": {
+                "range": {"zrange": object()},
+                "motion": {"squal": object()},
+            }})()
+
+        param = Param()
+
+        class Scf:
+            cf = type("Cf", (), {
+                "link_uri": "radio://test/01",
+                "param": param,
+                "log": Log(),
+            })()
+
+        def finish_download() -> None:
+            time.sleep(0.05)
+            param.values = {"deck": {"bcFlow": "0", "bcFlow2": "1", "bcAI": "0"}}
+            param.is_updated = True
+
+        downloader = threading.Thread(target=finish_download)
+        downloader.start()
+        backend = CflibBackend(CrazyflieSwarmConfig(uris=("radio://test/01",)))
+        backend._configure_single(Scf())
+        downloader.join(timeout=1.0)
+
+        self.assertTrue(backend._detected_decks["radio://test/01"]["flow_v2"])
+        self.assertIn(("stabilizer.estimator", "2"), param.writes)
 
     def test_hardware_self_check_rejects_missing_flow_logs(self) -> None:
         class Param:
