@@ -9,7 +9,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 
 from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
 from src.adapters.real import CrazyflieSwarmConfig, CrazyflieSwarmGateway
@@ -78,6 +78,12 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertIsNone(self.service.set_manual_control(0.7, -0.3, 0.2))
         self.assertEqual((0.7, -0.3, 0.2), self.gateway.manual_input)
         self.assertEqual(before, len(self.gateway.command_log))
+
+    def test_takeoff_height_can_be_adjusted_before_flow_hover_starts(self) -> None:
+        self.gateway.disarm()
+        message = self.service.adjust_swarm_takeoff_height(0.1)
+        self.assertIn("0.50m", message)
+        self.assertEqual(0.5, self.gateway.takeoff_height_m())
 
     def test_csv_replay_cannot_enable_hardware_bci_control(self) -> None:
         message = self.service.set_bci_control_enabled(True, "CSV回放 · start-1.csv")
@@ -176,6 +182,51 @@ class MainViewActionRoutingTest(unittest.TestCase):
             painter.end()
             view.close()
         self.assertGreaterEqual(len(view._regions), 10)
+
+    def test_uri_dialog_cancel_returns_to_main_view(self) -> None:
+        self.view._configure_swarm_uris_dialog()
+        dialog = self.view._uri_dialog
+        self.assertIsNotNone(dialog)
+        self.app.processEvents()
+        buttons = dialog.findChild(QDialogButtonBox)
+        self.assertIsNotNone(buttons)
+        cancel = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        self.assertIsNotNone(cancel)
+
+        QTest.mouseClick(cancel, Qt.LeftButton)
+        self.app.processEvents()
+
+        self.assertIsNone(self.view._uri_dialog)
+        self.assertEqual("已取消 URI 配置", self.view._toast)
+
+    def test_custom_takeoff_height_dialog_updates_gateway(self) -> None:
+        self.gateway.disarm()
+        self.view._show_takeoff_height_dialog()
+        dialog = self.view._height_dialog
+        height_input = self.view._height_input
+        self.assertIsNotNone(dialog)
+        self.assertIsNotNone(height_input)
+        height_input.setValue(0.55)
+
+        dialog.accept()
+        self.app.processEvents()
+
+        self.assertIsNone(self.view._height_dialog)
+        self.assertIsNone(self.view._height_input)
+        self.assertEqual(0.55, self.gateway.takeoff_height_m())
+
+    def test_long_toast_starts_smooth_scroll_animation(self) -> None:
+        message = "硬件急停未送达：蜂群未连接，无法获得硬件急停回执；请断电重启无人机后再复位"
+        self.view._notify(message)
+        image = QImage(1280, 720, QImage.Format_ARGB32)
+        painter = QPainter(image)
+        try:
+            self.view._paint_toast(Canvas(painter, 1280, 720))
+        finally:
+            painter.end()
+
+        self.assertTrue(self.view._toast_scroll_timer.isActive())
+        self.assertEqual(message, self.view._toast)
 
 
 if __name__ == "__main__":

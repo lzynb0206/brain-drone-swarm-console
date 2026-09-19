@@ -31,7 +31,7 @@ class CrazyflieBackend(Protocol):
     def hover_all(self, duration_s: float) -> None: ...
     def stop_motion_all(self) -> None: ...
     def stop_motors_all(self) -> None: ...
-    def start_manual_control(self) -> None: ...
+    def start_manual_control(self, target_height_m: float) -> None: ...
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None: ...
     def emergency_stop_all(self) -> None: ...
     def move_one_relative(self, uri: str, dx: float, dy: float, dz: float, duration_s: float) -> None: ...
@@ -201,7 +201,7 @@ class CrazyflieSwarmGateway:
             if confirmed is False:
                 raise RuntimeError("飞控拒绝解锁，请检查电池、机体姿态和飞控锁定状态")
             try:
-                self._backend.start_manual_control()
+                self._backend.start_manual_control(self.config.default_height_m)
             except Exception:
                 # Never leave the firmware armed when the continuous
                 # setpoint stream could not be established.
@@ -212,6 +212,25 @@ class CrazyflieSwarmGateway:
             self._state = "manual_flight"
             self._message = f"Flow Hover 正在渐升至 {self.config.default_height_m:.2f}m；松杆保持悬停"
             self._record("INFO", "实机控制已由操作员显式解锁")
+
+    def takeoff_height_m(self) -> float:
+        with self._lock:
+            return self.config.default_height_m
+
+    def set_takeoff_height(self, height_m: float) -> None:
+        height = float(height_m)
+        if not math.isfinite(height):
+            raise RuntimeError("目标高度必须是有效数字")
+        with self._lock:
+            if self._armed or self._airborne:
+                raise RuntimeError("Flow Hover 已启动，不能修改启动目标高度")
+            minimum = self.config.flow_min_height_m
+            maximum = self.config.flow_max_height_m
+            if not minimum <= height <= maximum:
+                raise RuntimeError(f"目标高度必须在 {minimum:.2f}–{maximum:.2f}m 之间")
+            self.config = replace(self.config, default_height_m=height)
+            self._message = f"启动目标高度已设置为 {height:.2f}m"
+        self._record("INFO", f"Flow Hover 启动目标高度设置为 {height:.2f}m")
 
     def disarm(self) -> None:
         with self._lock:
@@ -966,8 +985,8 @@ class CflibBackend:
     def stop_motion_all(self) -> None:
         self._set_flow_motion(0.0, 0.0, 0.0, 0.0)
 
-    def start_manual_control(self) -> None:
-        self._start_flow_control(self.config.default_height_m)
+    def start_manual_control(self, target_height_m: float) -> None:
+        self._start_flow_control(target_height_m)
 
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
         self._start_flow_control(self.config.default_height_m)

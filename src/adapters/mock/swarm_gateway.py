@@ -27,6 +27,7 @@ class MockSwarmGateway:
         self._listeners = []
         self._command_listeners = []
         self.manual_input = (0.0, 0.0, 0.0)
+        self._takeoff_height_m = 0.4
 
     def connect(self) -> None:
         if self.emergency_stopped:
@@ -111,6 +112,17 @@ class MockSwarmGateway:
         self.manual_input = values
         if values[0] > 0.08:
             self._airborne = True
+
+    def takeoff_height_m(self) -> float:
+        return self._takeoff_height_m
+
+    def set_takeoff_height(self, height_m: float) -> None:
+        height = float(height_m)
+        if not 0.2 <= height <= 2.0:
+            raise RuntimeError("目标高度必须在 0.20–2.00m 之间")
+        if self._armed or self._airborne:
+            raise RuntimeError("Flow Hover 已启动，不能修改启动目标高度")
+        self._takeoff_height_m = height
 
     def configure_uris(self, uris) -> None:
         if self._connected:

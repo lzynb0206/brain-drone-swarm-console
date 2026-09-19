@@ -34,6 +34,12 @@ class DisabledSwarmGateway:
     def send_command(self, command: SwarmCommand) -> None:
         raise RuntimeError(self.reason)
 
+    def takeoff_height_m(self) -> float:
+        return 0.4
+
+    def set_takeoff_height(self, height_m: float) -> None:
+        raise RuntimeError(self.reason)
+
     def emergency_stop(self) -> None:
         raise RuntimeError(self.reason)
 

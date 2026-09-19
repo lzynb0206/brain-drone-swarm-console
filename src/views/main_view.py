@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import deque
 from datetime import datetime
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QInputDialog, QLabel, QMessageBox, QWidget
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.bci.config import COMMANDS, SSVEP_PROFILE_NAME, TARGET_FREQUENCIES_HZ, TRUE_LABELS
 from src.domain import EEGFrame, IntentResult, Role, User
@@ -65,6 +76,7 @@ class MainView(QWidget):
         self._regions: list[tuple[QRectF, str]] = []
         self._toast = ""
         self._toast_generation = 0
+        self._toast_scroll_started = 0.0
         self._eeg_history = [deque(maxlen=360) for _ in range(8)]
         self._eeg_sample_rate = 0.0
         self._eeg_status = "尚未启动"
@@ -73,6 +85,10 @@ class MainView(QWidget):
         self._eeg_events: deque[str] = deque(maxlen=12)
         self._pipeline_worker: EEGWorker | None = None
         self._stimulus_window: SSVEPStimulusWindow | None = None
+        self._uri_dialog: QDialog | None = None
+        self._uri_editor: QPlainTextEdit | None = None
+        self._height_dialog: QDialog | None = None
+        self._height_input: QDoubleSpinBox | None = None
         self._continuous_recording = False
         self._active_joystick: str | None = None
         self._manual_vertical = 0.0
@@ -99,6 +115,9 @@ class MainView(QWidget):
         self._runtime_refresh_timer = QTimer(self)
         self._runtime_refresh_timer.timeout.connect(self._refresh_runtime)
         self._runtime_refresh_timer.start(300)
+        self._toast_scroll_timer = QTimer(self)
+        self._toast_scroll_timer.setInterval(33)
+        self._toast_scroll_timer.timeout.connect(self._animate_toast)
         self.setMouseTracking(True)
 
     def set_user(self, user: User) -> None:
@@ -196,8 +215,35 @@ class MainView(QWidget):
         c.logout()
         self._hit(1224, 663, 56, 57, "logout")
         if self._toast:
-            c.rect(390, 655, 500, 45, "#15243a", CYAN, 7, 1.5)
+            self._paint_toast(c)
+
+    def _paint_toast(self, c: Canvas) -> None:
+        c.rect(390, 655, 500, 45, "#15243a", CYAN, 7, 1.5)
+        viewport = QRectF(410, 655, 460, 45)
+        font = QFont(c.p.font())
+        font.setPixelSize(12)
+        font.setWeight(QFont.Bold)
+        metrics = QFontMetricsF(font)
+        text_width = metrics.horizontalAdvance(self._toast)
+        if text_width <= viewport.width():
             c.text(410, 655, 460, 45, self._toast, 12, TEXT, True, Qt.AlignCenter)
+            return
+
+        elapsed = max(0.0, time.monotonic() - self._toast_scroll_started)
+        offset = max(0.0, elapsed - 0.8) * 45.0
+        gap = 90.0
+        cycle = text_width + gap
+        x = viewport.left() - (offset % cycle)
+        baseline = viewport.top() + (viewport.height() - metrics.height()) / 2 + metrics.ascent()
+        c.p.save()
+        try:
+            c.p.setClipRect(viewport)
+            c.p.setFont(font)
+            c.p.setPen(QColor(TEXT))
+            c.p.drawText(QPointF(x, baseline), self._toast)
+            c.p.drawText(QPointF(x + cycle, baseline), self._toast)
+        finally:
+            c.p.restore()
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         if self.engineer_dashboard is not None:
@@ -293,13 +339,23 @@ class MainView(QWidget):
     def _notify(self, message: str) -> None:
         self._toast = message
         self._toast_generation += 1
+        self._toast_scroll_started = time.monotonic()
+        self._toast_scroll_timer.start()
         generation = self._toast_generation
-        QTimer.singleShot(2600, lambda: self._clear_toast(generation))
+        display_ms = max(2600, min(18000, 2200 + max(0, len(message) - 28) * 260))
+        QTimer.singleShot(display_ms, lambda: self._clear_toast(generation))
         self.update()
+
+    def _animate_toast(self) -> None:
+        if self._toast:
+            self.update()
+        else:
+            self._toast_scroll_timer.stop()
 
     def _clear_toast(self, generation: int) -> None:
         if generation == self._toast_generation:
             self._toast = ""
+            self._toast_scroll_timer.stop()
             self.update()
 
     def _activate(self, action: str, x: float = 0, y: float = 0) -> None:
@@ -414,6 +470,12 @@ class MainView(QWidget):
             self._notify(self.actions.send_swarm_command(action.split(":", 1)[1]))
         elif action == "swarm-configure-uris":
             self._configure_swarm_uris_dialog()
+        elif action == "swarm-height-decrease":
+            self._notify(self.actions.adjust_swarm_takeoff_height(-0.05))
+        elif action == "swarm-height-increase":
+            self._notify(self.actions.adjust_swarm_takeoff_height(0.05))
+        elif action == "swarm-height-custom":
+            self._show_takeoff_height_dialog()
         elif action == "swarm-single-control":
             self._single_uav_control_dialog()
         elif action == "swarm-connect":
@@ -491,16 +553,108 @@ class MainView(QWidget):
         self._stimulus_window.setFocus(Qt.OtherFocusReason)
 
     def _configure_swarm_uris_dialog(self) -> None:
+        if self._uri_dialog is not None:
+            self._uri_dialog.raise_()
+            self._uri_dialog.activateWindow()
+            return
         current = ""
         config = getattr(self.swarm_gateway, "config", None)
         if config is not None:
             current = "\n".join(getattr(config, "uris", ()))
-        text, ok = QInputDialog.getMultiLineText(
-            self, "配置 Crazyflie URI", "每行一个 URI（必须先断开蜂群）：", current,
+        self._release_mouse_capture_for_dialog()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("配置 Crazyflie URI")
+        dialog.setWindowModality(Qt.WindowModal)
+        dialog.resize(520, 360)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("当前 Flow Hover 模式只填写一个 URI（必须先断开）：", dialog))
+        editor = QPlainTextEdit(dialog)
+        editor.setPlainText(current)
+        layout.addWidget(editor, 1)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
         )
-        if ok:
-            uris = [line.strip() for line in text.splitlines() if line.strip()]
-            self._notify(self.actions.configure_swarm_uris(uris))
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        self._uri_dialog = dialog
+        self._uri_editor = editor
+        dialog.accepted.connect(lambda: self._accept_swarm_uris_dialog(editor.toPlainText()))
+        dialog.rejected.connect(lambda: self._notify("已取消 URI 配置"))
+        dialog.finished.connect(lambda _result: self._finish_swarm_uris_dialog(dialog))
+        QTimer.singleShot(0, lambda: self._open_uri_dialog_if_current(dialog))
+
+    def _open_uri_dialog_if_current(self, dialog: QDialog) -> None:
+        if self._uri_dialog is dialog:
+            dialog.open()
+
+    def _accept_swarm_uris_dialog(self, text: str) -> None:
+        uris = [line.strip() for line in text.splitlines() if line.strip()]
+        self._notify(self.actions.configure_swarm_uris(uris))
+
+    def _finish_swarm_uris_dialog(self, dialog: QDialog) -> None:
+        if self._uri_dialog is dialog:
+            self._uri_dialog = None
+            self._uri_editor = None
+        dialog.deleteLater()
+        self.activateWindow()
+        self.setFocus(Qt.OtherFocusReason)
+
+    def _show_takeoff_height_dialog(self) -> None:
+        if self._height_dialog is not None:
+            self._height_dialog.raise_()
+            self._height_dialog.activateWindow()
+            return
+        config = getattr(self.swarm_gateway, "config", None)
+        minimum = float(getattr(config, "flow_min_height_m", 0.2))
+        maximum = float(getattr(config, "flow_max_height_m", 2.0))
+        self._release_mouse_capture_for_dialog()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("设置 Flow Hover 启动高度")
+        dialog.setWindowModality(Qt.WindowModal)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(f"输入目标离地高度（{minimum:.2f}–{maximum:.2f}m）：", dialog))
+        height_input = QDoubleSpinBox(dialog)
+        height_input.setRange(minimum, maximum)
+        height_input.setDecimals(2)
+        height_input.setSingleStep(0.05)
+        height_input.setSuffix(" m")
+        height_input.setValue(self.actions.swarm_takeoff_height_m())
+        layout.addWidget(height_input)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        self._height_dialog = dialog
+        self._height_input = height_input
+        dialog.accepted.connect(
+            lambda: self._notify(self.actions.set_swarm_takeoff_height(height_input.value()))
+        )
+        dialog.rejected.connect(lambda: self._notify("已取消目标高度设置"))
+        dialog.finished.connect(lambda _result: self._finish_takeoff_height_dialog(dialog))
+        QTimer.singleShot(0, lambda: self._open_height_dialog_if_current(dialog))
+
+    def _open_height_dialog_if_current(self, dialog: QDialog) -> None:
+        if self._height_dialog is dialog:
+            dialog.open()
+
+    def _finish_takeoff_height_dialog(self, dialog: QDialog) -> None:
+        if self._height_dialog is dialog:
+            self._height_dialog = None
+            self._height_input = None
+        dialog.deleteLater()
+        self.activateWindow()
+        self.setFocus(Qt.OtherFocusReason)
+
+    def _release_mouse_capture_for_dialog(self) -> None:
+        self._active_joystick = None
+        grabber = QWidget.mouseGrabber()
+        if grabber is self:
+            self.releaseMouse()
 
     def _single_uav_control_dialog(self) -> None:
         if self.swarm_gateway is None:
@@ -1163,6 +1317,16 @@ class MainView(QWidget):
         )
         c.circle(594, 52, 6, status_color)
         c.text(608, 36, 220, 32, status_text, 14, TEXT, True)
+
+        target_height = self.actions.swarm_takeoff_height_m()
+        c.text(385, 126, 160, 32, "启动目标高度", 13, TEXT, True, Qt.AlignCenter)
+        c.button(548, 126, 46, 32, "－", False, accent=BLUE)
+        c.button(601, 126, 100, 32, f"{target_height:.2f} m", False, accent=CYAN)
+        c.button(708, 126, 46, 32, "＋", False, accent=GREEN)
+        c.text(762, 126, 145, 32, "范围 0.20–2.00m", 10, MUTED, False, Qt.AlignCenter)
+        self._hit(548, 126, 46, 32, "swarm-height-decrease")
+        self._hit(601, 126, 100, 32, "swarm-height-custom")
+        self._hit(708, 126, 46, 32, "swarm-height-increase")
 
         c.panel(28, 82, 245, 304, "实机链路")
         c.text(45, 122, 210, 38, gateway_status.message if gateway_status else "蜂群接口未配置", 11, MUTED)

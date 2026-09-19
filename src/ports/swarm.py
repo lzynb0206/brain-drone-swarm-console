@@ -53,6 +53,14 @@ class SwarmGateway(Protocol):
         """更新 Flow Hover 输入：高度速度、机体前向速度、机体横向速度。"""
         ...
 
+    def takeoff_height_m(self) -> float:
+        """返回下一次启动 Flow Hover 使用的离地目标高度。"""
+        ...
+
+    def set_takeoff_height(self, height_m: float) -> None:
+        """设置下一次 Flow Hover 目标高度；飞行或解锁后必须拒绝修改。"""
+        ...
+
     def emergency_stop(self) -> None:
         """触发固件锁存急停；恢复前必须重启无人机。"""
         ...

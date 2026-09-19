@@ -34,7 +34,7 @@ class FakeBackend:
     def hover_all(self, duration_s) -> None: self.calls.append(("hover", duration_s))
     def stop_motion_all(self) -> None: self.calls.append(("stop_motion",))
     def stop_motors_all(self) -> None: self.calls.append(("motor_stop",))
-    def start_manual_control(self) -> None: self.calls.append(("manual_start",))
+    def start_manual_control(self, target_height_m) -> None: self.calls.append(("manual_start", target_height_m))
     def set_manual_input(self, vertical, forward, lateral) -> None: self.calls.append(("manual_input", vertical, forward, lateral))
     def set_led_all(self, red, green, blue, duration_s) -> None: self.calls.append(("led", red, green, blue, duration_s))
     def emergency_stop_all(self) -> None: self.calls.append(("emergency",))
@@ -78,9 +78,20 @@ class CrazyflieGatewayTest(unittest.TestCase):
     def test_arm_starts_flow_hover(self) -> None:
         gateway, backend = self.make_gateway()
         gateway.arm()
-        self.assertIn(("manual_start",), backend.calls)
+        self.assertIn(("manual_start", 0.4), backend.calls)
         self.assertTrue(gateway.status().airborne)
         self.assertEqual("flowdeck", gateway.status().backend)
+
+    def test_selected_takeoff_height_is_passed_to_flow_hover(self) -> None:
+        gateway, backend = self.make_gateway()
+        gateway.set_takeoff_height(0.5)
+        self.assertEqual(0.5, gateway.takeoff_height_m())
+
+        gateway.arm()
+
+        self.assertIn(("manual_start", 0.5), backend.calls)
+        with self.assertRaisesRegex(RuntimeError, "不能修改"):
+            gateway.set_takeoff_height(0.6)
 
     def test_virtual_sticks_are_clamped(self) -> None:
         gateway, backend = self.make_gateway()

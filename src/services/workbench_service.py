@@ -196,6 +196,25 @@ class WorkbenchService:
         except RuntimeError as exc:
             return self._record(f"URI 配置失败：{exc}")
 
+    def swarm_takeoff_height_m(self) -> float:
+        if self.swarm_gateway is None:
+            return 0.4
+        getter = getattr(self.swarm_gateway, "takeoff_height_m", None)
+        return float(getter()) if callable(getter) else 0.4
+
+    def set_swarm_takeoff_height(self, height_m: float) -> str:
+        if self.swarm_gateway is None:
+            return self._record("无人机接口未配置")
+        try:
+            self.swarm_gateway.set_takeoff_height(height_m)
+            return self._record(f"Flow Hover 启动目标高度：{height_m:.2f}m")
+        except RuntimeError as exc:
+            return self._record(f"目标高度设置失败：{exc}")
+
+    def adjust_swarm_takeoff_height(self, delta_m: float) -> str:
+        target = round(self.swarm_takeoff_height_m() + float(delta_m), 2)
+        return self.set_swarm_takeoff_height(target)
+
     def connect_swarm(self) -> str:
         if self.swarm_gateway is None:
             return self._record("蜂群接口未配置")
