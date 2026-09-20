@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+from dataclasses import replace
 
 from src.adapters.real.crazyflie_swarm_gateway import CflibBackend, CrazyflieSwarmConfig, CrazyflieSwarmGateway
 from src.domain import SwarmCommand
@@ -184,6 +185,52 @@ class CrazyflieGatewayTest(unittest.TestCase):
         backend._telemetry_cache = {"radio://test/01": {"supervisor.info": 0.0}}
 
         self.assertTrue(backend._wait_for_landed_confirmation())
+
+    def test_low_voltage_warns_in_flight_but_allows_landing_then_blocks_rearm(self) -> None:
+        gateway, backend = self.make_gateway()
+        gateway.config = replace(gateway.config, battery_low_confirm_s=0.0)
+        gateway.arm()
+
+        gateway._on_telemetry("radio://test/01", time.time(), {
+            "stateEstimate.x": 0.0, "stateEstimate.y": 0.0, "stateEstimate.z": 0.35,
+            "stateEstimate.vx": 0.0, "stateEstimate.vy": 0.0, "stateEstimate.vz": 0.0,
+            "pm.vbat": 3.1, "range.zrange": 350.0, "motion.squal": 80.0,
+        })
+
+        warning = gateway.status()
+        self.assertEqual("battery_low", warning.state)
+        self.assertTrue(warning.armed)
+        self.assertTrue(warning.airborne)
+        self.assertIn("3.10V", warning.message)
+
+        # Manual control remains available and must not erase the warning.
+        gateway.set_manual_input(0.0, 0.0, 0.0)
+        self.assertEqual("battery_low", gateway.status().state)
+
+        # Most importantly, low voltage never rejects the landing command.
+        gateway.send_command(SwarmCommand("land"))
+        self.wait_for_call(backend, "land")
+        deadline = time.time() + 1.0
+        while gateway.status().airborne and time.time() < deadline:
+            time.sleep(0.005)
+
+        landed = gateway.status()
+        self.assertEqual("battery_low_grounded", landed.state)
+        self.assertFalse(landed.armed)
+        self.assertFalse(landed.airborne)
+        with self.assertRaisesRegex(RuntimeError, "低电量保护"):
+            gateway.arm()
+
+    def test_preflight_voltage_threshold_is_3_2_volts(self) -> None:
+        gateway, _ = self.make_gateway()
+        self.assertEqual(3.2, gateway.config.minimum_battery_voltage)
+        gateway._on_telemetry("radio://test/01", time.time(), {
+            "stateEstimate.x": 0.0, "stateEstimate.y": 0.0, "stateEstimate.z": 0.1,
+            "stateEstimate.vx": 0.0, "stateEstimate.vy": 0.0, "stateEstimate.vz": 0.0,
+            "pm.vbat": 3.19, "range.zrange": 100.0, "motion.squal": 80.0,
+        })
+        with self.assertRaisesRegex(RuntimeError, "电压不足"):
+            gateway.arm()
 
     def test_pre_arm_reports_crash_state_separately_from_emergency_lock(self) -> None:
         class Swarm:

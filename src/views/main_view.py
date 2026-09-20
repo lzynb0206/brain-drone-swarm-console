@@ -1299,12 +1299,15 @@ class MainView(QWidget):
         emergency = bool(self.actions.emergency_stopped or (gateway_status and gateway_status.emergency))
         state = gateway_status.state if gateway_status is not None else "disconnected"
         status_color = (
-            RED if emergency or state in {"flight_error", "stop_error"} else
-            YELLOW if state in {"taking_off", "stopping_motors"} else
+            RED if emergency or state in {"flight_error", "stop_error", "battery_low", "battery_low_grounded"} else
+            YELLOW if state in {"taking_off", "stopping_motors", "landing"} else
             GREEN if connected else YELLOW
         )
         status_text = (
             "急停锁定 · 需重启" if emergency else
+            "电量过低 · 请立即受控降落" if state == "battery_low" else
+            "低电量锁定 · 禁止再次起飞" if state == "battery_low_grounded" else
+            "正在受控降落" if state == "landing" else
             "正在停止电机" if state == "stopping_motors" else
             "Flow Hover 操控中" if state == "manual_flight" else
             "正在建立 Flow Hover" if state == "taking_off" else
