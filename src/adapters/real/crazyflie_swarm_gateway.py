@@ -99,6 +99,7 @@ class CrazyflieSwarmGateway:
         self._motor_stop_in_progress = False
         self._motor_stop_backend_complete = False
         self._motor_stop_error: Exception | None = None
+        self._landing_requested = False
         self._state = "disconnected"
         self._message = "尚未连接"
         self._connected = False
@@ -127,6 +128,7 @@ class CrazyflieSwarmGateway:
             self._commands = queue.Queue(maxsize=20)
             self._command_idle.set()
             self._armed = False
+            self._landing_requested = False
             self._state = "connecting"
             self._message = "正在连接 Crazyradio/Crazyflie…"
             self._thread = threading.Thread(target=self._run, name="Crazyflie-Swarm-Gateway", daemon=True)
@@ -196,6 +198,8 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("系统处于急停锁定状态，必须重新连接后才能解锁")
             if self._motor_stop_in_progress:
                 raise RuntimeError("电机停止操作尚未完成，请稍候再解锁")
+            if self._landing_requested:
+                raise RuntimeError("正在受控降落，不能重复启动 Flow Hover")
             self._validate_ready()
             confirmed = self._backend.arm_all()
             if confirmed is False:
@@ -260,12 +264,22 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("系统处于急停锁定状态")
             if self._motor_stop_in_progress:
                 raise RuntimeError("电机正在停止，暂不接受飞行指令")
-            if action not in {"land", "led_test"} and not self._armed:
+            if self._landing_requested:
+                raise RuntimeError("受控降落已在进行，暂不接受新的飞行指令")
+            if action == "land":
+                if not self._armed or not self._airborne:
+                    raise RuntimeError("Flow Hover 尚未启动，不能执行受控降落")
+            elif action != "led_test" and not self._armed:
                 raise RuntimeError("实机控制尚未解锁")
             self._validate_command(command)
+            if action == "land":
+                self._landing_requested = True
         try:
             self._commands.put_nowait((self._command_generation, command))
         except queue.Full as exc:
+            if action == "land":
+                with self._lock:
+                    self._landing_requested = False
             raise RuntimeError("飞行指令队列已满，请停止继续操作") from exc
 
     def stop_motion(self) -> None:
@@ -323,6 +337,8 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("请先点击“启动操控”")
             if self._motor_stop_in_progress:
                 raise RuntimeError("电机正在停止")
+            if self._landing_requested:
+                raise RuntimeError("正在受控降落，摇杆输入已禁用")
         self._backend.set_manual_input(*values)
         with self._lock:
             self._airborne = True
@@ -397,6 +413,9 @@ class CrazyflieSwarmGateway:
                     self._record("ERROR", self._message)
                     self._notify_command("FAILED", str(exc), command)
                 finally:
+                    if command.action.strip().lower() == "land":
+                        with self._lock:
+                            self._landing_requested = False
                     self._command_idle.set()
                     self._try_finalize_motor_stop()
         except Exception as exc:
@@ -446,6 +465,9 @@ class CrazyflieSwarmGateway:
                 self._state = "airborne"
                 self._message = "已起飞并保持目标位置"
         elif action == "land":
+            with self._lock:
+                self._state = "landing"
+                self._message = "正在受控降落…"
             self._backend.land_all(3.0)
             self._raise_if_cancelled(generation)
             with self._lock:
@@ -498,12 +520,20 @@ class CrazyflieSwarmGateway:
                 self._commands.put_nowait(None)
             except queue.Full:
                 pass
+        if any(command.action.strip().lower() == "land" for command in discarded):
+            with self._lock:
+                self._landing_requested = False
         for command in discarded:
             self._notify_command("CANCELLED", reason, command)
 
     def _validate_command(self, command: SwarmCommand) -> None:
         action = command.action.strip().lower()
-        if action in {"land", "led_test"}:
+        if action == "led_test":
+            return
+        if action == "land":
+            self._validate_ready()
+            if not self._armed or not self._airborne:
+                raise RuntimeError("Flow Hover 尚未启动，不能执行受控降落")
             return
         self._validate_ready()
         if action == "takeoff":
@@ -699,6 +729,7 @@ class CflibBackend:
         self._flow_takeoff_target: float | None = None
         self._flow_landing = False
         self._detected_decks: dict[str, dict[str, bool]] = {}
+        self._supervisor_info_reliable = False
 
     def connect(self, uris: tuple[str, ...], telemetry: TelemetryCallback, event: EventCallback) -> None:
         try:
@@ -712,6 +743,13 @@ class CflibBackend:
         cflib.crtp.init_drivers()
         self._swarm = Swarm(set(uris), factory=CachedCfFactory(rw_cache=str(self.cache_dir)))
         self._swarm.open_links()
+        self._supervisor_info_reliable = self._detect_supervisor_info_support()
+        if not self._supervisor_info_reliable:
+            event(
+                "WARN",
+                "Crazyflie 固件协议早于 v7 或版本未知；解锁使用官方兼容请求，"
+                "不等待不可靠的 supervisor.can_be_armed 状态位",
+            )
         try:
             self._swarm.parallel_safe(self._configure_single)
         except Exception as exc:
@@ -821,11 +859,26 @@ class CflibBackend:
         ``Swarm.open_links()`` may return after the radio link and parameter
         TOC are ready but before all parameter *values* have arrived. Reading
         ``param.values`` immediately in that small window incorrectly reports
-        an installed Flow Deck V2 as missing.
+        an installed Flow Deck V2 as missing.  In particular, cflib can expose
+        ``bcFlow``/``bcFlow2`` with their temporary zero values (and even mark
+        the parameter table updated) before the deck driver publishes the
+        detected value.  A zero is therefore not a final result during this
+        startup window: keep polling until either Flow variant becomes nonzero
+        or the full detection timeout expires.
         """
         param = scf.cf.param
         deadline = time.monotonic() + cls._PARAM_DOWNLOAD_TIMEOUT_S
         last_deck_values: dict[str, object] = {}
+        next_refresh_at = 0.0
+
+        def flow_detected(values: dict[str, object]) -> bool:
+            for name in ("bcFlow", "bcFlow2"):
+                try:
+                    if int(values.get(name, 0)) != 0:
+                        return True
+                except (TypeError, ValueError):
+                    continue
+            return False
 
         while time.monotonic() < deadline:
             values = getattr(param, "values", {})
@@ -833,15 +886,33 @@ class CflibBackend:
                 deck_values = values.get("deck", {})
                 if isinstance(deck_values, dict):
                     last_deck_values = dict(deck_values)
-                    if "bcFlow" in deck_values or "bcFlow2" in deck_values:
+                    if flow_detected(last_deck_values):
                         return last_deck_values
 
-            # Once cflib says every parameter value has been downloaded, an
-            # absent Flow key really means the deck was not detected.
-            if bool(getattr(param, "is_updated", False)):
-                return last_deck_values
+            # Deck detection may finish after cflib's initial parameter-value
+            # download. Read-only parameter changes are not guaranteed to be
+            # pushed to the client, so actively request fresh values instead
+            # of relying on another manual reconnect to fetch them.
+            now = time.monotonic()
+            request_update = getattr(param, "request_param_update", None)
+            if callable(request_update) and now >= next_refresh_at:
+                for complete_name in ("deck.bcFlow", "deck.bcFlow2"):
+                    try:
+                        request_update(complete_name)
+                    except Exception:
+                        # The parameter TOC itself can still be arriving. The
+                        # next polling cycle will retry once it is available.
+                        pass
+                next_refresh_at = now + 0.25
+
+            # Do not finish merely because ``param.is_updated`` is true. On
+            # real hardware that flag may precede Flow Deck enumeration by a
+            # few seconds, which previously forced the operator to click the
+            # connection button several times.
             time.sleep(0.05)
 
+        if last_deck_values:
+            return last_deck_values
         raise RuntimeError(
             "Crazyflie 参数下载超时，暂时无法确认 Flow Deck；"
             "请关闭其他 Crazyflie 客户端后重新连接"
@@ -889,28 +960,27 @@ class CflibBackend:
 
     def arm_all(self) -> bool | None:
         swarm = self._require_swarm()
-        self._wait_for_armable_confirmation()
-        swarm.parallel_safe(self._arm_positioned_single)
-        return self._wait_for_armed_confirmation()
-
-    def _wait_for_armable_confirmation(self, timeout_s: float = 2.0) -> bool | None:
         values = self._supervisor_values()
-        if values is None:
-            return None
-        deadline = time.monotonic() + timeout_s
-        while True:
-            values = self._supervisor_values()
-            if values is None:
-                return None
+        if values is not None:
             self._raise_for_supervisor_fault(values)
-            # Bitcraze cfclient enables arming from supervisor bit 0
-            # (can_be_armed). Bit 3 (can_fly) is not an arming prerequisite
-            # and may still be false before the arming transition completes.
-            if all(value & (1 << 0) for value in values):
-                return True
-            if time.monotonic() >= deadline:
-                raise RuntimeError("飞控尚未恢复到可解锁状态，请保持机体水平并稍候重试")
-            time.sleep(0.05)
+        swarm.parallel_safe(self._arm_positioned_single)
+        if self._supervisor_info_reliable:
+            return self._wait_for_armed_confirmation()
+        return None
+
+    def _detect_supervisor_info_support(self) -> bool:
+        swarm = self._require_swarm()
+        versions: list[int] = []
+        for scf in swarm._cfs.values():
+            platform = getattr(scf.cf, "platform", None)
+            getter = getattr(platform, "get_protocol_version", None)
+            if not callable(getter):
+                return False
+            try:
+                versions.append(int(getter()))
+            except (TypeError, ValueError):
+                return False
+        return bool(versions) and all(version >= 7 for version in versions)
 
     def _wait_for_armed_confirmation(self, timeout_s: float = 1.0) -> bool | None:
         values = self._supervisor_values()
@@ -952,6 +1022,10 @@ class CflibBackend:
     @staticmethod
     def _arm_positioned_single(scf) -> None:
         scf.cf.commander.send_notify_setpoint_stop()
+        supervisor = getattr(scf.cf, "supervisor", None)
+        if supervisor is not None and hasattr(supervisor, "send_arming_request"):
+            supervisor.send_arming_request(True)
+            return
         platform = getattr(scf.cf, "platform", None)
         if platform is not None and hasattr(platform, "send_arming_request"):
             platform.send_arming_request(True)
@@ -1145,7 +1219,13 @@ class CflibBackend:
             self._set_flow_motion(0.0, 0.0, 0.0, 0.0)
 
     def _land_flow(self, duration_s: float) -> None:
-        self._start_flow_control(self.config.default_height_m)
+        # A landing may only take over an already-running Flow Hover stream.
+        # Starting a new stream here can spin the motors again after touchdown,
+        # especially when a duplicate landing command was queued.
+        thread = self._flow_control_thread
+        if thread is None or not thread.is_alive():
+            self._raise_flow_error()
+            raise RuntimeError("Flow Hover 控制流未运行，拒绝重新启动电机执行降落")
         with self._flow_control_lock:
             current_height = self._flow_target_height
             self._flow_velocity = (0.0, 0.0, 0.0)
@@ -1187,11 +1267,10 @@ class CflibBackend:
                 return None
             self._raise_for_supervisor_fault(values)
             landed = all(not (value & (1 << 1)) and not (value & (1 << 4)) for value in values)
-            armable = all(value & (1 << 0) for value in values)
-            if landed and armable:
+            if landed:
                 return True
             if time.monotonic() >= deadline:
-                raise RuntimeError("降落已停止电机，但飞控尚未确认可再次解锁；请勿强行起飞")
+                raise RuntimeError("降落已停止电机，但飞控尚未确认已经落地；请勿接触桨叶")
             time.sleep(0.05)
 
     def _wait_flow(self, duration_s: float) -> bool:

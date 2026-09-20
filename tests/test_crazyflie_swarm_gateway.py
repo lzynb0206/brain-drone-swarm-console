@@ -125,6 +125,66 @@ class CrazyflieGatewayTest(unittest.TestCase):
         self.assertEqual(2, sum(1 for call in backend.calls if call[0] == "arm"))
         self.assertEqual(2, sum(1 for call in backend.calls if call[0] == "manual_start"))
 
+    def test_controlled_landing_is_rejected_before_flow_hover_starts(self) -> None:
+        gateway, backend = self.make_gateway()
+
+        with self.assertRaisesRegex(RuntimeError, "Flow Hover 尚未启动"):
+            gateway.send_command(SwarmCommand("land"))
+
+        self.assertFalse(any(call[0] == "land" for call in backend.calls))
+
+    def test_duplicate_controlled_landing_is_not_queued(self) -> None:
+        class SlowLandingBackend(FakeBackend):
+            def __init__(self) -> None:
+                super().__init__()
+                self.landing_started = threading.Event()
+                self.release_landing = threading.Event()
+
+            def land_all(self, duration_s) -> None:
+                self.calls.append(("land", duration_s))
+                self.landing_started.set()
+                self.release_landing.wait(1.0)
+
+        backend = SlowLandingBackend()
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
+            uris=("radio://test/01",), control_enabled=True,
+        ), backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+        self.addCleanup(gateway.disconnect)
+        self.addCleanup(backend.release_landing.set)
+
+        gateway.arm()
+        gateway.send_command(SwarmCommand("land"))
+        self.assertTrue(backend.landing_started.wait(1.0))
+        with self.assertRaisesRegex(RuntimeError, "降落已在进行"):
+            gateway.send_command(SwarmCommand("land"))
+        with self.assertRaisesRegex(RuntimeError, "降落已在进行"):
+            gateway.send_command(SwarmCommand("forward"))
+        with self.assertRaisesRegex(RuntimeError, "正在受控降落"):
+            gateway.set_manual_input(0.0, 0.2, 0.0)
+        with self.assertRaisesRegex(RuntimeError, "正在受控降落"):
+            gateway.arm()
+        backend.release_landing.set()
+
+        deadline = time.time() + 1.0
+        while gateway.status().airborne and time.time() < deadline:
+            time.sleep(0.005)
+        self.assertEqual(1, sum(1 for call in backend.calls if call[0] == "land"))
+
+    def test_landed_confirmation_does_not_require_can_be_armed(self) -> None:
+        class Swarm:
+            _cfs = {"radio://test/01": object()}
+
+        backend = CflibBackend(CrazyflieSwarmConfig(uris=("radio://test/01",)))
+        backend._swarm = Swarm()
+        backend._telemetry_cache = {"radio://test/01": {"supervisor.info": 0.0}}
+
+        self.assertTrue(backend._wait_for_landed_confirmation())
+
     def test_pre_arm_reports_crash_state_separately_from_emergency_lock(self) -> None:
         class Swarm:
             _cfs = {"radio://test/01": object()}
@@ -139,18 +199,79 @@ class CrazyflieGatewayTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "坠机状态"):
             backend.arm_all()
 
-    def test_pre_arm_uses_can_be_armed_without_requiring_can_fly(self) -> None:
-        class Swarm:
-            _cfs = {"radio://test/01": object()}
+    def test_arm_request_is_sent_without_can_be_armed_precheck(self) -> None:
+        class Commander:
+            def send_notify_setpoint_stop(self) -> None: return None
+
+        class Platform:
+            def __init__(self) -> None: self.requests = []
+            def send_arming_request(self, armed) -> None: self.requests.append(bool(armed))
+
+        class Scf:
+            def __init__(self) -> None:
+                self.cf = type("Cf", (), {})()
+                self.cf.commander = Commander()
+                self.cf.platform = Platform()
+                self.cf.supervisor = None
 
         backend = CflibBackend(CrazyflieSwarmConfig(uris=("radio://test/01",)))
-        backend._swarm = Swarm()
-        # Bit 0 is the official arming gate. Bit 3 may still be false before
-        # the firmware completes its arming/flying state transition.
-        backend._telemetry_cache = {"radio://test/01": {"supervisor.info": 1.0}}
+        scf = Scf()
 
-        self.assertTrue(backend._wait_for_armable_confirmation(timeout_s=0.01))
-        self.assertTrue(backend._wait_for_landed_confirmation())
+        class Swarm:
+            _cfs = {"radio://test/01": scf}
+
+            def parallel_safe(self, callback, args_dict=None) -> None:
+                callback(scf)
+                # Simulate the firmware confirming the official request. The
+                # pre-request value intentionally has can_be_armed == 0.
+                backend._telemetry_cache["radio://test/01"]["supervisor.info"] = 1 << 1
+
+        backend._swarm = Swarm()
+        backend._supervisor_info_reliable = True
+        backend._telemetry_cache = {"radio://test/01": {"supervisor.info": 0.0}}
+
+        self.assertTrue(backend.arm_all())
+        self.assertEqual([True], scf.cf.platform.requests)
+
+    def test_legacy_protocol_sends_arm_request_without_waiting_for_unreliable_bit(self) -> None:
+        class Commander:
+            def send_notify_setpoint_stop(self) -> None: return None
+
+        class Platform:
+            def __init__(self) -> None: self.requests = []
+            def get_protocol_version(self) -> int: return 6
+            def send_arming_request(self, armed) -> None: self.requests.append(bool(armed))
+
+        class Scf:
+            def __init__(self) -> None:
+                self.cf = type("Cf", (), {})()
+                self.cf.commander = Commander()
+                self.cf.platform = Platform()
+
+        class Swarm:
+            def __init__(self, scf) -> None: self._cfs = {"radio://test/01": scf}
+            def parallel_safe(self, callback, args_dict=None) -> None:
+                for uri, scf in self._cfs.items():
+                    callback(scf, *(args_dict[uri] if args_dict else []))
+
+        backend = CflibBackend(CrazyflieSwarmConfig(uris=("radio://test/01",)))
+        scf = Scf()
+        backend._swarm = Swarm(scf)
+        backend._telemetry_cache = {"radio://test/01": {"supervisor.info": 0.0}}
+        backend._supervisor_info_reliable = backend._detect_supervisor_info_support()
+
+        self.assertIsNone(backend.arm_all())
+        self.assertEqual([True], scf.cf.platform.requests)
+
+    def test_modern_protocol_enables_armed_confirmation(self) -> None:
+        class Platform:
+            def get_protocol_version(self) -> int: return 7
+
+        scf = type("Scf", (), {"cf": type("Cf", (), {"platform": Platform()})()})()
+        backend = CflibBackend(CrazyflieSwarmConfig(uris=("radio://test/01",)))
+        backend._swarm = type("Swarm", (), {"_cfs": {"radio://test/01": scf}})()
+
+        self.assertTrue(backend._detect_supervisor_info_support())
 
     def test_removed_multi_aircraft_action_is_rejected(self) -> None:
         gateway, _ = self.make_gateway()
@@ -265,6 +386,46 @@ class CrazyflieGatewayTest(unittest.TestCase):
         downloader.join(timeout=1.0)
 
         self.assertTrue(backend._detected_decks["radio://test/01"]["flow_v2"])
+        self.assertIn(("stabilizer.estimator", "2"), param.writes)
+
+    def test_hardware_self_check_ignores_transient_zero_flow_values(self) -> None:
+        class Param:
+            def __init__(self) -> None:
+                # This is the real startup race: the keys and is_updated flag
+                # arrive before the deck driver changes bcFlow2 from 0 to 1.
+                self.values = {"deck": {"bcFlow": "0", "bcFlow2": "0", "bcAI": "0"}}
+                self.is_updated = True
+                self.writes = []
+                self.refreshes = []
+
+            def set_value(self, name, value) -> None:
+                self.writes.append((name, value))
+
+            def request_param_update(self, name) -> None:
+                self.refreshes.append(name)
+                if name == "deck.bcFlow2":
+                    self.values = {"deck": {"bcFlow": "0", "bcFlow2": "1", "bcAI": "0"}}
+
+        class Log:
+            toc = type("Toc", (), {"toc": {
+                "range": {"zrange": object()},
+                "motion": {"squal": object()},
+            }})()
+
+        param = Param()
+
+        class Scf:
+            cf = type("Cf", (), {
+                "link_uri": "radio://test/01",
+                "param": param,
+                "log": Log(),
+            })()
+
+        backend = CflibBackend(CrazyflieSwarmConfig(uris=("radio://test/01",)))
+        backend._configure_single(Scf())
+
+        self.assertTrue(backend._detected_decks["radio://test/01"]["flow_v2"])
+        self.assertIn("deck.bcFlow2", param.refreshes)
         self.assertIn(("stabilizer.estimator", "2"), param.writes)
 
     def test_hardware_self_check_rejects_missing_flow_logs(self) -> None:

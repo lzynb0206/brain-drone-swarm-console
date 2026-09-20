@@ -1391,10 +1391,6 @@ class MainView(QWidget):
         if flow_mode:
             self._hit(direction_cx - stick_r, direction_cy - stick_r, stick_r * 2, stick_r * 2,
                       "manual-stick-direction")
-        c.text(350, 530, 540, 32,
-               "Flow Hover：左杆改变目标高度，右杆控制机体系速度，松杆保持高度并停止水平速度"
-               if flow_mode else "当前不是 Flow Deck 模式，虚拟摇杆已禁用",
-               10 if flow_mode else 11, GREEN if flow_mode else YELLOW, True, Qt.AlignCenter)
         confidence = self._latest_recognition.confidence if self._latest_recognition is not None else 0.0
         result_label = self._latest_recognition.label if self._latest_recognition is not None else "等待 EEG"
         c.text(456, 603, 280, 30, f"FBCCA：{result_label}", 13, MUTED)
