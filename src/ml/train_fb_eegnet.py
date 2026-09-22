@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.bci.config import COMMANDS, TRUE_LABELS
+from src.bci.config import TRUE_LABELS
 from src.ml.preprocessing import DEFAULT_FILTER_BANKS, preprocess_trial
 
 

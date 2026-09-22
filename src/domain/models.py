@@ -114,20 +114,6 @@ class IntentResult:
     @property
     def best_score(self) -> float:
         return self.confidence
-
-
-RecognitionResult = IntentResult
-
-
-@dataclass(frozen=True)
-class SoldierVitals:
-    soldier_id: str
-    attention: float
-    fatigue: float
-    stress: float
-    heart_rate_bpm: float
-
-
 @dataclass(frozen=True)
 class SystemMetrics:
     cpu_percent: float

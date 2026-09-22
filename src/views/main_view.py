@@ -8,7 +8,7 @@ from collections import deque
 from datetime import datetime
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetricsF, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -36,7 +36,6 @@ from src.widgets.scifi_canvas import (
     GREEN,
     MUTED,
     PANEL,
-    PANEL_DARK,
     RED,
     TEXT,
     YELLOW,

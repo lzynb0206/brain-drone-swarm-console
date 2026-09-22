@@ -272,6 +272,3 @@ class EEGWorker(QThread):
         self._labeled_buffer = None
         self._active_capture_generation = -1
         self._labeled_start_time = ""
-
-
-EEGPipelineWorker = EEGWorker
