@@ -14,21 +14,30 @@ class FakeBackend:
         self.calls: list[tuple] = []
         self.connected = threading.Event()
         self.telemetry = None
+        self.uri = ""
 
     def connect(self, uris, telemetry, event) -> None:
         self.calls.append(("connect", uris))
         self.telemetry = telemetry
-        telemetry(uris[0], time.time(), {
-            "stateEstimate.x": 0.0, "stateEstimate.y": 0.0, "stateEstimate.z": 0.35,
-            "stateEstimate.vx": 0.0, "stateEstimate.vy": 0.0, "stateEstimate.vz": 0.0,
-            "pm.vbat": 4.0, "range.zrange": 350.0, "motion.squal": 80.0,
-        })
+        self.uri = uris[0]
+        self.emit_telemetry(0.35)
         self.connected.set()
+
+    def emit_telemetry(self, height_m: float, voltage: float = 4.0) -> None:
+        assert self.telemetry is not None
+        self.telemetry(self.uri, time.time(), {
+            "stateEstimate.x": 0.0, "stateEstimate.y": 0.0, "stateEstimate.z": height_m,
+            "stateEstimate.vx": 0.0, "stateEstimate.vy": 0.0, "stateEstimate.vz": 0.0,
+            "pm.vbat": voltage, "range.zrange": max(1.0, height_m * 1000.0),
+            "motion.squal": 80.0,
+        })
 
     def disconnect(self) -> None: self.calls.append(("disconnect",))
     def arm_all(self) -> bool: self.calls.append(("arm",)); return True
     def disarm_all(self) -> None: self.calls.append(("disarm",))
-    def takeoff_all(self, height_m, duration_s) -> None: self.calls.append(("takeoff", height_m, duration_s))
+    def takeoff_all(self, height_m, duration_s) -> None:
+        self.calls.append(("takeoff", height_m, duration_s))
+        self.emit_telemetry(height_m)
     def land_all(self, duration_s) -> None: self.calls.append(("land", duration_s))
     def move_all_relative(self, dx, dy, dz, duration_s) -> None: self.calls.append(("move", dx, dy, dz, duration_s))
     def move_one_relative(self, uri, dx, dy, dz, duration_s) -> None: self.calls.append(("move_one", uri, dx, dy, dz, duration_s))
@@ -106,6 +115,66 @@ class CrazyflieGatewayTest(unittest.TestCase):
         gateway.send_command(SwarmCommand("forward", parameters={"distance_m": 0.2}))
         move = self.wait_for_call(backend, "move")
         self.assertEqual((0.2, 0.0, 0.0), move[1:4])
+
+    def test_mission_takeoff_can_arm_from_connected_ground_state(self) -> None:
+        gateway, backend = self.make_gateway()
+
+        gateway.send_command(SwarmCommand("takeoff", parameters={"height_m": 0.5}))
+
+        self.wait_for_call(backend, "takeoff")
+        self.assertIn(("arm",), backend.calls)
+        self.assertTrue(gateway.status().armed)
+        self.assertTrue(gateway.status().airborne)
+
+    def test_takeoff_is_not_completed_before_target_height_telemetry(self) -> None:
+        class DelayedTakeoffBackend(FakeBackend):
+            def takeoff_all(self, height_m, duration_s) -> None:
+                self.calls.append(("takeoff", height_m, duration_s))
+
+        backend = DelayedTakeoffBackend()
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
+            uris=("radio://test/01",), control_enabled=True,
+        ), backend)
+        completions: list[str] = []
+        gateway.add_command_listener(
+            lambda status, _message, command: completions.append(
+                f"{status}:{command.action}"
+            )
+        )
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+        self.addCleanup(gateway.disconnect)
+
+        gateway.send_command(SwarmCommand("takeoff", parameters={"height_m": 0.5}))
+        self.wait_for_call(backend, "takeoff")
+        time.sleep(0.1)
+
+        self.assertNotIn("COMPLETED:takeoff", completions)
+        self.assertFalse(any(call[0] == "hover" for call in backend.calls))
+
+        backend.emit_telemetry(0.5)
+        self.wait_for_call(backend, "hover")
+        deadline = time.time() + 1.0
+        while "COMPLETED:takeoff" not in completions and time.time() < deadline:
+            time.sleep(0.005)
+        self.assertIn("COMPLETED:takeoff", completions)
+
+    def test_arbitrary_relative_movement_is_queued_for_selected_aircraft(self) -> None:
+        gateway, backend = self.make_gateway()
+        gateway.arm()
+
+        gateway.send_command(SwarmCommand(
+            "move_relative",
+            uav_id="CF-01",
+            parameters={"dx_m": 0.4, "dy_m": -0.2, "dz_m": 0.1},
+        ))
+
+        move = self.wait_for_call(backend, "move_one")
+        self.assertEqual("radio://test/01", move[1])
+        self.assertEqual((0.4, -0.2, 0.1), move[2:5])
 
     def test_controlled_landing_can_be_armed_again(self) -> None:
         gateway, backend = self.make_gateway()
@@ -186,7 +255,7 @@ class CrazyflieGatewayTest(unittest.TestCase):
 
         self.assertTrue(backend._wait_for_landed_confirmation())
 
-    def test_low_voltage_warns_in_flight_but_allows_landing_then_blocks_rearm(self) -> None:
+    def test_low_voltage_only_warns_and_does_not_block_rearm(self) -> None:
         gateway, backend = self.make_gateway()
         gateway.config = replace(gateway.config, battery_low_confirm_s=0.0)
         gateway.arm()
@@ -215,22 +284,22 @@ class CrazyflieGatewayTest(unittest.TestCase):
             time.sleep(0.005)
 
         landed = gateway.status()
-        self.assertEqual("battery_low_grounded", landed.state)
+        self.assertEqual("connected", landed.state)
         self.assertFalse(landed.armed)
         self.assertFalse(landed.airborne)
-        with self.assertRaisesRegex(RuntimeError, "低电量保护"):
-            gateway.arm()
+        gateway.arm()
+        self.assertTrue(gateway.status().armed)
 
-    def test_preflight_voltage_threshold_is_3_2_volts(self) -> None:
-        gateway, _ = self.make_gateway()
+    def test_low_preflight_voltage_does_not_block_arm(self) -> None:
+        gateway, backend = self.make_gateway()
         self.assertEqual(3.2, gateway.config.minimum_battery_voltage)
         gateway._on_telemetry("radio://test/01", time.time(), {
             "stateEstimate.x": 0.0, "stateEstimate.y": 0.0, "stateEstimate.z": 0.1,
             "stateEstimate.vx": 0.0, "stateEstimate.vy": 0.0, "stateEstimate.vz": 0.0,
             "pm.vbat": 3.19, "range.zrange": 100.0, "motion.squal": 80.0,
         })
-        with self.assertRaisesRegex(RuntimeError, "电压不足"):
-            gateway.arm()
+        gateway.arm()
+        self.assertIn(("arm",), backend.calls)
 
     def test_pre_arm_reports_crash_state_separately_from_emergency_lock(self) -> None:
         class Swarm:

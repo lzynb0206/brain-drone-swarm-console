@@ -85,7 +85,8 @@ class CrazyflieSwarmGateway:
     """Queue-based real Flow Deck gateway; no synthetic aircraft are created."""
 
     _ALLOWED_ACTIONS = {
-        "takeoff", "land", "forward", "backward", "left", "right", "hover", "led_test",
+        "takeoff", "land", "forward", "backward", "left", "right", "move_relative",
+        "hover", "led_test",
     }
 
     def __init__(self, config: CrazyflieSwarmConfig, backend: CrazyflieBackend | None = None) -> None:
@@ -208,10 +209,6 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("电机停止操作尚未完成，请稍候再解锁")
             if self._landing_requested:
                 raise RuntimeError("正在受控降落，不能重复启动 Flow Hover")
-            if self._battery_low_latched:
-                voltage = self._last_low_voltage
-                detail = f"（最低检测到 {voltage:.2f}V）" if voltage is not None else ""
-                raise RuntimeError(f"本次飞行已触发低电量保护{detail}，请更换或充电后重新连接")
             self._validate_ready()
             confirmed = self._backend.arm_all()
             if confirmed is False:
@@ -278,10 +275,12 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("电机正在停止，暂不接受飞行指令")
             if self._landing_requested:
                 raise RuntimeError("受控降落已在进行，暂不接受新的飞行指令")
+            if action != "led_test" and not self.config.control_enabled:
+                raise RuntimeError("当前为只读遥测模式；请显式设置 BDS_HARDWARE_CONTROL_ENABLED=true")
             if action == "land":
                 if not self._armed or not self._airborne:
                     raise RuntimeError("Flow Hover 尚未启动，不能执行受控降落")
-            elif action != "led_test" and not self._armed:
+            elif action not in {"led_test", "takeoff"} and not self._armed:
                 raise RuntimeError("实机控制尚未解锁")
             self._validate_command(command)
             if action == "land":
@@ -475,11 +474,20 @@ class CrazyflieSwarmGateway:
             speed = max(0.05, self.config.move_speed_mps)
             duration = max(2.0, height / speed)
             with self._lock:
+                needs_arming = not self._armed
+            if needs_arming:
+                confirmed = self._backend.arm_all()
+                if confirmed is False:
+                    raise RuntimeError("飞控拒绝解锁，请检查电池、机体姿态和飞控锁定状态")
+                with self._lock:
+                    self._armed = True
+            with self._lock:
                 self._airborne = True
                 self._state = "taking_off"
                 self._message = "正在起飞并进入保持状态…"
             self._backend.takeoff_all(height, duration)
             self._raise_if_cancelled(generation)
+            self._wait_for_takeoff_height(height, generation, timeout_s=duration + 2.0)
             self._backend.hover_all(0.4)
             self._raise_if_cancelled(generation)
             with self._lock:
@@ -496,23 +504,35 @@ class CrazyflieSwarmGateway:
                 if not self._emergency:
                     self._airborne = False
                     self._armed = False
-                    if self._battery_low_latched:
-                        self._state = "battery_low_grounded"
-                        self._message = "已安全落地；本次飞行电量过低，禁止再次起飞"
-                    else:
-                        self._state = "connected"
-                        self._message = "已受控降落；飞控已确认可再次解锁起飞"
+                    self._state = "connected"
+                    self._message = (
+                        "已受控降落；曾检测到低电压（仅提示）"
+                        if self._battery_low_latched
+                        else "已受控降落；飞控已确认可再次解锁起飞"
+                    )
         elif action == "hover":
-            self._backend.hover_all(0.5)
+            self._backend.hover_all(float(command.parameters.get("duration_s", 0.5)))
         else:
-            distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
-            vectors = {
-                "forward": (distance, 0.0, 0.0),
-                "backward": (-distance, 0.0, 0.0),
-                "left": (0.0, distance, 0.0),
-                "right": (0.0, -distance, 0.0),
-            }
-            dx, dy, dz = vectors[action]
+            if action == "move_relative":
+                dx = float(command.parameters.get("dx_m", 0.0))
+                dy = float(command.parameters.get("dy_m", 0.0))
+                dz = float(command.parameters.get("dz_m", 0.0))
+                distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+            else:
+                distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
+                vectors = {
+                    "forward": (distance, 0.0, 0.0),
+                    "backward": (-distance, 0.0, 0.0),
+                    "left": (0.0, distance, 0.0),
+                    "right": (0.0, -distance, 0.0),
+                }
+                dx, dy, dz = vectors[action]
+            if math.hypot(dx, dy) > 1e-6:
+                self._wait_for_takeoff_height(
+                    self.config.flow_min_height_m,
+                    generation,
+                    timeout_s=4.0,
+                )
             duration = max(1.0, distance / max(0.05, self.config.move_speed_mps))
             if command.uav_id:
                 self._backend.move_one_relative(self._resolve_uri(command.uav_id), dx, dy, dz, duration)
@@ -527,6 +547,33 @@ class CrazyflieSwarmGateway:
             cancelled = generation != self._command_generation or self._emergency
         if cancelled:
             raise _CommandCancelled()
+
+    def _wait_for_takeoff_height(
+        self,
+        target_height_m: float,
+        generation: int,
+        *,
+        timeout_s: float,
+    ) -> None:
+        """等待实时高度进入目标容差，防止贴地发送水平位移。"""
+        target = max(self.config.flow_min_height_m, float(target_height_m))
+        tolerance = max(0.02, min(0.05, target * 0.1))
+        required_height = target - tolerance
+        deadline = time.monotonic() + max(0.5, float(timeout_s))
+        last_height: float | None = None
+        while time.monotonic() < deadline:
+            self._raise_if_cancelled(generation)
+            with self._lock:
+                heights = [uav.position.z for uav in self._uavs.values()]
+            if heights:
+                last_height = min(heights)
+                if last_height >= required_height:
+                    return
+            time.sleep(0.05)
+        detail = "无遥测" if last_height is None else f"当前 {last_height:.2f}m"
+        raise RuntimeError(
+            f"起飞高度未达到目标范围：目标 {target:.2f}m，{detail}"
+        )
 
     def _discard_pending_commands(self, reason: str) -> None:
         sentinel_seen = False
@@ -557,14 +604,11 @@ class CrazyflieSwarmGateway:
         if action == "led_test":
             return
         if action == "land":
-            # Low voltage must never block the safest normal exit from flight.
-            self._validate_ready(check_battery=False)
+            self._validate_ready()
             if not self._armed or not self._airborne:
                 raise RuntimeError("Flow Hover 尚未启动，不能执行受控降落")
             return
-        # Once airborne, a low-voltage warning asks the operator to land but
-        # does not take away control. The voltage gate belongs to arming only.
-        self._validate_ready(check_battery=not self._airborne)
+        self._validate_ready()
         if action == "takeoff":
             if self._airborne:
                 raise RuntimeError("无人机已经处于飞行状态")
@@ -581,6 +625,20 @@ class CrazyflieSwarmGateway:
             return
         if not self._airborne:
             raise RuntimeError("无人机尚未起飞")
+        if action == "move_relative":
+            try:
+                dx = float(command.parameters.get("dx_m", 0.0))
+                dy = float(command.parameters.get("dy_m", 0.0))
+                dz = float(command.parameters.get("dz_m", 0.0))
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("相对位移参数必须是有效数字") from exc
+            if not all(math.isfinite(value) for value in (dx, dy, dz)):
+                raise RuntimeError("相对位移参数必须是有效数字")
+            distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if distance <= 1e-6:
+                raise RuntimeError("相对位移距离不能为 0")
+            if distance > 5.0:
+                raise RuntimeError("单次相对位移不能超过 5.0m")
 
     def _resolve_uri(self, uav_id: str) -> str:
         if uav_id in self.config.uris:
@@ -590,18 +648,13 @@ class CrazyflieSwarmGateway:
                 return uri
         raise RuntimeError(f"找不到无人机：{uav_id}")
 
-    def _validate_ready(self, *, check_battery: bool = True) -> None:
+    def _validate_ready(self) -> None:
         if len(self._uavs) != len(self.config.uris):
             raise RuntimeError("尚未收到 Crazyflie 遥测")
         now = time.time()
         for uav in self._uavs.values():
             if now - uav.last_update_timestamp > self.config.telemetry_timeout_s:
                 raise RuntimeError(f"{uav.uav_id} 遥测超时")
-            if check_battery and (
-                uav.battery_voltage is None
-                or uav.battery_voltage < self.config.minimum_battery_voltage
-            ):
-                raise RuntimeError(f"{uav.uav_id} 电压不足")
             if not uav.positioning_ok:
                 raise RuntimeError(f"{uav.uav_id} Flow Deck 测距/光流尚未就绪")
 
@@ -638,6 +691,8 @@ class CrazyflieSwarmGateway:
                     low_voltage_warning = self._message
                 elif self._battery_low_latched:
                     self._last_low_voltage = min(self._last_low_voltage or voltage, voltage)
+                    self._state = "battery_low"
+                    self._message = f"电量过低：{voltage:.2f}V（仅提示）"
             elif voltage >= threshold + 0.05:
                 # Require a fresh continuous low interval after voltage recovers
                 # instead of triggering on one transient motor-load sample.
@@ -727,12 +782,12 @@ class CrazyflieSwarmGateway:
                 return
             if error is None:
                 self._airborne = False
-                if self._battery_low_latched:
-                    self._state = "battery_low_grounded"
-                    self._message = "电机已停止；本次飞行电量过低，禁止再次起飞"
-                else:
-                    self._state = "connected"
-                    self._message = "电机已停止；重新起飞前需要再次解锁"
+                self._state = "connected"
+                self._message = (
+                    "电机已停止；曾检测到低电压（仅提示）"
+                    if self._battery_low_latched
+                    else "电机已停止；重新起飞前需要再次解锁"
+                )
             else:
                 self._state = "stop_error"
                 self._message = f"电机停止未确认：{error}；请立即现场处置"

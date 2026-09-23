@@ -228,6 +228,43 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertTrue(self.view._toast_scroll_timer.isActive())
         self.assertEqual(message, self.view._toast)
 
+    def test_temporary_task_button_runs_fixed_goto_after_confirmation(self) -> None:
+        with patch.object(
+            QMessageBox,
+            "question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ):
+            self.view._activate("mission-test")
+
+        self.assertIsNotNone(self.view._latest_recognition)
+        self.assertEqual("去A点", self.view._latest_recognition.label)
+        self.assertEqual(
+            ["takeoff", "move_relative"],
+            [command.action for command in self.gateway.command_log],
+        )
+
+    def test_brain_control_page_paints_temporary_task_button(self) -> None:
+        image = QImage(1280, 720, QImage.Format_ARGB32)
+        painter = QPainter(image)
+        try:
+            self.view._regions = []
+            self.view._soldier_brain(Canvas(painter, 1280, 720))
+        finally:
+            painter.end()
+
+        self.assertIn("mission-test", [action for _rect, action in self.view._regions])
+
+    def test_cancelling_inspection_confirmation_sends_no_command(self) -> None:
+        with patch.object(
+            QMessageBox,
+            "question",
+            return_value=QMessageBox.StandardButton.No,
+        ):
+            self.view._activate("mission-test")
+
+        self.assertEqual([], self.gateway.command_log)
+        self.assertIn("已取消任务", self.view._toast)
+
 
 if __name__ == "__main__":
     unittest.main()

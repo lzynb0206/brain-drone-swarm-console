@@ -10,8 +10,9 @@ from datetime import datetime
 from pathlib import Path
 
 from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ
-from src.domain import SwarmCommand
+from src.domain import IntentResult, MissionPlan, SwarmCommand
 from src.ports import SwarmGateway, SystemMonitor
+from src.services.single_uav_mission_service import SingleUAVMissionService
 
 
 @dataclass
@@ -70,6 +71,11 @@ class WorkbenchService:
             add_command_listener = getattr(self.swarm_gateway, "add_command_listener", None)
             if callable(add_command_listener):
                 add_command_listener(self._on_command_result)
+        self.single_uav_missions = SingleUAVMissionService(
+            self.swarm_gateway,
+            self._record,
+            self.experiment_recorder,
+        )
 
     def _record(self, message: str) -> str:
         stamp = datetime.now().strftime("%H:%M:%S")
@@ -186,6 +192,21 @@ class WorkbenchService:
         self.command_history.insert(0, label)
         del self.command_history[8:]
         return self._record(f"蜂群指令已提交：{label}")
+
+    def prepare_single_uav_mission(self, result: IntentResult) -> MissionPlan:
+        """将已解码的高层意图和当前单机状态组合成可确认的任务。"""
+        return self.single_uav_missions.prepare(result)
+
+    def is_single_uav_mission(self, result: IntentResult) -> bool:
+        return self.single_uav_missions.supports_result(result)
+
+    def execute_single_uav_mission(self, plan: MissionPlan) -> str:
+        """仅在操作员确认后启动顺序任务。"""
+        try:
+            self.single_uav_missions.execute(plan)
+        except RuntimeError as exc:
+            return self._record(f"单机任务执行失败：{exc}")
+        return self._record(f"单机任务已提交：{plan.task_label} → {plan.target.name}")
 
     def configure_swarm_uris(self, uris: list[str]) -> str:
         if self.swarm_gateway is None:

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from src.bci.config import COMMANDS, SSVEP_PROFILE_NAME, TARGET_FREQUENCIES_HZ, TRUE_LABELS
 from src.domain import EEGFrame, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
-from src.services import ExperimentRecorder, WorkbenchService
+from src.services import ExperimentRecorder, MissionPlanningError, WorkbenchService
 from src.views.engineer_dashboard import EngineerDashboard
 from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 from src.workers import EEGWorker
@@ -164,6 +164,11 @@ class MainView(QWidget):
         self._eeg_events.appendleft(
             f"{datetime.now():%H:%M:%S}  FBCCA {label}  分数 {result.best_score:.3f}  差值 {result.margin:.3f}"
         )
+        if self.actions.is_single_uav_mission(result):
+            self._handle_single_uav_mission(result)
+            self.update()
+            return
+
         source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
         command_message = self.actions.handle_intent(
             result.label, result.accepted, source, result.frequency_hz,
@@ -171,6 +176,81 @@ class MainView(QWidget):
         if command_message:
             self._eeg_events.appendleft(command_message)
         self.update()
+
+    def _run_fixed_test_mission(self) -> None:
+        """临时按钮入口：模拟 EEG 后端传入一条已解码的结构化任务。"""
+        result = IntentResult(
+            timestamp=time.time(),
+            label="去A点",
+            confidence=0.96,
+            margin=0.32,
+            accepted=True,
+            reason="临时按钮测试任务",
+            frequency_hz=0.0,
+            scores={"去A点": 0.96},
+            sample_rate_hz=0.0,
+            sample_count=0,
+            used_channels_1based=(),
+            signal_quality={"source": "temporary_test_button"},
+            task_type="GOTO",
+            target_id="A",
+            arrival_action="HOLD",
+            observe_seconds=0.0,
+            return_policy="NONE",
+            landing_policy="NONE",
+        )
+        self._on_recognition(result)
+
+    def _handle_single_uav_mission(self, result: IntentResult) -> None:
+        try:
+            plan = self.actions.prepare_single_uav_mission(result)
+        except MissionPlanningError as exc:
+            message = f"任务规划失败：{exc}"
+            self._eeg_events.appendleft(message)
+            self._notify(message)
+            return
+
+        start = plan.start_position
+        target = plan.target.position
+        arrival_labels = {"HOLD": "到达后保持当前位置", "HOVER": "到达后定时悬停观察"}
+        return_labels = {"NONE": "不自动返航", "RETURN_TO_START": "返回起点"}
+        landing_labels = {"NONE": "不自动降落", "LAND": "任务结束后降落"}
+        steps = "\n".join(
+            f"{index}. {step.description}"
+            for index, step in enumerate(plan.steps, start=1)
+        )
+        confirmation = (
+            f"任务：{plan.task_label}\n"
+            f"任务类型：{plan.policy.task_type}\n"
+            f"执行无人机：{plan.uav_id}\n"
+            f"当前位置：({start.x:.2f}, {start.y:.2f}, {start.z:.2f}) m\n"
+            f"目标位置：({target.x:.2f}, {target.y:.2f}, {target.z:.2f}) m\n"
+            f"去程最短距离：{plan.outbound_distance_m:.2f} m\n"
+            f"预计总航程：{plan.total_distance_m:.2f} m\n"
+            f"直线路径点：{len(plan.waypoints)} 个\n"
+            f"预计耗时：{plan.estimated_duration_s:.1f} s\n\n"
+            f"到达策略：{arrival_labels[plan.policy.arrival_action]}\n"
+            f"返航策略：{return_labels[plan.policy.return_policy]}\n"
+            f"降落策略：{landing_labels[plan.policy.landing_policy]}\n\n"
+            f"将要执行：\n{steps}\n\n"
+            "是否确认执行？"
+        )
+        answer = QMessageBox.question(
+            self,
+            "单机任务确认",
+            confirmation,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            message = f"已取消任务：{plan.task_label}"
+            self._eeg_events.appendleft(message)
+            self._notify(message)
+            return
+
+        message = self.actions.execute_single_uav_mission(plan)
+        self._eeg_events.appendleft(message)
+        self._notify(message)
 
     def _on_eeg_status(self, status: str) -> None:
         self._eeg_status = status
@@ -477,6 +557,8 @@ class MainView(QWidget):
             self._show_takeoff_height_dialog()
         elif action == "swarm-single-control":
             self._single_uav_control_dialog()
+        elif action == "mission-test":
+            self._run_fixed_test_mission()
         elif action == "swarm-connect":
             self._notify(self.actions.connect_swarm())
         elif action == "swarm-disconnect":
@@ -990,7 +1072,7 @@ class MainView(QWidget):
             button_x = 310 + index * 190
             c.button(button_x, 510, 170, 42, name)
             self._hit(button_x, 510, 170, 42, f"swarm-command:{action}")
-        c.text(235, 575, 830, 23, "连接、Flow Deck 测距/光流、电量、解锁和急停检查通过后才会执行", 11, "#596477", False, Qt.AlignCenter)
+        c.text(235, 575, 830, 23, "连接、Flow Deck 测距/光流、解锁和急停检查通过后才会执行", 11, "#596477", False, Qt.AlignCenter)
         c.text(217, 663, 360, 42, "L3 战术意图 (占位)", 16, TEXT, True)
 
     def _research_data(self, c: Canvas) -> None:
@@ -1305,7 +1387,7 @@ class MainView(QWidget):
         status_text = (
             "急停锁定 · 需重启" if emergency else
             "电量过低 · 请立即受控降落" if state == "battery_low" else
-            "低电量锁定 · 禁止再次起飞" if state == "battery_low_grounded" else
+            "低电压提示 · 已落地" if state == "battery_low_grounded" else
             "正在受控降落" if state == "landing" else
             "正在停止电机" if state == "stopping_motors" else
             "Flow Hover 操控中" if state == "manual_flight" else
@@ -1329,6 +1411,8 @@ class MainView(QWidget):
         self._hit(548, 126, 46, 32, "swarm-height-decrease")
         self._hit(601, 126, 100, 32, "swarm-height-custom")
         self._hit(708, 126, 46, 32, "swarm-height-increase")
+        c.button(930, 126, 145, 32, "测试任务", False, accent=YELLOW)
+        self._hit(930, 126, 145, 32, "mission-test")
 
         c.panel(28, 82, 245, 304, "实机链路")
         c.text(45, 122, 210, 38, gateway_status.message if gateway_status else "蜂群接口未配置", 11, MUTED)

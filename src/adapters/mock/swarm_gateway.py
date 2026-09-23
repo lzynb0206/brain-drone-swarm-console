@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from src.domain import DeviceStatus, Position, SwarmCommand, SwarmStatus, UAVTelemetry
 
@@ -66,20 +67,50 @@ class MockSwarmGateway:
             raise RuntimeError("蜂群尚未连接")
         if self.emergency_stopped:
             raise RuntimeError("Swarm is emergency-stopped")
-        if command.action not in {"land", "led_test"} and not self._armed:
+        if command.action not in {"takeoff", "land", "led_test"} and not self._armed:
             raise RuntimeError("实机控制尚未解锁")
-        if command.action in {"forward", "backward", "left", "right", "hover"} and not self._airborne:
+        if command.action in {"forward", "backward", "left", "right", "move_relative", "hover"} and not self._airborne:
             raise RuntimeError("无人机尚未起飞")
         self.command_log.append(command)
         if command.action == "takeoff":
+            self._armed = True
             self._airborne = True
+            height = float(command.parameters.get("height_m", self._takeoff_height_m))
+            self._update_positions(command.uav_id, dz=height, absolute_z=True)
+        elif command.action == "move_relative":
+            self._update_positions(
+                command.uav_id,
+                dx=float(command.parameters.get("dx_m", 0.0)),
+                dy=float(command.parameters.get("dy_m", 0.0)),
+                dz=float(command.parameters.get("dz_m", 0.0)),
+            )
         elif command.action == "land":
+            self._update_positions(command.uav_id, dz=0.0, absolute_z=True)
             self._airborne = False
             self._armed = False
         for listener in tuple(self._listeners):
             listener("INFO", f"飞行指令完成：{command.action}")
         for listener in tuple(self._command_listeners):
             listener("COMPLETED", "测试适配器已执行", command)
+
+    def _update_positions(
+        self,
+        uav_id: str | None,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
+        dz: float = 0.0,
+        absolute_z: bool = False,
+    ) -> None:
+        updated = []
+        for uav in self._uavs:
+            if uav_id is not None and uav.uav_id != uav_id:
+                updated.append(uav)
+                continue
+            z = dz if absolute_z else uav.position.z + dz
+            position = Position(uav.position.x + dx, uav.position.y + dy, z)
+            updated.append(replace(uav, position=position, altitude_m=z))
+        self._uavs = tuple(updated)
 
     def stop_motion(self) -> None:
         if not self._airborne:

@@ -106,6 +106,12 @@ class IntentResult:
     sample_count: int
     used_channels_1based: tuple[int, ...]
     signal_quality: Mapping[str, object] = field(default_factory=dict)
+    task_type: str = ""
+    target_id: str = ""
+    arrival_action: str = ""
+    observe_seconds: float = 0.0
+    return_policy: str = ""
+    landing_policy: str = ""
 
     @property
     def prediction(self) -> str | None:
