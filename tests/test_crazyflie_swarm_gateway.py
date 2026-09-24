@@ -15,17 +15,22 @@ class FakeBackend:
         self.connected = threading.Event()
         self.telemetry = None
         self.uri = ""
+        self.uris: tuple[str, ...] = ()
 
     def connect(self, uris, telemetry, event) -> None:
         self.calls.append(("connect", uris))
         self.telemetry = telemetry
+        self.uris = tuple(uris)
         self.uri = uris[0]
-        self.emit_telemetry(0.35)
+        for uri in self.uris:
+            self.emit_telemetry(0.4, uri=uri)
         self.connected.set()
 
-    def emit_telemetry(self, height_m: float, voltage: float = 4.0) -> None:
+    def emit_telemetry(
+        self, height_m: float, voltage: float = 4.0, *, uri: str | None = None,
+    ) -> None:
         assert self.telemetry is not None
-        self.telemetry(self.uri, time.time(), {
+        self.telemetry(uri or self.uri, time.time(), {
             "stateEstimate.x": 0.0, "stateEstimate.y": 0.0, "stateEstimate.z": height_m,
             "stateEstimate.vx": 0.0, "stateEstimate.vy": 0.0, "stateEstimate.vz": 0.0,
             "pm.vbat": voltage, "range.zrange": max(1.0, height_m * 1000.0),
@@ -34,18 +39,32 @@ class FakeBackend:
 
     def disconnect(self) -> None: self.calls.append(("disconnect",))
     def arm_all(self) -> bool: self.calls.append(("arm",)); return True
+    def arm_one(self, uri) -> bool: self.calls.append(("arm_one", uri)); return True
     def disarm_all(self) -> None: self.calls.append(("disarm",))
+    def disarm_one(self, uri) -> None: self.calls.append(("disarm_one", uri))
     def takeoff_all(self, height_m, duration_s) -> None:
         self.calls.append(("takeoff", height_m, duration_s))
-        self.emit_telemetry(height_m)
+        for uri in self.uris:
+            self.emit_telemetry(height_m, uri=uri)
+    def takeoff_one(self, uri, height_m, duration_s) -> None:
+        self.calls.append(("takeoff_one", uri, height_m, duration_s))
+        self.emit_telemetry(height_m, uri=uri)
     def land_all(self, duration_s) -> None: self.calls.append(("land", duration_s))
+    def land_one(self, uri, duration_s) -> None: self.calls.append(("land_one", uri, duration_s))
     def move_all_relative(self, dx, dy, dz, duration_s) -> None: self.calls.append(("move", dx, dy, dz, duration_s))
     def move_one_relative(self, uri, dx, dy, dz, duration_s) -> None: self.calls.append(("move_one", uri, dx, dy, dz, duration_s))
     def hover_all(self, duration_s) -> None: self.calls.append(("hover", duration_s))
+    def hover_one(self, uri, duration_s) -> None: self.calls.append(("hover_one", uri, duration_s))
     def stop_motion_all(self) -> None: self.calls.append(("stop_motion",))
+    def stop_motion_one(self, uri) -> None: self.calls.append(("stop_motion_one", uri))
     def stop_motors_all(self) -> None: self.calls.append(("motor_stop",))
+    def stop_motors_one(self, uri) -> None: self.calls.append(("motor_stop_one", uri))
     def start_manual_control(self, target_height_m) -> None: self.calls.append(("manual_start", target_height_m))
+    def start_manual_control_one(self, uri, target_height_m) -> None:
+        self.calls.append(("manual_start_one", uri, target_height_m))
     def set_manual_input(self, vertical, forward, lateral) -> None: self.calls.append(("manual_input", vertical, forward, lateral))
+    def set_manual_input_one(self, uri, vertical, forward, lateral) -> None:
+        self.calls.append(("manual_input_one", uri, vertical, forward, lateral))
     def set_led_all(self, red, green, blue, duration_s) -> None: self.calls.append(("led", red, green, blue, duration_s))
     def emergency_stop_all(self) -> None: self.calls.append(("emergency",))
 
@@ -73,12 +92,162 @@ class CrazyflieGatewayTest(unittest.TestCase):
             time.sleep(0.005)
         self.fail(f"backend did not receive {name}")
 
-    def test_requires_exactly_one_uri(self) -> None:
+    def test_connects_multiple_aircraft_and_keeps_separate_telemetry(self) -> None:
+        backend = FakeBackend()
         gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
             uris=("radio://test/01", "radio://test/02"),
-        ), FakeBackend())
-        with self.assertRaisesRegex(RuntimeError, "只允许配置一架"):
-            gateway.connect()
+        ), backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        self.addCleanup(gateway.disconnect)
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+
+        self.assertEqual(
+            ("radio://test/01", "radio://test/02"),
+            backend.calls[0][1],
+        )
+        self.assertEqual(["CF-01", "CF-02"], [uav.uav_id for uav in gateway.list_uavs()])
+        self.assertIn("2 架 Crazyflie 遥测已连接", gateway.status().message)
+
+    def test_multi_aircraft_arm_starts_one_group_control_stream(self) -> None:
+        backend = FakeBackend()
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
+            uris=("radio://test/01", "radio://test/02"), control_enabled=True,
+        ), backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        self.addCleanup(gateway.disconnect)
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+
+        gateway.arm()
+
+        self.assertIn(("arm",), backend.calls)
+        self.assertIn(("manual_start", 0.4), backend.calls)
+        self.assertTrue(gateway.status().armed)
+        self.assertTrue(gateway.status().airborne)
+
+    def test_group_horizontal_stick_waits_until_every_aircraft_has_height(self) -> None:
+        backend = FakeBackend()
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
+            uris=("radio://test/01", "radio://test/02"), control_enabled=True,
+        ), backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        self.addCleanup(gateway.disconnect)
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+        gateway.arm()
+        backend.emit_telemetry(0.05, uri="radio://test/02")
+
+        with self.assertRaisesRegex(RuntimeError, "等待起飞高度"):
+            gateway.set_manual_input(0.0, 0.4, 0.0)
+
+        gateway.set_manual_input(0.4, 0.0, 0.0)
+        self.assertIn(("manual_input", 0.4, 0.0, 0.0), backend.calls)
+
+        # Clearing the minimum Flow height is not enough: every aircraft must
+        # first enter the configured 0.4 m take-off target tolerance.
+        backend.emit_telemetry(0.25, uri="radio://test/01")
+        backend.emit_telemetry(0.25, uri="radio://test/02")
+        with self.assertRaisesRegex(RuntimeError, "等待起飞高度"):
+            gateway.set_manual_input(0.0, 0.4, 0.0)
+
+        backend.emit_telemetry(0.38, uri="radio://test/01")
+        backend.emit_telemetry(0.38, uri="radio://test/02")
+        gateway.set_manual_input(0.0, 0.4, 0.0)
+        self.assertIn(("manual_input", 0.0, 0.4, 0.0), backend.calls)
+
+    def test_selected_aircraft_can_take_off_move_and_land_independently(self) -> None:
+        backend = FakeBackend()
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
+            uris=("radio://test/01", "radio://test/02"), control_enabled=True,
+        ), backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        self.addCleanup(gateway.disconnect)
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+
+        gateway.send_command(SwarmCommand(
+            "takeoff", uav_id="CF-02", parameters={"height_m": 0.4},
+        ))
+        self.wait_for_call(backend, "takeoff_one")
+        deadline = time.time() + 1.0
+        while not gateway.list_uavs()[1].airborne and time.time() < deadline:
+            time.sleep(0.005)
+
+        first, second = gateway.list_uavs()
+        self.assertFalse(first.airborne)
+        self.assertTrue(second.airborne)
+        self.assertIn(("arm_one", "radio://test/02"), backend.calls)
+
+        gateway.send_command(SwarmCommand(
+            "move_relative",
+            uav_id="CF-02",
+            parameters={"dx_m": 0.2, "dy_m": 0.0, "dz_m": 0.0},
+        ))
+        move = self.wait_for_call(backend, "move_one")
+        self.assertEqual("radio://test/02", move[1])
+
+        gateway.send_command(SwarmCommand("land", uav_id="CF-02"))
+        self.wait_for_call(backend, "land_one")
+        deadline = time.time() + 1.0
+        while gateway.list_uavs()[1].airborne and time.time() < deadline:
+            time.sleep(0.005)
+        self.assertFalse(gateway.list_uavs()[1].airborne)
+
+    def test_disconnect_lands_only_airborne_subset_before_closing_links(self) -> None:
+        backend = FakeBackend()
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
+            uris=("radio://test/01", "radio://test/02"), control_enabled=True,
+        ), backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+        gateway.send_command(SwarmCommand(
+            "takeoff", uav_id="CF-02", parameters={"height_m": 0.4},
+        ))
+        self.wait_for_call(backend, "takeoff_one")
+        deadline = time.time() + 1.0
+        while not gateway.list_uavs()[1].airborne and time.time() < deadline:
+            time.sleep(0.005)
+
+        gateway.disconnect()
+
+        self.assertIn(("land_one", "radio://test/02", 3.0), backend.calls)
+        self.assertNotIn(("land", 3.0), backend.calls)
+
+    def test_group_takeoff_move_and_land_address_all_aircraft(self) -> None:
+        backend = FakeBackend()
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
+            uris=("radio://test/01", "radio://test/02"), control_enabled=True,
+        ), backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        self.addCleanup(gateway.disconnect)
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+
+        gateway.send_command(SwarmCommand("takeoff", parameters={"height_m": 0.4}))
+        self.wait_for_call(backend, "takeoff")
+        deadline = time.time() + 1.0
+        while not all(item.airborne for item in gateway.list_uavs()) and time.time() < deadline:
+            time.sleep(0.005)
+        self.assertTrue(all(item.airborne for item in gateway.list_uavs()))
+
+        gateway.send_command(SwarmCommand("forward", parameters={"distance_m": 0.2}))
+        self.wait_for_call(backend, "move")
+        gateway.send_command(SwarmCommand("land"))
+        self.wait_for_call(backend, "land")
 
     def test_requires_explicit_control_flag(self) -> None:
         gateway, _ = self.make_gateway(control=False)
@@ -594,6 +763,54 @@ class CrazyflieGatewayTest(unittest.TestCase):
         backend.stop_motors_all()
         self.assertTrue(scf.cf.commander.stopped)
         self.assertEqual(False, scf.cf.platform.requests[-1])
+
+    def test_backend_scheduler_refreshes_two_independent_flow_states(self) -> None:
+        class Commander:
+            def __init__(self) -> None:
+                self.hover_setpoints = []
+            def send_hover_setpoint(self, vx, vy, yawrate, height) -> None:
+                self.hover_setpoints.append((vx, vy, yawrate, height))
+            def send_notify_setpoint_stop(self) -> None: return None
+            def send_stop_setpoint(self) -> None: return None
+
+        class Platform:
+            def send_arming_request(self, armed) -> None: return None
+
+        class HighLevelCommander:
+            def stop(self) -> None: return None
+
+        class Scf:
+            def __init__(self) -> None:
+                self.cf = type("Cf", (), {})()
+                self.cf.commander = Commander()
+                self.cf.platform = Platform()
+                self.cf.high_level_commander = HighLevelCommander()
+
+        first, second = Scf(), Scf()
+
+        class Swarm:
+            _cfs = {"radio://test/01": first, "radio://test/02": second}
+            def parallel_safe(self, callback, args_dict=None) -> None:
+                for uri, scf in self._cfs.items():
+                    callback(scf, *(args_dict[uri] if args_dict else []))
+
+        backend = CflibBackend(CrazyflieSwarmConfig(
+            uris=("radio://test/01", "radio://test/02"), flow_setpoint_rate_hz=100.0,
+        ))
+        backend._swarm = Swarm()
+        backend._start_flow_control(0.4)
+        time.sleep(0.04)
+
+        self.assertTrue(first.cf.commander.hover_setpoints)
+        self.assertTrue(second.cf.commander.hover_setpoints)
+        backend.set_manual_input_one("radio://test/02", 0.0, 1.0, 0.0)
+        with backend._flow_control_lock:
+            first_state = backend._flow_states["radio://test/01"]
+            second_state = backend._flow_states["radio://test/02"]
+            self.assertEqual((0.0, 0.0, 0.0), first_state.velocity)
+            self.assertEqual((0.5, 0.0, 0.0), second_state.velocity)
+
+        backend.stop_motors_all()
 
 
 if __name__ == "__main__":

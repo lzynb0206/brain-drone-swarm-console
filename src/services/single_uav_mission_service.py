@@ -158,11 +158,7 @@ class SingleUAVMissionService:
 
         observe_seconds = max(0.0, float(policy.observe_seconds))
         start = uav.position
-        cruise_start = (
-            start
-            if gateway_status.airborne
-            else Position(start.x, start.y, target.position.z)
-        )
+        cruise_start = start if uav.airborne else Position(start.x, start.y, target.position.z)
         dx = target.position.x - cruise_start.x
         dy = target.position.y - cruise_start.y
         dz = target.position.z - cruise_start.z
@@ -172,7 +168,7 @@ class SingleUAVMissionService:
         waypoints = self._straight_line_waypoints(cruise_start, target.position)
 
         steps: list[MissionStep] = []
-        if not gateway_status.airborne:
+        if not uav.airborne:
             steps.append(
                 MissionStep(
                     "takeoff",
@@ -221,7 +217,7 @@ class SingleUAVMissionService:
             2.0 if policy.return_policy == "RETURN_TO_START" else 1.0
         )
         estimated_duration = (
-            (0.0 if gateway_status.airborne else max(2.0, target.position.z / self.cruise_speed_mps))
+            (0.0 if uav.airborne else max(2.0, target.position.z / self.cruise_speed_mps))
             + (total_distance / self.cruise_speed_mps)
             + (observe_seconds if policy.arrival_action == "HOVER" else 0.0)
             + (3.0 if policy.landing_policy == "LAND" else 0.0)

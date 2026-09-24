@@ -87,17 +87,21 @@ python main.py
 
 注册时选择的演示身份会直接保存在 PostgreSQL 的 `app_users.role`。正式部署应关闭注册身份选择，由管理员接口授权。
 
-### Crazyflie + Flow Deck 只读遥测与实机控制
+### Crazyflie + Flow Deck 多机遥测、群控与逐机控制
 
 第一次只启用只读遥测，不设置 `BDS_HARDWARE_CONTROL_ENABLED`：
 
 ```bash
 export BDS_SWARM_BACKEND=flowdeck
-export BDS_CRAZYFLIE_URIS='实际单机URI'
+export BDS_CRAZYFLIE_URIS='radio://0/80/2M/E7E7E7E701,radio://0/80/2M/E7E7E7E702'
 python main.py
 ```
 
-现场完成净空、急停、Flow Deck 测距/光流和电量检查后，才可打开实机控制：
+`BDS_CRAZYFLIE_URIS` 使用英文逗号分隔多架 Crazyflie。也可以在“单兵面板 → 脑控
+→ 配置 URI”中每行填写一个 URI。程序会同时连接各机并分别显示位置、电量、速度、
+高度和 Flow Deck 状态。
+
+现场完成净空、急停、每架飞机的 Flow Deck 测距/光流和电量检查后，才可打开实机控制：
 
 ```bash
 export BDS_HARDWARE_CONTROL_ENABLED=true
@@ -105,16 +109,23 @@ python main.py
 ```
 
 Crazyradio 连接必须使用无人机实际配置的 Radio URI，例如
-`radio://0/80/2M/E7E7E7E701`；`usb://...` 不是 Crazyradio 无线链路 URI。URI 也可以在
-“单兵面板 → 脑控 → 配置 URI”中修改，修改前需要先断开当前连接。
+`radio://0/80/2M/E7E7E7E701`；`usb://...` 不是 Crazyradio 无线链路 URI。修改 URI 前
+需要先断开当前连接。
 
 打开“单兵面板 → 脑控”后的基本流程：
 
 1. 点击“连接”，等待界面显示“Flow Deck 就绪”。
 2. 在“启动目标高度”处用 `-` / `+` 调整，或点击数值直接输入高度。
-3. 将无人机水平放置在有纹理、光照正常的地面，点击“启动 Flow Hover”。
-4. 左杆控制目标高度升降，右杆控制前后左右速度；松开摇杆后，水平速度归零并保持最后目标高度。
-5. 正常结束飞行使用“受控降落”；“停止电机”和“紧急停止”只用于异常情况。
+3. 将所有无人机水平放置在有纹理、光照正常的地面；配置多架时点击“启动蜂群”，
+   配置单架时点击“启动 Flow Hover”。
+4. 左杆同时控制已起飞蜂群的目标高度，右杆同时控制前后左右速度；松开摇杆后，
+   所有飞机水平速度归零并保持各自最后目标高度。
+5. “单机控制”可选择一架飞机，单独执行起飞、移动、悬停或受控降落。
+6. 主界面的“受控降落”作用于全部已起飞飞机；“停止电机”和“紧急停止”只用于异常情况。
+
+Flow Deck 的位置是各机自己的局部坐标；群体前后左右表示各机执行相同的机体系相对动作，
+并不等于多架飞机已经处于同一个全局坐标系。全局A/B/C点任务分配仍需Lighthouse、UWB
+或动作捕捉定位。
 
 程序连接后读取 `deck.bcFlow` / `deck.bcFlow2`，未检测到 Flow Deck 会拒绝操控。Flow
 Hover 使用 Crazyflie 官方 Hover setpoint：持续发送机体系 `vx/vy`、偏航速度和离地目标

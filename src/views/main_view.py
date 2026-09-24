@@ -648,7 +648,7 @@ class MainView(QWidget):
         dialog.setWindowModality(Qt.WindowModal)
         dialog.resize(520, 360)
         layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("当前 Flow Hover 模式只填写一个 URI（必须先断开）：", dialog))
+        layout.addWidget(QLabel("每行填写一个 Crazyflie URI，可配置多架（必须先断开）：", dialog))
         editor = QPlainTextEdit(dialog)
         editor.setPlainText(current)
         layout.addWidget(editor, 1)
@@ -748,8 +748,16 @@ class MainView(QWidget):
         uav_id, ok = QInputDialog.getItem(self, "单架无人机控制", "无人机", identifiers, 0, False)
         if not ok:
             return
-        labels = ("前进", "后退", "左移", "右移", "悬停")
-        action_map = {"前进": "forward", "后退": "backward", "左移": "left", "右移": "right", "悬停": "hover"}
+        labels = ("起飞", "前进", "后退", "左移", "右移", "悬停", "受控降落")
+        action_map = {
+            "起飞": "takeoff",
+            "前进": "forward",
+            "后退": "backward",
+            "左移": "left",
+            "右移": "right",
+            "悬停": "hover",
+            "受控降落": "land",
+        }
         label, ok = QInputDialog.getItem(self, "单架无人机控制", "动作", labels, 0, False)
         if ok:
             self._notify(self.actions.send_swarm_command(action_map[label], uav_id=uav_id))
@@ -1373,6 +1381,11 @@ class MainView(QWidget):
     def _soldier_brain(self, c: Canvas) -> None:
         c.fill("#111420")
         gateway_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
+        telemetry = tuple(self.swarm_gateway.list_uavs()) if self.swarm_gateway is not None else ()
+        configured_uris = tuple(
+            getattr(getattr(self.swarm_gateway, "config", None), "uris", ())
+        )
+        multi_aircraft = len(configured_uris) > 1
         connected = bool(gateway_status and gateway_status.connected)
         armed = bool(gateway_status and gateway_status.armed)
         airborne = bool(gateway_status and gateway_status.airborne)
@@ -1395,6 +1408,7 @@ class MainView(QWidget):
             "飞行状态异常 · 请处置" if airborne and not armed else
             "飞行中 · 控制已解锁" if armed and airborne else
             "实机已解锁" if armed else
+            f"蜂群已连接 · {len(telemetry)}/{len(configured_uris)}" if connected and multi_aircraft else
             "实机已连接 · 待解锁" if connected and bool(gateway_status and gateway_status.control_enabled) else
             "只读遥测已连接" if connected else
             "实机未连接"
@@ -1419,12 +1433,18 @@ class MainView(QWidget):
         c.button(45, 170, 96, 35, "断开" if connected else "连接", connected, accent=CYAN)
         self._hit(45, 170, 96, 35, "swarm-disconnect" if connected else "swarm-connect")
         control_label = (
-            "停止 Hover" if armed and flow_mode else
+            "蜂群悬停" if multi_aircraft and armed else
+            "启动蜂群" if multi_aircraft else
+            "停止移动" if armed and flow_mode else
             "启动 Flow Hover" if flow_mode else
             "停止操控" if armed else "解锁控制"
         )
         c.button(151, 170, 96, 35, control_label, armed, accent=YELLOW)
-        self._hit(151, 170, 96, 35, "swarm-disarm" if armed else "swarm-arm")
+        self._hit(
+            151, 170, 96, 35,
+            "swarm-stop-motion" if armed and airborne else
+            "swarm-disarm" if armed else "swarm-arm",
+        )
         c.button(45, 215, 96, 35, "受控降落", False, accent=GREEN)
         self._hit(45, 215, 96, 35, "swarm-command:land")
         c.button(151, 215, 96, 35, "停止电机", False, accent=RED)
@@ -1438,7 +1458,6 @@ class MainView(QWidget):
         self._hit(45, 307, 96, 32, "swarm-configure-uris")
         self._hit(151, 307, 96, 32, "swarm-single-control")
         # Flow readiness belongs to each UAV telemetry item, not SwarmStatus.
-        telemetry = tuple(self.swarm_gateway.list_uavs()) if self.swarm_gateway is not None else ()
         flow_ready = connected and bool(telemetry) and all(item.positioning_ok for item in telemetry)
         c.button(45, 349, 202, 32,
                  "Flow Deck 就绪" if flow_ready else "等待 Flow 质量",

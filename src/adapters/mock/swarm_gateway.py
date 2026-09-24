@@ -39,6 +39,9 @@ class MockSwarmGateway:
         self._connected = False
         self._armed = False
         self._airborne = False
+        self._uavs = tuple(
+            replace(uav, armed=False, airborne=False) for uav in self._uavs
+        )
 
     def status(self) -> SwarmStatus:
         state = "emergency" if self.emergency_stopped else ("connected" if self._connected else "disconnected")
@@ -53,11 +56,13 @@ class MockSwarmGateway:
         if self.emergency_stopped:
             raise RuntimeError("系统处于急停锁定状态")
         self._armed = True
+        self._uavs = tuple(replace(uav, armed=True) for uav in self._uavs)
 
     def disarm(self) -> None:
         if self._airborne:
             raise RuntimeError("飞行中不能只锁定控制，请先降落或停止电机")
         self._armed = False
+        self._uavs = tuple(replace(uav, armed=False) for uav in self._uavs)
 
     def list_uavs(self) -> Sequence[UAVTelemetry]:
         return self._uavs
@@ -76,7 +81,9 @@ class MockSwarmGateway:
             self._armed = True
             self._airborne = True
             height = float(command.parameters.get("height_m", self._takeoff_height_m))
-            self._update_positions(command.uav_id, dz=height, absolute_z=True)
+            self._update_positions(
+                command.uav_id, dz=height, absolute_z=True, armed=True, airborne=True,
+            )
         elif command.action == "move_relative":
             self._update_positions(
                 command.uav_id,
@@ -85,9 +92,11 @@ class MockSwarmGateway:
                 dz=float(command.parameters.get("dz_m", 0.0)),
             )
         elif command.action == "land":
-            self._update_positions(command.uav_id, dz=0.0, absolute_z=True)
-            self._airborne = False
-            self._armed = False
+            self._update_positions(
+                command.uav_id, dz=0.0, absolute_z=True, armed=False, airborne=False,
+            )
+            self._airborne = any(item.airborne for item in self._uavs)
+            self._armed = any(item.armed for item in self._uavs)
         for listener in tuple(self._listeners):
             listener("INFO", f"飞行指令完成：{command.action}")
         for listener in tuple(self._command_listeners):
@@ -101,6 +110,8 @@ class MockSwarmGateway:
         dy: float = 0.0,
         dz: float = 0.0,
         absolute_z: bool = False,
+        armed: bool | None = None,
+        airborne: bool | None = None,
     ) -> None:
         updated = []
         for uav in self._uavs:
@@ -109,7 +120,13 @@ class MockSwarmGateway:
                 continue
             z = dz if absolute_z else uav.position.z + dz
             position = Position(uav.position.x + dx, uav.position.y + dy, z)
-            updated.append(replace(uav, position=position, altitude_m=z))
+            updated.append(replace(
+                uav,
+                position=position,
+                altitude_m=z,
+                armed=uav.armed if armed is None else armed,
+                airborne=uav.airborne if airborne is None else airborne,
+            ))
         self._uavs = tuple(updated)
 
     def stop_motion(self) -> None:
@@ -129,6 +146,9 @@ class MockSwarmGateway:
         self.command_log.append(command)
         self._airborne = False
         self._armed = False
+        self._uavs = tuple(
+            replace(uav, armed=False, airborne=False) for uav in self._uavs
+        )
         for listener in tuple(self._listeners):
             listener("WARN", "电机停止调用已完成")
         for listener in tuple(self._command_listeners):
@@ -143,6 +163,9 @@ class MockSwarmGateway:
         self.manual_input = values
         if values[0] > 0.08:
             self._airborne = True
+            self._uavs = tuple(
+                replace(uav, armed=True, airborne=True) for uav in self._uavs
+            )
 
     def takeoff_height_m(self) -> float:
         return self._takeoff_height_m
@@ -174,6 +197,9 @@ class MockSwarmGateway:
         self.emergency_stopped = True
         self._airborne = False
         self._armed = False
+        self._uavs = tuple(
+            replace(uav, armed=False, airborne=False) for uav in self._uavs
+        )
         self.command_log.append(SwarmCommand("emergency_stop"))
 
     def reset_after_emergency_reboot(self) -> None:

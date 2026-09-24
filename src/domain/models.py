@@ -68,6 +68,8 @@ class UAVTelemetry:
     battery_voltage: float | None = None
     positioning_ok: bool = False
     last_update_timestamp: float = 0.0
+    armed: bool = False
+    airborne: bool = False
 
 
 @dataclass(frozen=True)
