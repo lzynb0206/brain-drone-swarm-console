@@ -151,6 +151,17 @@ class MainViewActionRoutingTest(unittest.TestCase):
             self.view._activate("swarm-motor-stop")
         self.assertEqual("motor_stop", self.gateway.command_log[-1].action)
 
+    def test_lighthouse_and_formation_controls_route_to_swarm_commands(self) -> None:
+        self.view._activate("swarm-lighthouse-hold")
+        self.view._activate("swarm-form-line")
+        self.view._activate("swarm-form-triangle")
+
+        self.assertEqual(
+            ["lighthouse_hold", "form_line", "form_triangle"],
+            [command.action for command in self.gateway.command_log],
+        )
+        self.assertEqual(0.4, self.gateway.command_log[-1].parameters["spacing_m"])
+
     def test_virtual_joystick_helpers_update_and_center_axes(self) -> None:
         self.view._update_manual_stick("manual-stick-height", 470, 304)
         self.assertEqual(1.0, self.gateway.manual_input[0])
@@ -252,7 +263,11 @@ class MainViewActionRoutingTest(unittest.TestCase):
         finally:
             painter.end()
 
-        self.assertIn("mission-test", [action for _rect, action in self.view._regions])
+        actions = [action for _rect, action in self.view._regions]
+        self.assertIn("mission-test", actions)
+        self.assertIn("swarm-lighthouse-hold", actions)
+        self.assertIn("swarm-form-line", actions)
+        self.assertIn("swarm-form-triangle", actions)
 
     def test_cancelling_inspection_confirmation_sends_no_command(self) -> None:
         with patch.object(

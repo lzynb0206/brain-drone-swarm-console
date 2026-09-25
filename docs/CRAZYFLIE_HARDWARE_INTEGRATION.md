@@ -1,16 +1,18 @@
-# Crazyflie + Flow Deck 实机接入与验收
+# Crazyflie + Flow Deck + Lighthouse 多机接入与验收
 
 ## 当前控制边界
 
-项目支持多架 Crazyflie + Flow Deck 同时连接、逐机遥测、蜂群同步相对动作和指定单机动作：
+项目支持多架 Crazyflie 同时连接、Flow 起飞、Lighthouse 全局位置保持、三机自动编队、
+编队整体移动和指定单机动作：
 
-- `src/adapters/real/crazyflie_swarm_gateway.py`：Crazyradio 连接、Flow Deck/AI Deck 检测、Flow Hover、遥测和安全停止。
+- `src/adapters/real/crazyflie_swarm_gateway.py`：Crazyradio 连接、Flow/Lighthouse Deck 检测、两种设定值调度、遥测和安全停止。
+- `src/services/formation_service.py`：直线/三角槽位生成和最小总距离槽位分配。
 - `src/services/workbench_service.py`：连接、启动操控、人工动作和脑控二次确认。
 - `src/views/main_view.py`：虚拟双摇杆及状态显示；Qt 主线程不直接等待无线电。
 
-底层使用一个固定频率的蜂群调度循环，每架飞机保存独立的速度、目标高度、起飞和降落
-状态。不指定 `uav_id` 的动作作用于全部飞机，指定 `uav_id` 的动作只作用于目标飞机。
-项目仍未接入基站定位、全局坐标、场地围栏和队形保持。
+底层使用一个固定频率的蜂群调度循环。起飞阶段发送 Flow Hover 设定值；高度遥测达到目标
+且 Lighthouse 就绪后，同一个调度器切换为绝对 `x/y/z/yaw` 位置设定值，不会同时发送两种
+控制流。项目尚未实现障碍物避让和场地围栏。
 
 ## 运行配置
 
@@ -35,7 +37,9 @@ python main.py
 
 ## 控制方式
 
-程序读取官方固件参数 `deck.bcFlow` / `deck.bcFlow2`，缺少 Flow Deck 会拒绝操控；同时读取 `deck.bcAI`，但目前只显示 AI Deck 已检测，不处理摄像头视频。
+程序读取官方固件参数 `deck.bcFlow` / `deck.bcFlow2`、`deck.bcLighthouse4`、
+`deck.bcLoco` 和 `deck.bcAI`。当前起飞仍要求 Flow Deck；Lighthouse 和 UWB 只在实际安装时
+显示，AI Deck 目前不处理摄像头视频。
 
 “启动 Flow Hover”后使用 cflib `send_hover_setpoint(vx, vy, yawrate, zdistance)` 持续发送控制量：
 
@@ -49,22 +53,32 @@ python main.py
 “单机控制”窗口可以选择一架飞机，单独起飞、移动、悬停或降落，其余已起飞飞机继续
 接收零水平速度的悬停设定值。
 
-Flow Deck只提供各机局部坐标。整体前进、后退、升降属于同步相对动作，不提供全局队形
-保持；若要把任务分给距离全局目标点最近的飞机，必须再接入Lighthouse、UWB或动作捕捉。
+软件读取 `lighthouse.status` 和 `lighthouse.bsActive`。只有状态为 2 且至少一个基站的标定、
+几何和扫频数据正在进入状态估计器时，才允许绝对位置保持和自动编队。三架飞机必须写入
+同一套基站几何，否则它们的坐标不能用于同一编队。
+
+三机编队流程：
+
+1. “启动蜂群”使用 Flow 同时渐升至目标高度。
+2. 全部飞机的 Lighthouse 遥测就绪后自动锁住各自当前全局位置。
+3. “直线编队”或“三角编队”以当前三机几何中心生成 0.4m 间距槽位。
+4. 匈牙利分配选择总移动距离最小的“飞机—槽位”对应关系，再依次移动每架飞机。
+5. 编队完成后，双摇杆移动的是整个槽位集合，飞机间相对偏移保持不变。
 
 Flow V1/V2 的程序目标高度上限分别为 1.0m/2.0m；运行期间检查 `range.zrange`、`motion.squal`、电压、遥测超时和无线电事件。
 
 ## 建议验收顺序
 
-1. 所有飞机拆桨，同时配置多条 URI 并连接，确认界面出现正确的飞机数量。
-2. 分别确认每架飞机的 URI、Flow Deck 版本、电压、位置、高度和 AI Deck 检测结果。
-3. 完成无桨 LED、电机停止和急停逻辑检查。
-4. 先只配置一架，在防护环境完成低高度启动、松杆悬停、移动和受控降落。
-5. 两架飞机拆桨，检查群控起飞指令和逐机动作的目标 URI 日志是否正确。
-6. 两架飞机安装桨叶并保持足够间距，依次验证蜂群低高度起飞、悬停和受控降落。
-7. 小幅测试蜂群前后、左右与高度变化，再测试指定单机动作。
-8. 验证无线电失联、Flow 质量丢失、电机停止和锁存急停。
-9. 完成离线识别准确率/误触发统计后，才测试实时 LSL 脑控。
+1. 先用官方 Crazyflie Client 完成 Lighthouse 基站频道、标定和几何配置，并把同一套配置写入每架飞机。
+2. 所有飞机拆桨，同时配置多条 URI 并连接，确认界面出现正确的飞机数量。
+3. 分别确认每架飞机的 URI、Flow Deck/Lighthouse Deck、电压、位置、高度和有效基站数。
+4. 完成无桨 LED、电机停止和急停逻辑检查。
+5. 先只配置一架，在防护环境验证 Flow 起飞后状态变为“Lighthouse 位置保持”，再小幅移动和降落。
+6. 三架飞机拆桨，检查三条 URI、三套遥测和三个唯一槽位编号。
+7. 三架安装桨叶时初始间距至少大于编队间距，先只验证同时起飞、自动切换和同时降落。
+8. 再依次验证直线编队、整体小幅移动、三角编队；一次只增加一个动作。
+9. 验证基站遮挡、无线电失联、定位丢失、电机停止和锁存急停。
+10. 完成离线识别准确率/误触发统计后，才测试实时 LSL 脑控。
 
 ## 脑控执行门槛
 

@@ -168,6 +168,9 @@ class WorkbenchService:
         labels = {
             "takeoff": "起飞", "land": "降落", "forward": "前进", "backward": "后退",
             "left": "左移", "right": "右移", "hover": "悬停", "led_test": "LED连通性测试",
+            "lighthouse_hold": "切换Lighthouse保持",
+            "form_line": "组成直线编队",
+            "form_triangle": "组成三角编队",
         }
         if self.emergency_stopped:
             return self._record("系统处于急停状态，指令被安全策略拒绝")

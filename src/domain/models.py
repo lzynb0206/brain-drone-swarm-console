@@ -70,6 +70,14 @@ class UAVTelemetry:
     last_update_timestamp: float = 0.0
     armed: bool = False
     airborne: bool = False
+    positioning_source: str = "unknown"
+    flow_deck_present: bool = False
+    lighthouse_deck_present: bool = False
+    lighthouse_ready: bool = False
+    active_base_stations: int = 0
+    yaw_deg: float = 0.0
+    control_mode: str = "GROUND"
+    formation_slot_id: str = ""
 
 
 @dataclass(frozen=True)

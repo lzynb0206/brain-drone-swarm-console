@@ -559,6 +559,16 @@ class MainView(QWidget):
             self._single_uav_control_dialog()
         elif action == "mission-test":
             self._run_fixed_test_mission()
+        elif action == "swarm-lighthouse-hold":
+            self._notify(self.actions.send_swarm_command("lighthouse_hold"))
+        elif action == "swarm-form-line":
+            self._notify(self.actions.send_swarm_command(
+                "form_line", parameters={"spacing_m": 0.4},
+            ))
+        elif action == "swarm-form-triangle":
+            self._notify(self.actions.send_swarm_command(
+                "form_triangle", parameters={"spacing_m": 0.4},
+            ))
         elif action == "swarm-connect":
             self._notify(self.actions.connect_swarm())
         elif action == "swarm-disconnect":
@@ -1361,7 +1371,9 @@ class MainView(QWidget):
             c.text(966, y + 7, 150, 25, uav.uav_id, 13, TEXT, True)
             c.text(966, y + 29, 130, 21, f"电量 {uav.battery:.0f}%  {uav.battery_voltage or 0:.2f}V", 10, MUTED)
             c.text(1092, y + 5, 134, 23, f"高度 {uav.altitude_m:.2f}m", 12, TEXT, True, Qt.AlignRight)
-            c.text(1092, y + 28, 134, 20, f"速度 {uav.speed_mps:.2f}m/s", 10, CYAN, False, Qt.AlignRight)
+            source = "LH" if uav.positioning_source == "lighthouse" else "Flow"
+            c.text(1092, y + 28, 134, 20,
+                   f"{source} · {uav.control_mode}", 9, CYAN, False, Qt.AlignRight)
         c.rect(952, 303, 4, 13, CYAN)
         c.text(964, 294, 220, 31, "目标识别接口", 14, CYAN, True)
         c.rect(953, 332, 285, 62, PANEL, BORDER, 3)
@@ -1389,7 +1401,9 @@ class MainView(QWidget):
         connected = bool(gateway_status and gateway_status.connected)
         armed = bool(gateway_status and gateway_status.armed)
         airborne = bool(gateway_status and gateway_status.airborne)
-        flow_mode = bool(gateway_status and gateway_status.backend == "flowdeck")
+        flow_mode = bool(
+            gateway_status and gateway_status.backend in {"flowdeck", "lighthouse_flow"}
+        )
         emergency = bool(self.actions.emergency_stopped or (gateway_status and gateway_status.emergency))
         state = gateway_status.state if gateway_status is not None else "disconnected"
         status_color = (
@@ -1403,6 +1417,9 @@ class MainView(QWidget):
             "低电压提示 · 已落地" if state == "battery_low_grounded" else
             "正在受控降落" if state == "landing" else
             "正在停止电机" if state == "stopping_motors" else
+            "Lighthouse 编队保持" if state == "formation_hold" else
+            "正在自动编队" if state == "forming" else
+            "Lighthouse 位置保持" if state == "lighthouse_hold" else
             "Flow Hover 操控中" if state == "manual_flight" else
             "正在建立 Flow Hover" if state == "taking_off" else
             "飞行状态异常 · 请处置" if airborne and not armed else
@@ -1427,6 +1444,12 @@ class MainView(QWidget):
         self._hit(708, 126, 46, 32, "swarm-height-increase")
         c.button(930, 126, 145, 32, "测试任务", False, accent=YELLOW)
         self._hit(930, 126, 145, 32, "mission-test")
+        c.button(930, 170, 145, 32, "Lighthouse保持", state == "lighthouse_hold", accent=CYAN)
+        c.button(930, 211, 145, 32, "直线编队", state == "formation_hold", accent=GREEN)
+        c.button(930, 252, 145, 32, "三角编队", state == "formation_hold", accent=GREEN)
+        self._hit(930, 170, 145, 32, "swarm-lighthouse-hold")
+        self._hit(930, 211, 145, 32, "swarm-form-line")
+        self._hit(930, 252, 145, 32, "swarm-form-triangle")
 
         c.panel(28, 82, 245, 304, "实机链路")
         c.text(45, 122, 210, 38, gateway_status.message if gateway_status else "蜂群接口未配置", 11, MUTED)
@@ -1457,14 +1480,20 @@ class MainView(QWidget):
         c.button(151, 307, 96, 32, "单机控制", False, accent=YELLOW)
         self._hit(45, 307, 96, 32, "swarm-configure-uris")
         self._hit(151, 307, 96, 32, "swarm-single-control")
-        # Flow readiness belongs to each UAV telemetry item, not SwarmStatus.
+        # Readiness belongs to each UAV telemetry item, not SwarmStatus.
         flow_ready = connected and bool(telemetry) and all(item.positioning_ok for item in telemetry)
+        lighthouse_count = sum(1 for item in telemetry if item.lighthouse_ready)
+        readiness_label = (
+            f"Lighthouse {lighthouse_count}/{len(telemetry)} 就绪"
+            if telemetry and lighthouse_count else
+            "Flow Deck 就绪" if flow_ready else "等待定位质量"
+        )
         c.button(45, 349, 202, 32,
-                 "Flow Deck 就绪" if flow_ready else "等待 Flow 质量",
+                 readiness_label,
                  flow_ready, accent=GREEN if flow_ready else YELLOW)
 
-        # Official Flow Hover semantics: the backend streams body-frame vx/vy
-        # and absolute ground distance. Mouse events only update normalized targets.
+        # Flow mode streams body-frame speed; formation mode integrates the same
+        # stick input into global Lighthouse targets while preserving slot offsets.
         height_cx, height_cy, stick_r, travel = 470.0, 386.0, 100.0, 82.0
         direction_cx, direction_cy = 760.0, 386.0
         c.text(370, 226, 200, 30, "左杆 · 高度升降", 15, TEXT, True, Qt.AlignCenter)

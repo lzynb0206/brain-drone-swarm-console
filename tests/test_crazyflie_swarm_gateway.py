@@ -28,13 +28,19 @@ class FakeBackend:
 
     def emit_telemetry(
         self, height_m: float, voltage: float = 4.0, *, uri: str | None = None,
+        x: float = 0.0, y: float = 0.0, lighthouse: bool = False,
     ) -> None:
         assert self.telemetry is not None
         self.telemetry(uri or self.uri, time.time(), {
-            "stateEstimate.x": 0.0, "stateEstimate.y": 0.0, "stateEstimate.z": height_m,
+            "stateEstimate.x": x, "stateEstimate.y": y, "stateEstimate.z": height_m,
             "stateEstimate.vx": 0.0, "stateEstimate.vy": 0.0, "stateEstimate.vz": 0.0,
+            "stateEstimate.yaw": 0.0,
             "pm.vbat": voltage, "range.zrange": max(1.0, height_m * 1000.0),
             "motion.squal": 80.0,
+            "deck.bcFlow2": 1.0,
+            "deck.bcLighthouse4": 1.0 if lighthouse else 0.0,
+            "lighthouse.status": 2.0 if lighthouse else 0.0,
+            "lighthouse.bsActive": 3.0 if lighthouse else 0.0,
         })
 
     def disconnect(self) -> None: self.calls.append(("disconnect",))
@@ -67,6 +73,17 @@ class FakeBackend:
         self.calls.append(("manual_input_one", uri, vertical, forward, lateral))
     def set_led_all(self, red, green, blue, duration_s) -> None: self.calls.append(("led", red, green, blue, duration_s))
     def emergency_stop_all(self) -> None: self.calls.append(("emergency",))
+    def start_lighthouse_hold(self, targets) -> None:
+        self.calls.append(("lighthouse_hold", dict(targets)))
+    def set_lighthouse_targets(self, targets) -> None:
+        self.calls.append(("lighthouse_targets", dict(targets)))
+    def move_all_absolute(self, targets, duration_s) -> None:
+        self.calls.append(("move_absolute", dict(targets), duration_s))
+        for uri, (x, y, z, _yaw) in targets.items():
+            self.emit_telemetry(z, uri=uri, x=x, y=y, lighthouse=True)
+    def move_one_absolute(self, uri, x, y, z, yaw, duration_s) -> None:
+        self.calls.append(("move_one_absolute", uri, x, y, z, yaw, duration_s))
+        self.emit_telemetry(z, uri=uri, x=x, y=y, lighthouse=True)
 
 
 class CrazyflieGatewayTest(unittest.TestCase):
@@ -129,6 +146,97 @@ class CrazyflieGatewayTest(unittest.TestCase):
         self.assertIn(("manual_start", 0.4), backend.calls)
         self.assertTrue(gateway.status().armed)
         self.assertTrue(gateway.status().airborne)
+
+    def test_lighthouse_telemetry_reports_deck_base_stations_and_source(self) -> None:
+        gateway, backend = self.make_gateway()
+        backend.emit_telemetry(0.4, lighthouse=True)
+
+        telemetry = gateway.list_uavs()[0]
+        self.assertTrue(telemetry.flow_deck_present)
+        self.assertTrue(telemetry.lighthouse_deck_present)
+        self.assertTrue(telemetry.lighthouse_ready)
+        self.assertEqual(2, telemetry.active_base_stations)
+        self.assertEqual("lighthouse", telemetry.positioning_source)
+        self.assertEqual("lighthouse_flow", gateway.status().backend)
+
+    def test_lighthouse_positioning_prevents_flow_loss_emergency(self) -> None:
+        gateway, backend = self.make_gateway()
+        gateway.arm()
+        assert backend.telemetry is not None
+        data = {
+            "stateEstimate.x": 0.0, "stateEstimate.y": 0.0, "stateEstimate.z": 0.4,
+            "pm.vbat": 4.0, "range.zrange": 0.0, "motion.squal": 0.0,
+            "deck.bcLighthouse4": 1.0, "lighthouse.status": 2.0,
+            "lighthouse.bsActive": 3.0,
+        }
+        for _ in range(4):
+            backend.telemetry("radio://test/01", time.time(), data)
+
+        self.assertFalse(gateway.status().emergency)
+        self.assertEqual("lighthouse", gateway.list_uavs()[0].positioning_source)
+
+    def test_flow_takeoff_automatically_switches_to_lighthouse_hold(self) -> None:
+        class LighthouseBackend(FakeBackend):
+            def connect(self, uris, telemetry, event) -> None:
+                self.calls.append(("connect", uris))
+                self.telemetry = telemetry
+                self.uris = tuple(uris)
+                self.uri = uris[0]
+                self.emit_telemetry(0.4, lighthouse=True)
+                self.connected.set()
+
+        backend = LighthouseBackend()
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
+            uris=("radio://test/01",), control_enabled=True,
+        ), backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        self.addCleanup(gateway.disconnect)
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+
+        gateway.arm()
+        self.wait_for_call(backend, "lighthouse_hold")
+        deadline = time.time() + 1.0
+        while gateway.status().state != "lighthouse_hold" and time.time() < deadline:
+            time.sleep(0.005)
+        self.assertEqual("lighthouse_hold", gateway.status().state)
+        self.assertEqual("LIGHTHOUSE_HOLD", gateway.list_uavs()[0].control_mode)
+
+    def test_three_aircraft_switch_to_lighthouse_form_line_and_move_together(self) -> None:
+        uris = ("radio://test/01", "radio://test/02", "radio://test/03")
+        backend = FakeBackend()
+        gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
+            uris=uris, control_enabled=True, move_speed_mps=1.0,
+        ), backend)
+        gateway.connect()
+        self.assertTrue(backend.connected.wait(1.0))
+        self.addCleanup(gateway.disconnect)
+        deadline = time.time() + 1.0
+        while not gateway.status().connected and time.time() < deadline:
+            time.sleep(0.005)
+        gateway.arm()
+        for index, uri in enumerate(uris):
+            backend.emit_telemetry(0.4, uri=uri, x=0.0, y=(index - 1) * 0.3, lighthouse=True)
+
+        gateway.send_command(SwarmCommand("form_line", parameters={"spacing_m": 0.4}))
+        deadline = time.time() + 5.0
+        while gateway.status().state != "formation_hold" and time.time() < deadline:
+            time.sleep(0.005)
+        self.assertEqual("formation_hold", gateway.status().state)
+        self.assertEqual(1, sum(call[0] == "lighthouse_hold" for call in backend.calls))
+        self.assertEqual(3, sum(call[0] == "move_one_absolute" for call in backend.calls))
+        self.assertEqual(
+            {"L1", "L2", "L3"},
+            {item.formation_slot_id for item in gateway.list_uavs()},
+        )
+
+        gateway.send_command(SwarmCommand("forward", parameters={"distance_m": 0.2}))
+        self.wait_for_call(backend, "move_absolute")
+        self.assertFalse(any(
+            call[0] == "move" for call in backend.calls
+        ))
 
     def test_group_horizontal_stick_waits_until_every_aircraft_has_height(self) -> None:
         backend = FakeBackend()
@@ -614,11 +722,14 @@ class CrazyflieGatewayTest(unittest.TestCase):
         CflibBackend._emergency_single(Scf())
         self.assertEqual(["loc-emergency"], calls)
 
-    def test_hardware_self_check_detects_flow_v2_and_ai_deck(self) -> None:
+    def test_hardware_self_check_detects_flow_v2_ai_and_lighthouse_decks(self) -> None:
         events: list[tuple[str, str]] = []
 
         class Param:
-            values = {"deck": {"bcFlow": "0", "bcFlow2": "1", "bcAI": "1"}}
+            values = {"deck": {
+                "bcFlow": "0", "bcFlow2": "1", "bcAI": "1",
+                "bcLighthouse4": "1", "bcLoco": "0",
+            }}
             def __init__(self) -> None: self.writes = []
             def set_value(self, name, value) -> None: self.writes.append((name, value))
 
@@ -633,6 +744,9 @@ class CrazyflieGatewayTest(unittest.TestCase):
         backend._configure_single(Scf())
         self.assertEqual(2.0, backend._flow_detected_max_height)
         self.assertTrue(any("Flow Deck V2" in message and "AI Deck" in message for _, message in events))
+        self.assertTrue(backend._detected_decks["radio://test/01"]["lighthouse"])
+        self.assertTrue(any("Lighthouse Deck" in message for _, message in events))
+        self.assertEqual(1.0, backend._telemetry_cache["radio://test/01"]["deck.bcLighthouse4"])
 
     def test_hardware_self_check_waits_for_async_parameter_values(self) -> None:
         class Param:
@@ -810,6 +924,52 @@ class CrazyflieGatewayTest(unittest.TestCase):
             self.assertEqual((0.0, 0.0, 0.0), first_state.velocity)
             self.assertEqual((0.5, 0.0, 0.0), second_state.velocity)
 
+        backend.stop_motors_all()
+
+    def test_backend_switches_from_hover_to_lighthouse_position_setpoints(self) -> None:
+        class Commander:
+            def __init__(self) -> None:
+                self.hover_setpoints = []
+                self.position_setpoints = []
+            def send_hover_setpoint(self, *values) -> None: self.hover_setpoints.append(values)
+            def send_position_setpoint(self, *values) -> None: self.position_setpoints.append(values)
+            def send_notify_setpoint_stop(self) -> None: return None
+            def send_stop_setpoint(self) -> None: return None
+
+        class Platform:
+            def send_arming_request(self, armed) -> None: return None
+
+        class HighLevelCommander:
+            def stop(self) -> None: return None
+
+        class Scf:
+            def __init__(self) -> None:
+                self.cf = type("Cf", (), {})()
+                self.cf.commander = Commander()
+                self.cf.platform = Platform()
+                self.cf.high_level_commander = HighLevelCommander()
+
+        scf = Scf()
+
+        class Swarm:
+            _cfs = {"radio://test/01": scf}
+            def parallel_safe(self, callback, args_dict=None) -> None:
+                callback(scf, *(args_dict["radio://test/01"] if args_dict else []))
+
+        backend = CflibBackend(CrazyflieSwarmConfig(
+            uris=("radio://test/01",), flow_setpoint_rate_hz=100.0,
+        ))
+        backend._swarm = Swarm()
+        backend._start_flow_control(0.4)
+        time.sleep(0.03)
+        self.assertTrue(scf.cf.commander.hover_setpoints)
+
+        backend.start_lighthouse_hold({"radio://test/01": (1.0, 2.0, 0.4, 15.0)})
+        time.sleep(0.03)
+        self.assertIn((1.0, 2.0, 0.4, 15.0), scf.cf.commander.position_setpoints)
+        count = len(scf.cf.commander.hover_setpoints)
+        time.sleep(0.03)
+        self.assertEqual(count, len(scf.cf.commander.hover_setpoints))
         backend.stop_motors_all()
 
 

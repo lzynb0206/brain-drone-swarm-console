@@ -1,5 +1,6 @@
 """Domain data shared by UI, services, and device adapters."""
 
+from src.domain.formation import FormationAssignment, FormationPlan, FormationSlot
 from src.domain.mission import MissionPlan, MissionPolicy, MissionStep, TargetPoint
 from src.domain.models import (
     DeviceStatus,
@@ -17,6 +18,9 @@ from src.domain.models import (
 __all__ = [
     "DeviceStatus",
     "EEGFrame",
+    "FormationAssignment",
+    "FormationPlan",
+    "FormationSlot",
     "IntentResult",
     "MissionPlan",
     "MissionPolicy",
