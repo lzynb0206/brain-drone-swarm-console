@@ -63,6 +63,18 @@ src/
 └── resources/               # QSS、图片、字体等资源
 ```
 
+### 核心模块拆分
+
+- `adapters/real/crazyflie_swarm_gateway.py` 只保留应用侧蜂群状态机；配置与协议、
+  串行命令队列、遥测转换、安全参数校验、Flow/Lighthouse 控制循环和 cflib 连接
+  分别位于同目录的 `crazyflie_contracts.py`、`crazyflie_command_queue.py`、
+  `crazyflie_telemetry.py`、`crazyflie_safety.py`、`crazyflie_flow_control.py` 和
+  `crazyflie_cflib_backend.py`。
+- `WorkbenchService` 是兼容门面；科研配置、蜂群控制、脑控执行门控、管理员操作和
+  JSON 导出由独立服务实现。
+- `MainView` 负责生命周期与共享采集状态；科研、作战、管理员和工程画布页面是
+  `role_pages.py` 中的独立 `QWidget`，通过 Qt Signal 把语义动作交给主界面路由。
+
 ## 4. 各页面应该连接的接口
 
 | React原型页面 | Python页面目标 | 当前数据 | 后续接口/实现 |

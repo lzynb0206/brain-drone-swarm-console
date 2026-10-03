@@ -10,17 +10,14 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter
-from PySide6.QtWidgets import QLabel, QMessageBox, QWidget
+from PySide6.QtWidgets import QLabel, QMessageBox, QStackedWidget, QWidget
 from src.domain import EEGFrame, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services import ExperimentRecorder, MissionPlanningError, WorkbenchService
-from src.views.admin_view import AdminViewMixin
-from src.views.engineer_canvas_view import EngineerCanvasViewMixin
 from src.views.engineer_dashboard import EngineerDashboard
 from src.views.main_action_router import MainActionRouterMixin
 from src.views.main_dialogs import MainDialogsMixin
-from src.views.research_view import ResearchViewMixin
-from src.views.soldier_view import SoldierViewMixin
+from src.views.role_pages import AdminPage, EngineerCanvasPage, ResearchPage, SoldierPage
 from src.workers import EEGWorker
 from src.widgets.scifi_canvas import CYAN, TEXT, Canvas
 
@@ -33,13 +30,9 @@ if TYPE_CHECKING:
 class MainView(
     MainActionRouterMixin,
     MainDialogsMixin,
-    ResearchViewMixin,
-    AdminViewMixin,
-    EngineerCanvasViewMixin,
-    SoldierViewMixin,
     QWidget,
 ):
-    """A 1280×720 interactive canvas matching the reference front-end."""
+    """Lifecycle shell coordinating independent role widgets and workers."""
 
     logout_requested = Signal()
 
@@ -88,6 +81,26 @@ class MainView(
         self._manual_vertical = 0.0
         self._manual_forward = 0.0
         self._manual_lateral = 0.0
+        self._role_stack = QStackedWidget(self)
+        self.research_widget = ResearchPage(self, self._role_stack)
+        self.soldier_widget = SoldierPage(self, self._role_stack)
+        self.admin_widget = AdminPage(self, self._role_stack)
+        self.engineer_canvas_widget = EngineerCanvasPage(self, self._role_stack)
+        self._role_widgets = {
+            Role.RESEARCHER: self.research_widget,
+            Role.SOLDIER: self.soldier_widget,
+            Role.COMMANDER: self.soldier_widget,
+            Role.ADMIN: self.admin_widget,
+            Role.ENGINEER: self.engineer_canvas_widget,
+        }
+        for page in (
+            self.research_widget,
+            self.soldier_widget,
+            self.admin_widget,
+            self.engineer_canvas_widget,
+        ):
+            self._role_stack.addWidget(page)
+            page.action_requested.connect(self._activate)
         if eeg_stream is not None and intent_decoder is not None and experiment_recorder is not None:
             self._pipeline_worker = EEGWorker(
                 eeg_stream, intent_decoder, experiment_recorder, parent=self,
@@ -103,9 +116,11 @@ class MainView(
         self.user_label.hide()
         self.engineer_dashboard: EngineerDashboard | None = None
         if system_monitor is not None and engineer_data_provider is not None:
-            self.engineer_dashboard = EngineerDashboard(system_monitor, engineer_data_provider, self)
+            self.engineer_dashboard = EngineerDashboard(
+                system_monitor, engineer_data_provider, self._role_stack,
+            )
             self.engineer_dashboard.logout_requested.connect(self.logout_requested.emit)
-            self.engineer_dashboard.hide()
+            self._role_stack.addWidget(self.engineer_dashboard)
         self._runtime_refresh_timer = QTimer(self)
         self._runtime_refresh_timer.timeout.connect(self._refresh_runtime)
         self._runtime_refresh_timer.start(300)
@@ -121,8 +136,12 @@ class MainView(
         self.engineer_page = "系统监控"
         self.soldier_root = "作战地图"
         self.soldier_page = "脑控"
-        if self.engineer_dashboard is not None:
-            self.engineer_dashboard.setVisible(user.role == Role.ENGINEER)
+        page = (
+            self.engineer_dashboard
+            if user.role == Role.ENGINEER and self.engineer_dashboard is not None
+            else self._role_widgets[user.role]
+        )
+        self._role_stack.setCurrentWidget(page)
         if user.role in {Role.RESEARCHER, Role.SOLDIER}:
             self._experiment_session_id = f"session-{datetime.now():%Y%m%d-%H%M%S}-{user.username}"
             if self._pipeline_worker is not None:
@@ -253,23 +272,7 @@ class MainView(
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
         c = Canvas(painter, self.width(), self.height())
-        self._regions = []
-        role = self.user.role if self.user else Role.SOLDIER
-        if role == Role.ENGINEER and self.engineer_dashboard is not None:
-            c.fill("#071020")
-            return
-        if role == Role.ADMIN:
-            self._paint_admin(c)
-        elif role == Role.RESEARCHER:
-            self._paint_research(c)
-        elif role == Role.ENGINEER:
-            self._paint_engineer(c)
-        else:
-            self._paint_soldier(c)
-        c.logout()
-        self._hit(1224, 663, 56, 57, "logout")
-        if self._toast:
-            self._paint_toast(c)
+        c.fill("#071020")
 
     def _paint_toast(self, c: Canvas) -> None:
         c.rect(390, 655, 500, 45, "#15243a", CYAN, 7, 1.5)
@@ -300,8 +303,7 @@ class MainView(
             c.p.restore()
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
-        if self.engineer_dashboard is not None:
-            self.engineer_dashboard.setGeometry(self.rect())
+        self._role_stack.setGeometry(self.rect())
         super().resizeEvent(event)
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
@@ -386,6 +388,35 @@ class MainView(
 
     def _refresh_runtime(self) -> None:
         self.update()
+
+    def update(self, *args) -> None:  # type: ignore[override]
+        """Refresh the shell and whichever concrete role widget is visible."""
+        super().update(*args)
+        role_stack = getattr(self, "_role_stack", None)
+        if role_stack is not None and role_stack.currentWidget() is not None:
+            role_stack.currentWidget().update()
+
+    # Compatibility hooks for integrations that rendered a page into an
+    # off-screen Canvas before role pages became independent QWidget objects.
+    def _render_compat(self, page, method_name: str, canvas: Canvas) -> None:
+        page._regions = self._regions
+        getattr(page, method_name)(canvas)
+        self._regions = page._regions
+
+    def _paint_research(self, canvas: Canvas) -> None:
+        self._render_compat(self.research_widget, "_paint_research", canvas)
+
+    def _paint_soldier(self, canvas: Canvas) -> None:
+        self._render_compat(self.soldier_widget, "_paint_soldier", canvas)
+
+    def _soldier_brain(self, canvas: Canvas) -> None:
+        self._render_compat(self.soldier_widget, "_soldier_brain", canvas)
+
+    def _paint_admin(self, canvas: Canvas) -> None:
+        self._render_compat(self.admin_widget, "_paint_admin", canvas)
+
+    def _paint_engineer(self, canvas: Canvas) -> None:
+        self._render_compat(self.engineer_canvas_widget, "_paint_engineer", canvas)
 
     def _hit(self, x: float, y: float, w: float, h: float, action: str) -> None:
         self._regions.append((QRectF(x, y, w, h), action))
