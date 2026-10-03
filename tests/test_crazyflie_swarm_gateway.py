@@ -159,6 +159,23 @@ class CrazyflieGatewayTest(unittest.TestCase):
         self.assertEqual("lighthouse", telemetry.positioning_source)
         self.assertEqual("lighthouse_flow", gateway.status().backend)
 
+    def test_live_lighthouse_stream_overrides_stale_zero_deck_cache(self) -> None:
+        gateway, backend = self.make_gateway()
+        assert backend.telemetry is not None
+        backend.telemetry("radio://test/01", time.time(), {
+            "stateEstimate.x": 0.0, "stateEstimate.y": 0.0,
+            "stateEstimate.z": 0.4, "pm.vbat": 4.0,
+            "range.zrange": 400.0, "motion.squal": 80.0,
+            "deck.bcLighthouse4": 0.0,
+            "lighthouse.status": 2.0,
+            "lighthouse.bsActive": 3.0,
+        })
+
+        telemetry = gateway.list_uavs()[0]
+        self.assertTrue(telemetry.lighthouse_deck_present)
+        self.assertTrue(telemetry.lighthouse_ready)
+        self.assertEqual("lighthouse", telemetry.positioning_source)
+
     def test_lighthouse_positioning_prevents_flow_loss_emergency(self) -> None:
         gateway, backend = self.make_gateway()
         gateway.arm()
@@ -175,14 +192,14 @@ class CrazyflieGatewayTest(unittest.TestCase):
         self.assertFalse(gateway.status().emergency)
         self.assertEqual("lighthouse", gateway.list_uavs()[0].positioning_source)
 
-    def test_flow_takeoff_automatically_switches_to_lighthouse_hold(self) -> None:
+    def test_flow_takeoff_requires_height_then_manual_lighthouse_switch(self) -> None:
         class LighthouseBackend(FakeBackend):
             def connect(self, uris, telemetry, event) -> None:
                 self.calls.append(("connect", uris))
                 self.telemetry = telemetry
                 self.uris = tuple(uris)
                 self.uri = uris[0]
-                self.emit_telemetry(0.4, lighthouse=True)
+                self.emit_telemetry(0.02, lighthouse=True)
                 self.connected.set()
 
         backend = LighthouseBackend()
@@ -197,12 +214,44 @@ class CrazyflieGatewayTest(unittest.TestCase):
             time.sleep(0.005)
 
         gateway.arm()
+        self.assertEqual("taking_off", gateway.status().state)
+        self.assertFalse(gateway.status().airborne)
+        self.assertFalse(any(call[0] == "lighthouse_hold" for call in backend.calls))
+
+        # Temporary Flow loss while the props are still on the floor must not
+        # fire the latching emergency stop.
+        assert backend.telemetry is not None
+        for _ in range(4):
+            backend.telemetry("radio://test/01", time.time(), {
+                "stateEstimate.x": 0.0, "stateEstimate.y": 0.0,
+                "stateEstimate.z": 0.05, "pm.vbat": 4.0,
+                "range.zrange": 0.0, "motion.squal": 0.0,
+                "deck.bcLighthouse4": 1.0, "lighthouse.status": 0.0,
+                "lighthouse.bsActive": 0.0,
+            })
+        self.assertFalse(gateway.status().emergency)
+
+        backend.emit_telemetry(0.4, lighthouse=True)
+        deadline = time.time() + 1.0
+        while not gateway.status().airborne and time.time() < deadline:
+            time.sleep(0.005)
+        self.assertEqual("airborne", gateway.status().state)
+        self.assertFalse(any(call[0] == "lighthouse_hold" for call in backend.calls))
+
+        gateway.send_command(SwarmCommand("lighthouse_hold"))
         self.wait_for_call(backend, "lighthouse_hold")
         deadline = time.time() + 1.0
         while gateway.status().state != "lighthouse_hold" and time.time() < deadline:
             time.sleep(0.005)
         self.assertEqual("lighthouse_hold", gateway.status().state)
         self.assertEqual("LIGHTHOUSE_HOLD", gateway.list_uavs()[0].control_mode)
+
+        time.sleep(0.02)
+        gateway.set_manual_input(0.4, 1.0, 0.0)
+        target_call = self.wait_for_call(backend, "lighthouse_targets")
+        x, _y, z, _yaw = target_call[1]["radio://test/01"]
+        self.assertGreater(x, 0.0)
+        self.assertGreater(z, 0.4)
 
     def test_three_aircraft_switch_to_lighthouse_form_line_and_move_together(self) -> None:
         uris = ("radio://test/01", "radio://test/02", "radio://test/03")
@@ -239,7 +288,17 @@ class CrazyflieGatewayTest(unittest.TestCase):
         ))
 
     def test_group_horizontal_stick_waits_until_every_aircraft_has_height(self) -> None:
-        backend = FakeBackend()
+        class GroundBackend(FakeBackend):
+            def connect(self, uris, telemetry, event) -> None:
+                self.calls.append(("connect", uris))
+                self.telemetry = telemetry
+                self.uris = tuple(uris)
+                self.uri = uris[0]
+                for uri in self.uris:
+                    self.emit_telemetry(0.05, uri=uri)
+                self.connected.set()
+
+        backend = GroundBackend()
         gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(
             uris=("radio://test/01", "radio://test/02"), control_enabled=True,
         ), backend)
@@ -250,23 +309,24 @@ class CrazyflieGatewayTest(unittest.TestCase):
         while not gateway.status().connected and time.time() < deadline:
             time.sleep(0.005)
         gateway.arm()
-        backend.emit_telemetry(0.05, uri="radio://test/02")
-
-        with self.assertRaisesRegex(RuntimeError, "等待起飞高度"):
+        with self.assertRaisesRegex(RuntimeError, "正在等待 Flow 起飞高度"):
             gateway.set_manual_input(0.0, 0.4, 0.0)
 
-        gateway.set_manual_input(0.4, 0.0, 0.0)
-        self.assertIn(("manual_input", 0.4, 0.0, 0.0), backend.calls)
+        with self.assertRaisesRegex(RuntimeError, "正在等待 Flow 起飞高度"):
+            gateway.set_manual_input(0.4, 0.0, 0.0)
 
         # Clearing the minimum Flow height is not enough: every aircraft must
         # first enter the configured 0.4 m take-off target tolerance.
         backend.emit_telemetry(0.25, uri="radio://test/01")
         backend.emit_telemetry(0.25, uri="radio://test/02")
-        with self.assertRaisesRegex(RuntimeError, "等待起飞高度"):
+        with self.assertRaisesRegex(RuntimeError, "正在等待 Flow 起飞高度"):
             gateway.set_manual_input(0.0, 0.4, 0.0)
 
         backend.emit_telemetry(0.38, uri="radio://test/01")
         backend.emit_telemetry(0.38, uri="radio://test/02")
+        deadline = time.time() + 1.0
+        while not gateway.status().airborne and time.time() < deadline:
+            time.sleep(0.005)
         gateway.set_manual_input(0.0, 0.4, 0.0)
         self.assertIn(("manual_input", 0.0, 0.4, 0.0), backend.calls)
 

@@ -1397,7 +1397,11 @@ class MainView(QWidget):
         configured_uris = tuple(
             getattr(getattr(self.swarm_gateway, "config", None), "uris", ())
         )
-        multi_aircraft = len(configured_uris) > 1
+        # Mock/demo gateways do not expose a hardware config; their telemetry
+        # count is the best available indication of single vs. multi-aircraft.
+        configured_count = len(configured_uris) if configured_uris else len(telemetry)
+        multi_aircraft = configured_count > 1
+        single_aircraft = configured_count == 1
         connected = bool(gateway_status and gateway_status.connected)
         armed = bool(gateway_status and gateway_status.armed)
         airborne = bool(gateway_status and gateway_status.airborne)
@@ -1444,30 +1448,47 @@ class MainView(QWidget):
         self._hit(708, 126, 46, 32, "swarm-height-increase")
         c.button(930, 126, 145, 32, "测试任务", False, accent=YELLOW)
         self._hit(930, 126, 145, 32, "mission-test")
-        c.button(930, 170, 145, 32, "Lighthouse保持", state == "lighthouse_hold", accent=CYAN)
-        c.button(930, 211, 145, 32, "直线编队", state == "formation_hold", accent=GREEN)
-        c.button(930, 252, 145, 32, "三角编队", state == "formation_hold", accent=GREEN)
-        self._hit(930, 170, 145, 32, "swarm-lighthouse-hold")
-        self._hit(930, 211, 145, 32, "swarm-form-line")
-        self._hit(930, 252, 145, 32, "swarm-form-triangle")
+        lighthouse_ready = bool(telemetry) and all(item.lighthouse_ready for item in telemetry)
+        lighthouse_active = state == "lighthouse_hold"
+        lighthouse_switch_enabled = (
+            single_aircraft and connected and armed and airborne
+            and lighthouse_ready and not emergency and not lighthouse_active
+        )
+        c.button(
+            930, 170, 145, 32, "Lighthouse保持", lighthouse_active,
+            disabled=not (lighthouse_switch_enabled or lighthouse_active), accent=CYAN,
+        )
+        c.button(930, 211, 145, 32, "直线编队", state == "formation_hold",
+                 disabled=single_aircraft, accent=GREEN)
+        c.button(930, 252, 145, 32, "三角编队", state == "formation_hold",
+                 disabled=single_aircraft, accent=GREEN)
+        if lighthouse_switch_enabled:
+            self._hit(930, 170, 145, 32, "swarm-lighthouse-hold")
+        if multi_aircraft:
+            self._hit(930, 211, 145, 32, "swarm-form-line")
+            self._hit(930, 252, 145, 32, "swarm-form-triangle")
 
         c.panel(28, 82, 245, 304, "实机链路")
         c.text(45, 122, 210, 38, gateway_status.message if gateway_status else "蜂群接口未配置", 11, MUTED)
         c.button(45, 170, 96, 35, "断开" if connected else "连接", connected, accent=CYAN)
         self._hit(45, 170, 96, 35, "swarm-disconnect" if connected else "swarm-connect")
         control_label = (
+            "正在起飞" if state == "taking_off" else
             "蜂群悬停" if multi_aircraft and armed else
             "启动蜂群" if multi_aircraft else
             "停止移动" if armed and flow_mode else
             "启动 Flow Hover" if flow_mode else
             "停止操控" if armed else "解锁控制"
         )
-        c.button(151, 170, 96, 35, control_label, armed, accent=YELLOW)
-        self._hit(
-            151, 170, 96, 35,
-            "swarm-stop-motion" if armed and airborne else
-            "swarm-disarm" if armed else "swarm-arm",
-        )
+        taking_off = state == "taking_off"
+        c.button(151, 170, 96, 35, control_label, armed,
+                 disabled=taking_off, accent=YELLOW)
+        if not taking_off:
+            self._hit(
+                151, 170, 96, 35,
+                "swarm-stop-motion" if armed and airborne else
+                "swarm-disarm" if armed else "swarm-arm",
+            )
         c.button(45, 215, 96, 35, "受控降落", False, accent=GREEN)
         self._hit(45, 215, 96, 35, "swarm-command:land")
         c.button(151, 215, 96, 35, "停止电机", False, accent=RED)
@@ -1507,7 +1528,8 @@ class MainView(QWidget):
         c.circle(height_cx, height_knob_y, 32, "#38c889", "#b8ffe0", 2)
         c.text(height_cx - 30, height_knob_y - 16, 60, 32,
                f"{self._manual_vertical * 100:+.0f}%", 10, TEXT, True, Qt.AlignCenter)
-        if flow_mode:
+        manual_enabled = connected and armed and airborne and not emergency
+        if flow_mode and manual_enabled:
             self._hit(height_cx - stick_r, height_cy - stick_r, stick_r * 2, stick_r * 2,
                       "manual-stick-height")
 
@@ -1522,7 +1544,7 @@ class MainView(QWidget):
         direction_knob_x = direction_cx + self._manual_lateral * travel
         direction_knob_y = direction_cy - self._manual_forward * travel
         c.circle(direction_knob_x, direction_knob_y, 32, "#5799dd", "#d4e9ff", 2)
-        if flow_mode:
+        if flow_mode and manual_enabled:
             self._hit(direction_cx - stick_r, direction_cy - stick_r, stick_r * 2, stick_r * 2,
                       "manual-stick-direction")
         confidence = self._latest_recognition.confidence if self._latest_recognition is not None else 0.0

@@ -141,14 +141,17 @@ class CrazyflieSwarmGateway:
         self._armed = False
         self._airborne = False
         self._armed_uris: set[str] = set()
+        self._taking_off_uris: set[str] = set()
         self._airborne_uris: set[str] = set()
         self._horizontal_ready_uris: set[str] = set()
         self._landing_uris: set[str] = set()
         self._lighthouse_hold_uris: set[str] = set()
+        self._lighthouse_targets_by_uri: dict[str, tuple[float, float, float, float]] = {}
         self._formation_slots_by_uri: dict[str, str] = {}
         self._formation_plan: FormationPlan | None = None
         self._formation_service = FormationService()
         self._last_formation_manual_at = time.monotonic()
+        self._last_lighthouse_manual_at = time.monotonic()
         self._emergency = False
         self._uavs: dict[str, UAVTelemetry] = {}
         self._flow_failure_counts: dict[str, int] = {}
@@ -172,10 +175,12 @@ class CrazyflieSwarmGateway:
             self._armed = False
             self._airborne = False
             self._armed_uris.clear()
+            self._taking_off_uris.clear()
             self._airborne_uris.clear()
             self._horizontal_ready_uris.clear()
-            self._landing_uris.clear()
             self._lighthouse_hold_uris.clear()
+            self._lighthouse_targets_by_uri.clear()
+            self._landing_uris.clear()
             self._formation_slots_by_uri.clear()
             self._formation_plan = None
             self._landing_requested = False
@@ -259,6 +264,8 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("电机停止操作尚未完成，请稍候再解锁")
             if self._landing_requested:
                 raise RuntimeError("正在受控降落，不能重复启动 Flow Hover")
+            if self._taking_off_uris:
+                raise RuntimeError("Flow Hover 正在起飞，请等待高度确认")
             self._validate_ready()
             confirmed = self._backend.arm_all()
             if confirmed is False:
@@ -271,12 +278,13 @@ class CrazyflieSwarmGateway:
                 self._backend.disarm_all()
                 raise
             self._armed = True
-            self._airborne = True
+            self._airborne = False
             self._armed_uris = set(self.config.uris)
-            self._airborne_uris = set(self.config.uris)
+            self._taking_off_uris = set(self.config.uris)
+            self._airborne_uris.clear()
             self._horizontal_ready_uris.difference_update(self.config.uris)
             self._refresh_cached_flight_states()
-            self._state = "manual_flight"
+            self._state = "taking_off"
             count = len(self.config.uris)
             self._message = (
                 f"{count} 架 Crazyflie 正在渐升至 {self.config.default_height_m:.2f}m；"
@@ -285,9 +293,9 @@ class CrazyflieSwarmGateway:
             self._record("INFO", f"{count} 架实机控制已由操作员显式解锁")
             generation = self._command_generation
         threading.Thread(
-            target=self._auto_lighthouse_after_takeoff,
+            target=self._monitor_flow_takeoff,
             args=(tuple(self.config.uris), self.config.default_height_m, generation),
-            name="Crazyflie-Auto-Lighthouse-Transition",
+            name="Crazyflie-Flow-Takeoff-Monitor",
             daemon=True,
         ).start()
 
@@ -320,8 +328,11 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("无人机仍在飞行；请先降落，必要时使用电机立即停转")
             self._backend.disarm_all()
             self._armed_uris.clear()
+            self._taking_off_uris.clear()
             self._airborne_uris.clear()
             self._horizontal_ready_uris.clear()
+            self._lighthouse_hold_uris.clear()
+            self._lighthouse_targets_by_uri.clear()
             self._armed = False
             self._airborne = False
             self._refresh_cached_flight_states()
@@ -391,6 +402,7 @@ class CrazyflieSwarmGateway:
             raise RuntimeError(self._message) from exc
         with self._lock:
             if not self._emergency:
+                self._rebase_lighthouse_targets_to_telemetry()
                 self._rebase_formation_to_telemetry()
                 if self._battery_low_latched:
                     voltage = self._last_low_voltage or 0.0
@@ -422,7 +434,7 @@ class CrazyflieSwarmGateway:
         threading.Thread(target=self._stop_motors_backend, name="Crazyflie-Motor-Stop", daemon=True).start()
 
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
-        """Feed normalized virtual-stick values to the official Flow Hover stream."""
+        """Drive Flow velocity or Lighthouse absolute targets with one stick API."""
         values = tuple(max(-1.0, min(1.0, float(value))) for value in (vertical, forward, lateral))
         with self._lock:
             if not self._connected:
@@ -435,6 +447,10 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("电机正在停止")
             if self._landing_requested:
                 raise RuntimeError("正在受控降落，摇杆输入已禁用")
+            if self._taking_off_uris:
+                raise RuntimeError("正在等待 Flow 起飞高度确认，暂不接受摇杆输入")
+            if not self._airborne_uris:
+                raise RuntimeError("无人机尚未确认离地")
             if math.hypot(values[1], values[2]) > 1e-6:
                 not_ready = []
                 for uri in self._airborne_uris:
@@ -459,6 +475,11 @@ class CrazyflieSwarmGateway:
                 and self._airborne_uris
                 and self._airborne_uris.issubset(self._lighthouse_hold_uris)
             )
+            lighthouse_mode = (
+                not formation_mode
+                and bool(self._airborne_uris)
+                and self._airborne_uris.issubset(self._lighthouse_hold_uris)
+            )
             if formation_mode:
                 now = time.monotonic()
                 elapsed = max(0.0, min(0.10, now - self._last_formation_manual_at))
@@ -475,6 +496,41 @@ class CrazyflieSwarmGateway:
                 translated_plan = formation_plan.translated(dx, dy, dz)
                 targets = self._formation_targets(translated_plan)
                 self._formation_plan = translated_plan
+            elif lighthouse_mode:
+                now = time.monotonic()
+                elapsed = max(0.0, min(0.10, now - self._last_lighthouse_manual_at))
+                self._last_lighthouse_manual_at = now
+                speed_xy = self.config.flow_max_horizontal_speed_mps
+                speed_z = self.config.flow_max_vertical_speed_mps
+                targets = {}
+                for uri in self._airborne_uris:
+                    telemetry = self._uavs.get(uri)
+                    if telemetry is None:
+                        raise RuntimeError(f"{uri} 尚未收到 Lighthouse 位置遥测")
+                    current = self._lighthouse_targets_by_uri.get(uri, (
+                        telemetry.position.x,
+                        telemetry.position.y,
+                        telemetry.position.z,
+                        telemetry.yaw_deg,
+                    ))
+                    x, y, z, yaw = current
+                    yaw_rad = math.radians(yaw)
+                    # Keep the same body-frame convention as Flow Hover:
+                    # +forward follows the nose and +lateral moves right.
+                    dx = (
+                        values[1] * math.cos(yaw_rad)
+                        + values[2] * math.sin(yaw_rad)
+                    ) * speed_xy * elapsed
+                    dy = (
+                        values[1] * math.sin(yaw_rad)
+                        - values[2] * math.cos(yaw_rad)
+                    ) * speed_xy * elapsed
+                    z = max(
+                        self.config.flow_min_height_m,
+                        min(self.config.flow_max_height_m, z + values[0] * speed_z * elapsed),
+                    )
+                    targets[uri] = (x + dx, y + dy, z, yaw)
+                self._lighthouse_targets_by_uri.update(targets)
             else:
                 targets = None
         if targets is not None:
@@ -482,16 +538,23 @@ class CrazyflieSwarmGateway:
         else:
             self._backend.set_manual_input(*values)
         with self._lock:
-            self._airborne = True
-            self._airborne_uris.update(self._armed_uris)
+            self._airborne = bool(self._airborne_uris)
             if self._battery_low_latched:
                 voltage = self._last_low_voltage or 0.0
                 self._state = "battery_low"
                 self._message = f"电量过低：{voltage:.2f}V，请立即受控降落"
             else:
-                self._state = "formation_hold" if targets is not None else "manual_flight"
+                self._state = (
+                    "formation_hold" if formation_mode else
+                    "lighthouse_hold" if lighthouse_mode else
+                    "manual_flight"
+                )
                 self._message = (
-                    ("Lighthouse 编队：" if targets is not None else "Flow Hover：")
+                    (
+                        "Lighthouse 编队：" if formation_mode else
+                        "Lighthouse 单机：" if lighthouse_mode else
+                        "Flow Hover："
+                    )
                     + "升降 {:+.0f}% / 前后 {:+.0f}% / 左右 {:+.0f}%"
                     .format(values[0] * 100, values[1] * 100, values[2] * 100)
                 )
@@ -504,10 +567,12 @@ class CrazyflieSwarmGateway:
             self._armed = False
             self._airborne = False
             self._armed_uris.clear()
+            self._taking_off_uris.clear()
             self._airborne_uris.clear()
             self._horizontal_ready_uris.clear()
             self._landing_uris.clear()
             self._lighthouse_hold_uris.clear()
+            self._lighthouse_targets_by_uri.clear()
             self._formation_slots_by_uri.clear()
             self._formation_plan = None
             self._landing_requested = False
@@ -608,10 +673,12 @@ class CrazyflieSwarmGateway:
                 self._armed = False
                 self._airborne = False
                 self._armed_uris.clear()
+                self._taking_off_uris.clear()
                 self._airborne_uris.clear()
                 self._horizontal_ready_uris.clear()
                 self._landing_uris.clear()
                 self._lighthouse_hold_uris.clear()
+                self._lighthouse_targets_by_uri.clear()
                 self._formation_slots_by_uri.clear()
                 self._formation_plan = None
                 self._landing_requested = False
@@ -647,7 +714,8 @@ class CrazyflieSwarmGateway:
                 raise RuntimeError("飞控拒绝解锁，请检查电池、机体姿态和飞控锁定状态")
             with self._lock:
                 self._armed_uris.update(targets)
-                self._airborne_uris.update(targets)
+                self._taking_off_uris.update(targets)
+                self._airborne_uris.difference_update(targets)
                 self._armed = bool(self._armed_uris)
                 self._airborne = bool(self._airborne_uris)
                 self._refresh_cached_flight_states()
@@ -662,20 +730,21 @@ class CrazyflieSwarmGateway:
                 height, generation, target_uris=targets, timeout_s=duration + 2.0,
             )
             with self._lock:
+                self._taking_off_uris.difference_update(targets)
+                self._airborne_uris.update(targets)
                 self._horizontal_ready_uris.update(targets)
+                self._refresh_cached_flight_states()
             if one_uri is not None:
                 self._backend.hover_one(one_uri, 0.4)
             else:
                 self._backend.hover_all(0.4)
             self._raise_if_cancelled(generation)
-            transitioned = self._try_activate_lighthouse_hold(targets, generation)
             with self._lock:
-                self._airborne_uris.update(targets)
                 self._airborne = bool(self._airborne_uris)
-                self._state = "lighthouse_hold" if transitioned else "airborne"
+                self._state = "airborne"
                 self._message = (
-                    f"{len(targets)} 架无人机已起飞并切换至 Lighthouse 位置保持"
-                    if transitioned else f"{len(targets)} 架无人机已起飞并保持目标位置"
+                    f"{len(targets)} 架无人机已到达目标高度；"
+                    "可手动切换 Lighthouse 位置保持"
                 )
         elif action == "land":
             with self._lock:
@@ -690,8 +759,11 @@ class CrazyflieSwarmGateway:
                 if not self._emergency:
                     self._airborne_uris.difference_update(targets)
                     self._armed_uris.difference_update(targets)
+                    self._taking_off_uris.difference_update(targets)
                     self._horizontal_ready_uris.difference_update(targets)
                     self._lighthouse_hold_uris.difference_update(targets)
+                    for uri in targets:
+                        self._lighthouse_targets_by_uri.pop(uri, None)
                     for uri in targets:
                         self._formation_slots_by_uri.pop(uri, None)
                     if not self._formation_slots_by_uri:
@@ -867,7 +939,7 @@ class CrazyflieSwarmGateway:
         if missing:
             raise RuntimeError("Lighthouse 尚未定位：" + ", ".join(missing))
         self._wait_for_takeoff_height(
-            self.config.flow_min_height_m,
+            self.config.default_height_m,
             generation,
             target_uris=targets,
             timeout_s=4.0,
@@ -885,6 +957,8 @@ class CrazyflieSwarmGateway:
         self._backend.start_lighthouse_hold(absolute_targets)
         with self._lock:
             self._lighthouse_hold_uris.update(targets)
+            self._lighthouse_targets_by_uri.update(absolute_targets)
+            self._last_lighthouse_manual_at = time.monotonic()
             self._refresh_cached_flight_states()
 
     def _try_activate_lighthouse_hold(
@@ -901,28 +975,62 @@ class CrazyflieSwarmGateway:
         self._activate_lighthouse_hold(targets, generation)
         return True
 
-    def _auto_lighthouse_after_takeoff(
+    def _monitor_flow_takeoff(
         self, targets: Sequence[str], target_height_m: float, generation: int,
     ) -> None:
+        """Confirm real lift-off before enabling flight safety and manual motion.
+
+        Flow quality can briefly fall to zero while the aircraft is still on
+        the floor and the motors are spinning.  Treating that interval as
+        normal flight previously fired the latching emergency stop before the
+        height setpoint had time to reach the requested value.
+        """
         try:
             self._wait_for_takeoff_height(
                 target_height_m,
                 generation,
                 target_uris=targets,
-                timeout_s=max(5.0, target_height_m / max(0.05, self.config.move_speed_mps) + 3.0),
+                timeout_s=max(5.0, target_height_m / 0.2 + 3.0),
             )
-            if not self._try_activate_lighthouse_hold(targets, generation):
-                self._record("INFO", "Lighthouse 尚未就绪，继续使用 Flow Hover")
+            with self._lock:
+                self._raise_if_cancelled(generation)
+                self._taking_off_uris.difference_update(targets)
+                self._airborne_uris.update(targets)
+                self._horizontal_ready_uris.update(targets)
+                self._airborne = bool(self._airborne_uris)
+                self._refresh_cached_flight_states()
+                self._state = "airborne"
+                self._message = (
+                    f"Flow Hover 已到达 {target_height_m:.2f}m；"
+                    "可点击 Lighthouse保持切换定位模式"
+                )
+            self._record("INFO", "Flow 起飞高度已由实时遥测确认")
+        except _CommandCancelled:
+            return
+        except RuntimeError as exc:
+            self._record("ERROR", f"Flow 起飞未完成：{exc}")
+            try:
+                if set(targets) == set(self.config.uris):
+                    self._backend.stop_motors_all()
+                else:
+                    for uri in targets:
+                        self._backend.stop_motors_one(uri)
+            except Exception as stop_exc:
+                with self._lock:
+                    self._state = "stop_error"
+                    self._message = f"起飞失败且电机停止未确认：{stop_exc}"
+                self._record("ERROR", self._message)
                 return
             with self._lock:
-                if not self._emergency:
-                    self._horizontal_ready_uris.update(targets)
-                    self._state = "lighthouse_hold"
-                    self._message = f"{len(targets)} 架无人机已自动切换至 Lighthouse 位置保持"
-            self._record("INFO", "Flow 起飞完成，已自动切换至 Lighthouse 绝对位置控制")
-        except (_CommandCancelled, RuntimeError) as exc:
-            if not isinstance(exc, _CommandCancelled):
-                self._record("WARN", f"自动切换 Lighthouse 未完成：{exc}")
+                self._taking_off_uris.difference_update(targets)
+                self._armed_uris.difference_update(targets)
+                self._airborne_uris.difference_update(targets)
+                self._horizontal_ready_uris.difference_update(targets)
+                self._armed = bool(self._armed_uris)
+                self._airborne = bool(self._airborne_uris)
+                self._refresh_cached_flight_states()
+                self._state = "connected"
+                self._message = f"起飞未达到目标高度，电机已停止：{exc}"
 
     def _formation_targets(
         self, plan: FormationPlan,
@@ -961,6 +1069,20 @@ class CrazyflieSwarmGateway:
         self._formation_plan = FormationPlan(
             plan.shape, center, plan.spacing_m, tuple(assignments),
         )
+
+    def _rebase_lighthouse_targets_to_telemetry(self) -> None:
+        """Keep the next stick target continuous after stopping movement."""
+        for uri in self._lighthouse_hold_uris:
+            telemetry = self._uavs.get(uri)
+            if telemetry is None:
+                continue
+            self._lighthouse_targets_by_uri[uri] = (
+                telemetry.position.x,
+                telemetry.position.y,
+                telemetry.position.z,
+                telemetry.yaw_deg,
+            )
+        self._last_lighthouse_manual_at = time.monotonic()
 
     def _discard_pending_commands(self, reason: str) -> None:
         sentinel_seen = False
@@ -1055,12 +1177,14 @@ class CrazyflieSwarmGateway:
             control_mode = (
                 "FORMATION" if uri in self._formation_slots_by_uri else
                 "LIGHTHOUSE_HOLD" if uri in self._lighthouse_hold_uris else
+                "TAKING_OFF" if uri in self._taking_off_uris else
                 "FLOW_HOVER" if uri in self._airborne_uris else "GROUND"
             )
             self._uavs[uri] = replace(
                 telemetry,
                 task=(
                     "降落" if uri in self._landing_uris else
+                    "起飞" if uri in self._taking_off_uris else
                     "飞行" if uri in self._airborne_uris else "待命"
                 ),
                 armed=uri in self._armed_uris,
@@ -1101,12 +1225,20 @@ class CrazyflieSwarmGateway:
         flow_deck_present = bool(int(data.get("deck.bcFlow", 0.0))) or bool(
             int(data.get("deck.bcFlow2", 0.0))
         )
-        lighthouse_deck_present = bool(int(data.get("deck.bcLighthouse4", 0.0)))
         lighthouse_status = int(data.get("lighthouse.status", 0.0))
         base_station_mask = int(data.get("lighthouse.bsActive", 0.0))
         active_base_stations = base_station_mask.bit_count()
+        # The read-only deck parameter can arrive later than the Flow value
+        # and was previously frozen as 0 for the whole connection.  A valid
+        # Lighthouse status/base-station stream is itself live proof that the
+        # deck is installed, so do not reject it because of stale startup data.
+        lighthouse_deck_present = (
+            bool(int(data.get("deck.bcLighthouse4", 0.0)))
+            or lighthouse_status > 0
+            or active_base_stations > 0
+        )
         lighthouse_ready = (
-            lighthouse_deck_present and lighthouse_status == 2 and active_base_stations > 0
+            lighthouse_status == 2 and active_base_stations > 0
         )
         positioning_ok = lighthouse_ready or local_flow_ok
         positioning_source = (
@@ -1125,6 +1257,7 @@ class CrazyflieSwarmGateway:
             control_mode = (
                 "FORMATION" if uri in self._formation_slots_by_uri else
                 "LIGHTHOUSE_HOLD" if uri in self._lighthouse_hold_uris else
+                "TAKING_OFF" if uri in self._taking_off_uris else
                 "FLOW_HOVER" if uri_airborne else "GROUND"
             )
             if uri_airborne and voltage < threshold:
@@ -1149,6 +1282,7 @@ class CrazyflieSwarmGateway:
                 uav_id=f"CF-{name}", battery=battery, speed_mps=speed, altitude_m=position.z,
                 task=(
                     "降落" if uri in self._landing_uris else
+                    "起飞" if uri in self._taking_off_uris else
                     "飞行" if uri_airborne else "待命"
                 ),
                 status=DeviceStatus.NORMAL if positioning_ok else DeviceStatus.WARNING,
@@ -1179,10 +1313,12 @@ class CrazyflieSwarmGateway:
                 self._armed = False
                 self._airborne = False
                 self._armed_uris.clear()
+                self._taking_off_uris.clear()
                 self._airborne_uris.clear()
                 self._horizontal_ready_uris.clear()
                 self._landing_uris.clear()
                 self._lighthouse_hold_uris.clear()
+                self._lighthouse_targets_by_uri.clear()
                 self._formation_slots_by_uri.clear()
                 self._formation_plan = None
                 self._landing_requested = False
@@ -1254,10 +1390,12 @@ class CrazyflieSwarmGateway:
             if error is None:
                 self._airborne = False
                 self._armed_uris.clear()
+                self._taking_off_uris.clear()
                 self._airborne_uris.clear()
                 self._horizontal_ready_uris.clear()
                 self._landing_uris.clear()
                 self._lighthouse_hold_uris.clear()
+                self._lighthouse_targets_by_uri.clear()
                 self._formation_slots_by_uri.clear()
                 self._formation_plan = None
                 self._landing_requested = False
@@ -1561,6 +1699,9 @@ class CflibBackend:
         scf.cf.param.set_value("kalman.resetEstimation", "1")
         time.sleep(0.1)
         scf.cf.param.set_value("kalman.resetEstimation", "0")
+        # Match cflib MotionCommander: let the Kalman estimator converge
+        # before the operator can start the motors.
+        time.sleep(2.0)
 
     def disconnect(self) -> None:
         try:

@@ -265,7 +265,9 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
         actions = [action for _rect, action in self.view._regions]
         self.assertIn("mission-test", actions)
-        self.assertIn("swarm-lighthouse-hold", actions)
+        # Lighthouse switching is deliberately unavailable until real height
+        # and positioning telemetry confirm that the aircraft is airborne.
+        self.assertNotIn("swarm-lighthouse-hold", actions)
         self.assertIn("swarm-form-line", actions)
         self.assertIn("swarm-form-triangle", actions)
 
