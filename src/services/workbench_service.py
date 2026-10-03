@@ -12,7 +12,7 @@ from pathlib import Path
 from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ
 from src.domain import IntentResult, MissionPlan, SwarmCommand
 from src.ports import SwarmGateway, SystemMonitor
-from src.services.single_uav_mission_service import SingleUAVMissionService
+from src.services.structured_mission_service import StructuredMissionService
 
 
 @dataclass
@@ -71,11 +71,13 @@ class WorkbenchService:
             add_command_listener = getattr(self.swarm_gateway, "add_command_listener", None)
             if callable(add_command_listener):
                 add_command_listener(self._on_command_result)
-        self.single_uav_missions = SingleUAVMissionService(
+        self.structured_missions = StructuredMissionService(
             self.swarm_gateway,
             self._record,
             self.experiment_recorder,
         )
+        # Compatibility alias for integrations written before the service was renamed.
+        self.single_uav_missions = self.structured_missions
 
     def _record(self, message: str) -> str:
         stamp = datetime.now().strftime("%H:%M:%S")
@@ -198,15 +200,19 @@ class WorkbenchService:
 
     def prepare_single_uav_mission(self, result: IntentResult) -> MissionPlan:
         """将已解码的高层意图和当前单机状态组合成可确认的任务。"""
-        return self.single_uav_missions.prepare(result)
+        return self.structured_missions.prepare(result)
+
+    def simulated_fbcca_result(self) -> IntentResult:
+        """返回当前手写的结构化数据，模拟 FBCCA 后处理输出。"""
+        return self.structured_missions.simulated_fbcca_result()
 
     def is_single_uav_mission(self, result: IntentResult) -> bool:
-        return self.single_uav_missions.supports_result(result)
+        return self.structured_missions.supports_result(result)
 
     def execute_single_uav_mission(self, plan: MissionPlan) -> str:
         """仅在操作员确认后启动顺序任务。"""
         try:
-            self.single_uav_missions.execute(plan)
+            self.structured_missions.execute(plan)
         except RuntimeError as exc:
             return self._record(f"单机任务执行失败：{exc}")
         return self._record(f"单机任务已提交：{plan.task_label} → {plan.target.name}")

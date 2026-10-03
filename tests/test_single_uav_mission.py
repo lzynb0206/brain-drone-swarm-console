@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from src.adapters.mock import MockSwarmGateway
 from src.domain import IntentResult
-from src.services import MissionPlanningError, SingleUAVMissionService
+from src.services import MissionPlanningError, StructuredMissionService
 
 
 def mission_intent(label: str = "巡检A点", *, accepted: bool = True) -> IntentResult:
@@ -37,10 +37,10 @@ def structured_goto_intent() -> IntentResult:
     )
 
 
-class SingleUAVMissionServiceTest(unittest.TestCase):
+class StructuredMissionServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.gateway = MockSwarmGateway()
-        self.service = SingleUAVMissionService(self.gateway)
+        self.service = StructuredMissionService(self.gateway)
 
     def test_prepare_builds_an_obstacle_free_shortest_line(self) -> None:
         plan = self.service.prepare(mission_intent())
@@ -62,6 +62,14 @@ class SingleUAVMissionServiceTest(unittest.TestCase):
             waypoint_dx = waypoint.x - plan.cruise_start.x
             waypoint_dy = waypoint.y - plan.cruise_start.y
             self.assertAlmostEqual(0.0, dx * waypoint_dy - dy * waypoint_dx)
+
+    def test_simulated_fbcca_output_is_owned_by_mission_service(self) -> None:
+        result = self.service.simulated_fbcca_result()
+
+        self.assertEqual("去A点", result.label)
+        self.assertEqual("GOTO", result.task_type)
+        self.assertEqual("A", result.target_id)
+        self.assertEqual("simulated_fbcca_structured_output", result.signal_quality["source"])
 
     def test_execute_waits_for_each_completion_and_finishes_at_start(self) -> None:
         plan = self.service.prepare(mission_intent())

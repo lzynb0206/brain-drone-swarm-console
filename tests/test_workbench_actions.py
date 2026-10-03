@@ -239,13 +239,13 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertTrue(self.view._toast_scroll_timer.isActive())
         self.assertEqual(message, self.view._toast)
 
-    def test_temporary_task_button_runs_fixed_goto_after_confirmation(self) -> None:
+    def test_simulated_structured_mission_runs_goto_after_confirmation(self) -> None:
         with patch.object(
             QMessageBox,
             "question",
             return_value=QMessageBox.StandardButton.Yes,
         ):
-            self.view._activate("mission-test")
+            self.view._activate("mission-simulate")
 
         self.assertIsNotNone(self.view._latest_recognition)
         self.assertEqual("去A点", self.view._latest_recognition.label)
@@ -254,7 +254,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
             [command.action for command in self.gateway.command_log],
         )
 
-    def test_brain_control_page_paints_temporary_task_button(self) -> None:
+    def test_brain_control_page_paints_structured_mission_button(self) -> None:
         image = QImage(1280, 720, QImage.Format_ARGB32)
         painter = QPainter(image)
         try:
@@ -264,7 +264,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
             painter.end()
 
         actions = [action for _rect, action in self.view._regions]
-        self.assertIn("mission-test", actions)
+        self.assertIn("mission-simulate", actions)
         # Lighthouse switching is deliberately unavailable until real height
         # and positioning telemetry confirm that the aircraft is airborne.
         self.assertNotIn("swarm-lighthouse-hold", actions)
@@ -277,7 +277,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
             "question",
             return_value=QMessageBox.StandardButton.No,
         ):
-            self.view._activate("mission-test")
+            self.view._activate("mission-simulate")
 
         self.assertEqual([], self.gateway.command_log)
         self.assertIn("已取消任务", self.view._toast)
