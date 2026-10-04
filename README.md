@@ -1,6 +1,6 @@
 # 脑控无人机蜂群作战系统
 
-> `brain-drone-swarm-console` · 基于 Python + PySide6 的脑控无人机蜂群科研上位机。
+> `brain-drone-swarm-console` · 基于 Python 3.12 + PySide6 的脑控无人机蜂群科研上位机。
 
 ## 当前状态
 
@@ -15,7 +15,7 @@
 - 工程师工作台：真实 Qt 左侧导航、运行时接口状态、真实本机性能和设备日志。
 - 多架 Crazyflie 连接、Flow 起飞、Lighthouse 绝对位置保持、三机自动编队、整体移动、受控降落、停止移动和锁存急停。
 - Flow Deck V1/V2 与 AI Deck 参数检测；AI Deck 摄像头数据尚未接入。
-- 飞行安全门控：实时遥测、3.2V 低电压提示与起飞限制、Flow 下视距离/光流质量和串行命令队列。
+- 飞行安全门控：实时遥测、3.2V 低电压提示、Flow 下视距离/光流质量和串行命令队列。
 - 脑控执行默认关闭；只允许实时 LSL，且同一意图连续确认两次并经过冷却后提交。
 - `start-1.csv` 8 通道回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - 纯 FBCCA 六频实时识别；包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
@@ -35,22 +35,42 @@
 ## 技术架构
 
 ```text
-CSV / LSL → EEG QThread → 质量检查 → FBCCA / 可选 FB-EEGNet → 安全确认 → 可选蜂群命令
-PySide6 → HTTP + JWT → Spring Boot → PostgreSQL（账号与身份）
-PySide6 → CrazyflieSwarmGateway 后台队列 → cflib/Crazyradio → Crazyflie + Flow Deck
+CSV / LSL
+    ↓
+EEGWorker（后台采集、窗口化、记录）
+    ↓
+FBCCA / 可选 FB-EEGNet → IntentSafetyService → BCIExecutionService
+                                               ↓
+角色 QWidget → WorkbenchService 兼容门面 → SwarmControlService
+                                               ↓
+CrazyflieSwarmGateway 状态机 → 命令队列 → Flow/Lighthouse 控制 → cflib/Crazyradio
+
+LoginView → AuthService → HTTP + JWT → Spring Boot → PostgreSQL
 ```
 
 真实接入集中在 `src/adapters/real/`，装配入口为 [src/container.py](src/container.py)。界面不会直接等待无线电或执行飞行动作。
 
+当前核心模块已经按职责拆分：
+
+- `CrazyflieSwarmGateway` 只保留应用侧蜂群状态机；配置、命令队列、遥测转换、
+  安全规则、Flow 控制循环和 cflib 连接分别放在独立模块中。
+- `WorkbenchService` 保留原有界面调用方式，内部组合科研配置、蜂群控制、脑控执行、
+  管理操作和导出服务。
+- 科研、作战、管理员和工程画布页面都是独立 `QWidget`，通过 Qt Signal/Slot
+  把语义动作交给 `MainView` 协调。
+
 ## 运行
 
-需要 Python 3.10+：
+推荐 Python 3.12：
 
 ```bash
 python3.12 -m venv .venv312
 source .venv312/bin/activate
 python -m pip install -r requirements.txt
 ```
+
+环境变量示例见 [.env.example](.env.example)。该文件是配置说明，不会被程序自动加载；
+启动前请在终端、IDE Run Configuration 或部署环境中设置所需变量。
 
 ### 默认本地数据库登录
 
@@ -188,29 +208,79 @@ BDS_FB_EEGNET_ENABLED=true python main.py
 ## 项目结构
 
 ```text
-src/
-├── app.py                  # 主窗口和角色路由
-├── container.py            # Spring HTTP / EEG / 硬件接口装配入口
-├── domain/                 # 与 Qt、硬件无关的数据模型
-├── ports/                  # EEG、蜂群、系统监控、工程数据等接口
-├── bci/                    # 统一频率配置、预处理和纯 FBCCA
-├── ml/                     # 可选 FB-EEGNet、预处理、训练评估与推理
-├── adapters/
-│   ├── mock/               # 仅供自动化测试和显式离线 UI 测试
-│   ├── http/               # Spring Boot JWT 认证客户端
-│   └── real/               # CSV、LSL、Crazyflie、运行时监控
-├── workers/                # QThread EEG 持续采集与4秒窗口
-├── services/               # 登录、实验记录、脑控安全与工作台状态
-└── views/                  # PySide6 主界面及全屏 SSVEP 刺激
+brain-drone-swarm-console/
+├── main.py                       # 桌面端启动入口
+├── requirements.txt              # 基础运行依赖
+├── requirements-ml.txt           # FB-EEGNet 训练/推理额外依赖
+├── .env.example                  # 环境变量模板
+├── src/
+│   ├── app.py                    # 登录页与主工作台切换
+│   ├── container.py              # 真实/Mock 实现装配入口
+│   ├── domain/                   # 与 Qt、硬件无关的数据模型
+│   ├── ports/                    # EEG、蜂群、认证、监控等稳定接口
+│   ├── bci/                      # SSVEP 配置、预处理、FBCCA、刺激测量
+│   ├── ml/                       # FB-EEGNet 网络、预处理、训练和推理
+│   ├── adapters/
+│   │   ├── mock/                 # 自动化测试和显式离线演示
+│   │   ├── http/                 # Spring Boot JWT 认证客户端
+│   │   └── real/                 # CSV、LSL、Crazyflie、运行时监控
+│   ├── services/                 # 业务用例和拆分后的工作台子服务
+│   ├── workers/                  # EEG 后台采集、窗口化和记录
+│   ├── views/                    # 独立角色 QWidget、登录和刺激窗口
+│   ├── widgets/                  # 可复用 QPainter 绘制组件
+│   └── resources/                # QSS 等界面资源
+├── tests/                        # 单元测试和离屏 Qt 交互测试
+├── data/                         # EEG 试次、连续数据、会话和日志
+├── docs/                         # 架构、设备接入和科研路线文档
+├── scripts/                      # 辅助脚本，例如界面预览截图
+└── artifacts/                    # 自动生成的界面预览，不参与运行
 ```
+
+### Crazyflie 模块
+
+```text
+src/adapters/real/
+├── crazyflie_swarm_gateway.py    # 应用侧状态机和命令执行编排
+├── crazyflie_contracts.py        # 配置和底层驱动协议
+├── crazyflie_command_queue.py    # 串行队列与代际取消
+├── crazyflie_telemetry.py        # cflib 日志到领域遥测的纯转换
+├── crazyflie_safety.py           # 飞行参数安全校验
+├── crazyflie_flow_control.py     # Flow/Lighthouse 连续控制循环
+└── crazyflie_cflib_backend.py    # 无线连接、Deck 检测和固件命令
+```
+
+### Workbench 模块
+
+```text
+src/services/
+├── workbench_service.py           # 保持旧 API 的组合门面
+├── research_workbench_service.py  # 范式、算法、控制器和映射
+├── swarm_control_service.py       # 蜂群命令、回执、审计和急停
+├── bci_execution_service.py       # 实时源限制、二次确认和冷却
+├── admin_operations_service.py    # 管理页面操作状态
+└── export_service.py              # 工作台配置和报告导出
+```
+
+运行时实验数据默认写入 `data/`。原始 EEG、识别日志、模型权重和预览图片已在
+`.gitignore` 中排除，不应当作普通源码提交；重要实验数据需要另行备份。
 
 ## 测试
 
 ```bash
-QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
+QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
 ```
 
-当前包含 Spring REST 登录客户端、CSV/LSL、六频 FBCCA、刺激测频、信号质量、实验记录、Flow Deck 安全门控和界面交互测试。详细运行方法见 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。
+当前测试集包含 92 项测试，覆盖 Spring REST 登录客户端、CSV/LSL、六频 FBCCA、
+刺激测频、信号质量、实验记录、Flow/Lighthouse 安全门控、编队、独立角色 QWidget、
+工作台服务组合和界面交互。详细运行方法见
+[EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。
+
+可选静态检查：
+
+```bash
+ruff check src tests
+python -m compileall -q src tests
+```
 
 ## 安全说明
 
