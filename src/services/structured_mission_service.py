@@ -26,12 +26,7 @@ class MissionPlanningError(RuntimeError):
 
 
 class StructuredMissionService:
-    """Own simulated decoder output, mission definitions, planning and execution.
 
-    Edit SIMULATED_FBCCA_OUTPUT to change the temporary structured decoder
-    result. Target coordinates and reusable label policies live directly below
-    it so the complete structured-mission workflow has one obvious edit point.
-    """
 
     SIMULATED_FBCCA_OUTPUT: Mapping[str, object] = {
         "label": "去A点", #界面显示和日志记录
