@@ -33,28 +33,26 @@ class StructuredMissionService:
     it so the complete structured-mission workflow has one obvious edit point.
     """
 
-    # 1. 当前阶段手写的“FBCCA 后处理结构化结果”。
-    # 将来接入真实解码器后，只替换数据来源，后面的规划和执行不需要修改。
     SIMULATED_FBCCA_OUTPUT: Mapping[str, object] = {
-        "label": "去A点",
+        "label": "去A点", #界面显示和日志记录
         "confidence": 0.96,
-        "margin": 0.32,
+        "margin": 0.32, #第一候选结果与第二候选结果的分数差距 越大表示识别结果越明确
         "accepted": True,
-        "reason": "模拟 FBCCA 结构化输出",
-        "frequency_hz": 0.0,
-        "task_type": "GOTO",
-        "target_id": "A",
-        "arrival_action": "HOLD",
-        "observe_seconds": 0.0,
-        "return_policy": "NONE",
-        "landing_policy": "NONE",
+        "reason": "模拟 FBCCA 结构化输出", #说明为什么接受或者拒绝识别结果，主要用于日志。
+        "frequency_hz": 0.0, #ssvep频率
+
+
+        "task_type": "GOTO", #GOTO:前往目标 INSPECT：巡检目标点
+        "target_id": "A", #目标点编号
+        "arrival_action": "HOLD", #HOLD:到达后保持当前位置，不进行定时观察  "HOVER"：到达后悬停观察指定时间
+        "observe_seconds": 0.0, #HOVER悬停时间
+        "return_policy": "NONE", #是否返航 RETURN_TO_START 返航
+        "landing_policy": "NONE", #是否降落 任务结束时 LAND：自动受控降落
     }
 
     # 2. 任务目标点；Position 的单位为米。
     DEFAULT_TARGETS: Mapping[str, TargetPoint] = {
-        # Local Flow Deck frame in metres. This point can later move to a config file.
-        # X/Y 是原测试坐标的 1/3；Z 的 1/3 为 0.167m，因低于
-        # Flow Hover 0.20m 安全下限，故将高度夹到 0.20m。
+
         "A": TargetPoint("A", "A点观察区", Position(1.0 / 3.0, 0.5 / 3.0, 0.2)),
         
     }
