@@ -123,8 +123,10 @@ class Canvas:
             self.p.drawLine(QPointF(25, 20 + offset), QPointF(35, 25 + offset))
             self.p.drawLine(QPointF(35, 25 + offset), QPointF(46, 19 + offset))
         self.text(56, 10, 170, 36, "脑控无人机蜂群作战系统", 13, TEXT, True)
-        items = [("实验", 245), ("范式", 313), ("算法", 381), ("控制", 449),
-                 ("映射", 517), ("数据", 585), ("工具", 653), ("帮助", 721)]
+        items = [
+            ("采集", 242), ("实验", 308), ("范式", 374), ("算法", 440),
+            ("控制", 506), ("映射", 572), ("数据", 638), ("工具", 704), ("帮助", 772),
+        ]
         for name, x in items:
             if name == active:
                 self.rect(x - 11, 0, 61, 56, "#111c31", "#78ddec", 2)

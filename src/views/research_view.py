@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
@@ -16,17 +17,21 @@ class ResearchViewMixin:
     def _paint_research(self, c: Canvas) -> None:
         c.fill(BG)
         c.top_nav(self.research_page)
-        nav = [("实验", 234), ("范式", 302), ("算法", 370), ("控制", 438), ("映射", 506), ("数据", 574)]
+        nav = [
+            ("采集", 231), ("实验", 297), ("范式", 363), ("算法", 429),
+            ("控制", 495), ("映射", 561), ("数据", 627),
+        ]
         for name, x in nav:
-            self._hit(x, 0, 62, 57, f"research:{name}")
-        self._hit(642, 0, 60, 56, "self-test")
-        self._hit(710, 0, 60, 56, "workspace-help")
+            self._hit(x, 0, 60, 57, f"research:{name}")
+        self._hit(710, 0, 60, 56, "self-test")
+        self._hit(778, 0, 60, 56, "workspace-help")
         self._hit(1020, 8, 36, 38, "logout")
         self._hit(1068, 8, 36, 38, "workspace-summary")
         self._hit(1117, 8, 36, 38, "workspace-layout")
         self._hit(1166, 10, 89, 34, "marker-add")
         {
-            "实验": self._research_eeg,
+            "采集": self._research_acquisition,
+            "实验": self._research_replay,
             "范式": self._research_paradigm,
             "算法": self._research_algorithm,
             "控制": self._research_controller,
@@ -34,107 +39,301 @@ class ResearchViewMixin:
             "数据": self._research_data,
         }[self.research_page](c)
 
-    def _research_eeg(self, c: Canvas) -> None:
-        # EEG is acquired and decoded in EEGWorker. paintEvent only
-        # renders cached values and never blocks on CSV/LSL or performs inference.
+    def _research_acquisition(self, c: Canvas) -> None:
+        """OpenBCI-style live acquisition shell backed by the existing LSL worker."""
+        light_bg, panel, border = "#eef2f5", "#ffffff", "#cbd3dc"
+        ink, sub, blue = "#24313d", "#64717e", "#2f5f89"
+        c.rect(0, 56, 1280, 664, light_bg)
+        source = self._pipeline_worker.source_name if self._pipeline_worker is not None else "未配置"
         channel_count = len(self._eeg_channel_names) or len(self._eeg_history)
-        c.panel(17, 73, 824, 305, f"EEG {channel_count}通道实时波形")
-        self._draw_live_eeg(c, 62, 124, 756, 232)
+        csv_stats = self._raw_csv_recorder.snapshot()
 
-        ssvep_mode = self.actions.paradigm_type == "SSVEP"
-        c.panel(859, 73, 404, 305, "纯 FBCCA 识别结果" if ssvep_mode else "运动想象采集状态")
-        c.text(879, 116, 360, 25, self._eeg_status, 12, CYAN, True)
-        if not ssvep_mode:
-            c.text(879, 157, 350, 42, "仅采集 / 不输出指令", 22, YELLOW, True)
-            c.text(879, 207, 350, 48, "FBCCA 只适用于 SSVEP 频率。\nMI 分类器完成训练和验证前保持关闭。", 12, MUTED)
-            c.text(879, 270, 350, 24, "标签：静息、想象左手、想象右手、想象双脚", 11, TEXT)
-            c.text(879, 307, 350, 24, "原始 EEG、逐样本时间戳和标签会完整保存", 11, GREEN)
-        elif self._latest_recognition is None:
-            c.text(879, 158, 360, 42, "等待积累完整 4 秒 EEG 窗口…", 14, MUTED)
+        c.rect(16, 72, 320, 632, panel, border, 3)
+        c.rect(16, 72, 320, 42, blue, blue, 3)
+        c.text(32, 72, 288, 42, "OPENBCI SESSION CONTROL", 13, "#ffffff", True)
+        fields = (
+            ("DATA SOURCE", "CYTON / ExpandableEEG"),
+            ("TRANSFER PROTOCOL", self._openbci_transport),
+            ("LSL STREAM", source.replace("LSL · ", "")),
+            ("CHANNEL COUNT", f"{channel_count or self._openbci_channel_count} CHANNELS"),
+            ("SAMPLE RATE", f"{self._eeg_sample_rate:.1f} Hz" if self._eeg_sample_rate else "WAITING"),
+            ("WIFI IP (manual)", self._openbci_ip),
+        )
+        for index, (label, value) in enumerate(fields):
+            y = 126 + index * 55
+            c.text(31, y, 274, 17, label, 9, sub, True)
+            c.rect(31, y + 19, 274, 29, "#f8fafb", border, 2)
+            c.text(41, y + 19, 254, 29, value, 11, ink)
+
+        self._light_button(c, 31, 462, 126, 34, "REFRESH LSL", self._lsl_discovery_in_progress)
+        self._light_button(c, 166, 462, 139, 34, "START SESSION", False, "#2d8a57")
+        self._light_button(c, 31, 504, 84, 34, "DISCONNECT", False, "#bd4b4b")
+        self._light_button(
+            c, 124, 504, 181, 34,
+            "STOP CSV RECORD" if self._continuous_recording else "START CSV RECORD",
+            self._continuous_recording,
+            "#c94e4e",
+        )
+        self._hit(31, 462, 126, 34, "lsl-refresh")
+        self._hit(166, 462, 139, 34, "eeg-connect")
+        self._hit(31, 504, 84, 34, "eeg-disconnect")
+        self._hit(124, 504, 181, 34, "continuous-record-toggle")
+        self._light_button(c, 31, 546, 274, 32, "OPENBCI / LSL 接入说明")
+        self._hit(31, 546, 274, 32, "openbci-guide")
+
+        connected = bool(self._eeg_health.get("connected", False)) or self._eeg_status.startswith("已连接")
+        c.circle(41, 603, 6, "#2fa866" if connected else "#c34f4f")
+        c.text(55, 588, 250, 30, self._eeg_status, 11, ink, True)
+        c.text(31, 620, 274, 20, f"Samples  {self._eeg_health.get('total_samples', 0)}", 10, sub)
+        c.text(31, 641, 274, 20, f"CSV  {csv_stats.get('sample_count', 0)} samples", 10, sub)
+        path = str(csv_stats.get("path") or "等待首帧后创建文件")
+        c.text(31, 664, 274, 28, path[-47:], 9, sub)
+
+        c.rect(352, 72, 912, 632, panel, border, 3)
+        tabs = ("Time Series", "FFT Plot", "Focus", "Accelerometer", "LSL", "Packet Loss", "Hardware")
+        for index, tab in enumerate(tabs):
+            x = 362 + index * 126
+            active = self.acquisition_tab == tab
+            c.rect(x, 80, 118, 31, blue if active else "#edf1f4", border, 2)
+            c.text(x, 80, 118, 31, tab, 10, "#ffffff" if active else ink, active, Qt.AlignCenter)
+            self._hit(x, 80, 118, 31, f"acquisition-tab:{tab}")
+        c.line(352, 120, 1264, 120, border)
+
+        renderers = {
+            "Time Series": self._acquisition_time_series,
+            "FFT Plot": self._acquisition_fft,
+            "Focus": self._acquisition_focus,
+            "Accelerometer": self._acquisition_accelerometer,
+            "LSL": self._acquisition_lsl,
+            "Packet Loss": self._acquisition_packet_loss,
+            "Hardware": self._acquisition_hardware,
+        }
+        renderers[self.acquisition_tab](c, 370, 134, 876, 550)
+
+    def _research_replay(self, c: Canvas) -> None:
+        """CSV experiment replay is deliberately separate from live acquisition."""
+        light_bg, panel, border = "#eef2f5", "#ffffff", "#cbd3dc"
+        ink, sub, blue = "#24313d", "#64717e", "#2f5f89"
+        c.rect(0, 56, 1280, 664, light_bg)
+        snapshot = self._csv_playback_snapshot()
+        is_csv = snapshot.get("backend") == "csv"
+        c.rect(16, 72, 1248, 96, panel, border, 3)
+        c.text(31, 78, 250, 31, "CSV 实验回放", 17, ink, True)
+        self._light_button(c, 31, 116, 116, 34, "导入 EEG CSV", False, blue)
+        self._light_button(
+            c, 158, 116, 94, 34,
+            "继续回放" if self._csv_replay_paused else "暂停回放",
+            False,
+            "#2d8a57",
+        )
+        self._light_button(c, 263, 116, 84, 34, "回到开头")
+        self._hit(31, 116, 116, 34, "csv-import")
+        self._hit(158, 116, 94, 34, "csv-playback-toggle")
+        self._hit(263, 116, 84, 34, "csv-rewind")
+        for index, speed in enumerate((0.5, 1.0, 2.0)):
+            x = 1081 + index * 53
+            active = abs(float(snapshot.get("speed", 1.0) or 1.0) - speed) < 0.01
+            self._light_button(c, x, 116, 47, 34, f"{speed:g}x", active, blue)
+            self._hit(x, 116, 47, 34, f"csv-speed:{speed}")
+        file_name = str(snapshot.get("file_name") or "尚未导入 CSV")
+        c.text(368, 82, 680, 25, file_name, 12, ink, True)
+        elapsed = float(snapshot.get("elapsed_seconds", 0.0) or 0.0)
+        duration = float(snapshot.get("duration_seconds", 0.0) or 0.0)
+        progress = float(snapshot.get("progress", 0.0) or 0.0)
+        c.text(368, 108, 650, 19, f"{elapsed:7.1f}s / {duration:7.1f}s", 10, sub)
+        c.line(384, 143, 1034, 143, "#d4d9de", 8)
+        c.line(384, 143, 384 + 650 * progress, 143, blue, 8)
+        c.circle(384 + 650 * progress, 143, 7, blue)
+        self._hit(376, 132, 666, 24, "csv-seek")
+
+        c.rect(16, 180, 900, 524, panel, border, 3)
+        c.text(34, 186, 540, 32, "原始 EEG 波形 · CSV Replay", 14, ink, True)
+        c.text(710, 186, 185, 32, f"{snapshot.get('channel_count', 0)} ch  ·  {float(snapshot.get('sample_rate_hz', 0.0) or 0.0):.1f} Hz", 10, sub, False, Qt.AlignRight)
+        self._draw_light_eeg(c, 36, 226, 860, 452)
+
+        c.rect(928, 180, 336, 524, panel, border, 3)
+        c.rect(928, 180, 336, 42, blue, blue, 3)
+        c.text(946, 180, 300, 42, "EXPERIMENT REVIEW", 12, "#ffffff", True)
+        c.text(946, 238, 290, 19, "数据来源", 9, sub, True)
+        c.text(946, 258, 290, 42, str(snapshot.get("path") or "请导入 CSV 文件")[-48:], 10, ink)
+        c.text(946, 312, 290, 19, "回放状态", 9, sub, True)
+        state = "PAUSED" if self._csv_replay_paused else ("PLAYING" if is_csv else "NO FILE")
+        c.text(946, 333, 290, 30, state, 18, "#2d8a57" if is_csv else "#bd4b4b", True)
+        c.text(946, 380, 290, 19, "范式 / 解码", 9, sub, True)
+        mode = self.actions.paradigm_type
+        decoder = "FBCCA（仅 SSVEP）" if mode == "SSVEP" else "运动想象：仅回放和标注"
+        c.text(946, 402, 290, 44, f"{mode}\n{decoder}", 11, ink)
+        c.line(946, 463, 1244, 463, border)
+        if self._latest_recognition is None:
+            c.text(946, 482, 290, 54, "等待完整解码窗口…", 12, sub)
         else:
             result = self._latest_recognition
-            prediction = result.label if result.accepted else f"候选：{result.label}"
-            c.text(879, 151, 150, 45, prediction, 24, GREEN if result.accepted else YELLOW, True)
-            c.text(1040, 157, 195, 30, result.reason, 12, MUTED, False, Qt.AlignRight)
-            c.text(879, 195, 350, 25, f"最高分 {result.best_score:.3f}   区分度 {result.margin:.3f}", 12, TEXT)
-            for index, (label, score) in enumerate(result.scores.items()):
-                y = 228 + index * 25
-                c.text(879, y, 70, 20, label, 11, TEXT)
-                c.rect(947, y + 5, 225, 9, "#1c2940", None, 4)
-                c.rect(947, y + 5, min(225, score / max(0.001, result.best_score) * 225), 9, BLUE, None, 4)
-                c.text(1178, y - 2, 55, 22, f"{score:.3f}", 10, MUTED, False, Qt.AlignRight)
+            label = result.label if result.accepted else f"候选：{result.label}"
+            c.text(946, 478, 290, 38, label, 20, "#2d8a57", True)
+            c.text(946, 518, 290, 23, f"Score {result.best_score:.3f}  Margin {result.margin:.3f}", 10, sub)
+            c.text(946, 545, 290, 38, result.reason, 10, ink)
+        c.rect(946, 606, 298, 69, "#f7f9fa", border, 2)
+        c.text(958, 613, 274, 55, "CSV 回放不会直接启用无人机脑控。\n它用于复盘、算法验证和结果对比。", 10, "#9b6a19")
 
-        c.panel(17, 398, 824, 304, "OpenBCI / LSL 采集中心")
-        source = self._pipeline_worker.source_name if self._pipeline_worker is not None else "未配置"
-        pending = self._pipeline_worker.pending_true_label() if self._pipeline_worker is not None else ""
-        stats = self.experiment_recorder.stats() if self.experiment_recorder is not None else {"recognitions": 0, "labeled_trials": 0}
-        c.button(41, 428, 108, 31, "刷新 LSL 流", self._lsl_discovery_in_progress, accent=CYAN)
-        c.button(159, 428, 92, 31, "连接/重连", False, accent=GREEN)
-        c.button(261, 428, 70, 31, "断开", False, accent=RED)
-        c.button(
-            341, 428, 162, 31,
-            "停止连续原始数据" if self._continuous_recording else "开始连续原始数据",
-            self._continuous_recording, accent=RED,
-        )
-        self._hit(41, 428, 108, 31, "lsl-refresh")
-        self._hit(159, 428, 92, 31, "eeg-connect")
-        self._hit(261, 428, 70, 31, "eeg-disconnect")
-        self._hit(341, 428, 162, 31, "continuous-record-toggle")
-        c.button(513, 428, 88, 31, "接入说明", False, accent=CYAN)
-        self._hit(513, 428, 88, 31, "openbci-guide")
-        c.text(611, 428, 187, 31, "OpenBCI → LSL → 本软件", 9, CYAN)
+    def _light_button(
+        self, c: Canvas, x: float, y: float, w: float, h: float, label: str,
+        active: bool = False, accent: str = "#2f5f89",
+    ) -> None:
+        c.rect(x, y, w, h, accent if active else "#f7f9fa", accent, 2)
+        c.text(x, y, w, h, label, 10, "#ffffff" if active else accent, active, Qt.AlignCenter)
 
-        c.rect(41, 470, 760, 34, "#0c1628", "#2b3b58", 3)
-        c.text(53, 474, 735, 25, f"{self._eeg_status}   |   {source}", 11, TEXT, True)
+    def _draw_light_eeg(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
+        histories = [list(values) for values in self._eeg_history]
+        if not histories or not any(histories):
+            c.text(x, y, w, h, "Waiting for EEG data…", 15, "#7b8792", False, Qt.AlignCenter)
+            return
+        palette = ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")
+        row_height = h / max(1, len(histories))
+        c.p.save()
+        c.p.setClipRect(QRectF(x, y, w, h))
+        for index, values in enumerate(histories):
+            baseline = y + row_height * (index + 0.5)
+            c.line(x + 45, baseline, x + w, baseline, "#e1e5e8")
+            label = self._eeg_channel_names[index] if index < len(self._eeg_channel_names) else f"CH{index + 1}"
+            c.circle(x + 15, baseline, 11, palette[index % len(palette)])
+            c.text(x + 4, baseline - 10, 22, 20, str(index + 1), 9, "#ffffff", True, Qt.AlignCenter)
+            c.text(x + 31, baseline - 11, 52, 20, label[:8], 8, "#697580")
+            if len(values) < 2:
+                continue
+            data = np.asarray(values, dtype=float)
+            center = float(np.median(data))
+            amplitude = max(float(np.percentile(np.abs(data - center), 95)), 1e-9)
+            path = QPainterPath()
+            for sample_index, value in enumerate(data):
+                px = x + 83 + sample_index / max(1, len(data) - 1) * (w - 86)
+                py = baseline - (float(value) - center) / amplitude * row_height * 0.34
+                path.moveTo(px, py) if sample_index == 0 else path.lineTo(px, py)
+            c.p.setPen(QPen(QColor(palette[index % len(palette)]), 1.05))
+            c.p.setBrush(Qt.NoBrush)
+            c.p.drawPath(path)
+        c.p.restore()
+
+    def _acquisition_time_series(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
+        c.text(x, y, 350, 28, "Time Series", 16, "#24313d", True)
+        c.text(x + w - 270, y, 270, 28, "Vert Scale  Auto   ·   Window  5 sec", 10, "#64717e", False, Qt.AlignRight)
+        self._draw_light_eeg(c, x, y + 38, w, h - 42)
+
+    def _acquisition_fft(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
+        c.text(x, y, 350, 28, "FFT Plot", 16, "#24313d", True)
+        c.text(x + w - 310, y, 310, 28, "Max Freq 60 Hz   ·   LogLin Smooth", 10, "#64717e", False, Qt.AlignRight)
+        plot_x, plot_y, plot_w, plot_h = x + 58, y + 48, w - 72, h - 86
+        c.rect(plot_x, plot_y, plot_w, plot_h, "#ffffff", "#cbd3dc")
+        for index in range(1, 6):
+            gx = plot_x + plot_w * index / 6
+            c.line(gx, plot_y, gx, plot_y + plot_h, "#e5e9ec")
+            c.text(gx - 18, plot_y + plot_h + 5, 36, 20, f"{index * 10}", 9, "#75808a", False, Qt.AlignCenter)
+        histories = [np.asarray(values, dtype=float) for values in self._eeg_history if len(values) >= 32]
+        palette = ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")
+        for index, values in enumerate(histories[:8]):
+            centered = values - np.mean(values)
+            spectrum = np.abs(np.fft.rfft(centered * np.hanning(len(centered))))
+            frequencies = np.fft.rfftfreq(len(centered), 1.0 / max(self._eeg_sample_rate, 1.0))
+            mask = frequencies <= 60.0
+            spectrum = np.log1p(spectrum[mask])
+            frequencies = frequencies[mask]
+            if not len(spectrum) or float(np.max(spectrum)) <= 0:
+                continue
+            spectrum = spectrum / float(np.max(spectrum))
+            path = QPainterPath()
+            for point, (frequency, amplitude) in enumerate(zip(frequencies, spectrum)):
+                px = plot_x + float(frequency) / 60.0 * plot_w
+                py = plot_y + plot_h - float(amplitude) * plot_h * 0.9
+                path.moveTo(px, py) if point == 0 else path.lineTo(px, py)
+            c.p.setPen(QPen(QColor(palette[index]), 1.2))
+            c.p.setBrush(Qt.NoBrush)
+            c.p.drawPath(path)
+        c.text(plot_x, plot_y + plot_h + 27, plot_w, 20, "Frequency (Hz)", 10, "#64717e", False, Qt.AlignCenter)
+
+    def _acquisition_focus(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
+        c.text(x, y, w, 30, "Focus / Signal Quality", 16, "#24313d", True)
         quality_status = str(self._eeg_quality.get("status", "waiting"))
         usable = int(self._eeg_quality.get("usable_channel_count", 0) or 0)
-        quality_label = {
-            "good": "良好", "partial": "部分可用", "bad": "不可用", "waiting": "等待数据",
-        }.get(quality_status, quality_status)
+        count = max(1, len(self._eeg_channel_names))
+        c.text(x, y + 48, w, 42, f"{usable} / {count} usable channels", 27, "#2f5f89", True, Qt.AlignCenter)
+        c.text(x, y + 91, w, 24, f"Quality state: {quality_status}", 11, "#64717e", False, Qt.AlignCenter)
+        for index in range(count):
+            row_y = y + 145 + index * min(42, 310 / count)
+            values = list(self._eeg_history[index]) if index < len(self._eeg_history) else []
+            spread = float(np.std(values)) if values else 0.0
+            score = min(1.0, spread / (spread + 10.0)) if spread else 0.0
+            label = self._eeg_channel_names[index] if index < len(self._eeg_channel_names) else f"CH{index + 1}"
+            c.text(x + 70, row_y, 90, 24, label, 10, "#24313d", True)
+            c.rect(x + 160, row_y + 6, w - 260, 12, "#e2e7ea", None, 6)
+            c.rect(x + 160, row_y + 6, (w - 260) * score, 12, "#49a66e", None, 6)
+            c.text(x + w - 90, row_y, 60, 24, f"{spread:.1f}", 10, "#64717e", False, Qt.AlignRight)
+
+    def _acquisition_accelerometer(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
+        c.text(x, y, w, 30, "Accelerometer", 16, "#24313d", True)
+        c.rect(x + 40, y + 54, w - 80, h - 130, "#ffffff", "#cbd3dc")
+        for index, (axis, color) in enumerate((("X", "#d84e4e"), ("Y", "#48a15f"), ("Z", "#3c75ba"))):
+            baseline = y + 120 + index * 90
+            c.line(x + 70, baseline, x + w - 70, baseline, "#e1e5e8")
+            c.text(x + 54, baseline - 14, 30, 28, axis, 12, color, True)
+        c.text(x + 60, y + h - 58, w - 120, 34, "当前 LSL 流只有 EEG 通道；若 OpenBCI 输出 AUX 通道，将在这里显示 XYZ。", 11, "#8a6c2b", False, Qt.AlignCenter)
+
+    def _acquisition_lsl(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
+        c.text(x, y, w, 30, "Networking · LSL", 16, "#24313d", True)
+        c.text(x, y + 35, w, 24, "OpenBCI / ExpandableEEG → LSL → 本上位机 → CSV / 解码器", 11, "#2f5f89", True)
+        headers = ("", "Stream 1", "Stream 2", "Stream 3")
+        col_x = (x + 38, x + 185, x + 365, x + 545)
+        for value, left in zip(headers, col_x):
+            c.text(left, y + 92, 160, 28, value, 11, "#24313d", True, Qt.AlignCenter)
+        rows = (
+            ("Data Type", "TimeSeriesRaw", "None", "None"),
+            ("Name", str(self._pipeline_worker.source_name if self._pipeline_worker else "obci_eeg1").replace("LSL · ", ""), "", ""),
+            ("Type", "EEG", "", ""),
+        )
+        for row_index, row in enumerate(rows):
+            row_y = y + 124 + row_index * 45
+            for column, value in enumerate(row):
+                left = col_x[column]
+                c.rect(left, row_y, 160, 32, "#f7f9fa", "#cbd3dc", 1)
+                c.text(left + 6, row_y, 148, 32, value, 10, "#24313d", column == 0)
+        self._light_button(c, x + 245, y + 295, 180, 38, "REFRESH LSL STREAMS", self._lsl_discovery_in_progress)
+        self._hit(x + 245, y + 295, 180, 38, "lsl-refresh")
+        c.text(x + 38, y + 370, w - 76, 70, "说明书中的 Start LSL Stream 位于 OpenBCI GUI 输出端。\n本页面负责发现并接收该流，同时原样保存 sample_index、LSL timestamp 和全部 EEG 通道。", 11, "#64717e", False, Qt.AlignCenter)
+
+    def _acquisition_packet_loss(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
+        c.text(x, y, w, 30, "Packet Loss / Timestamp Health", 16, "#24313d", True)
         health = self._eeg_health
         cards = (
-            ("通道", str(channel_count)),
-            ("实际采样率", f"{self._eeg_sample_rate:.1f} Hz" if self._eeg_sample_rate else "—"),
-            ("信号质量", f"{quality_label} · {usable}/{channel_count}"),
-            ("已接收样本", str(health.get("total_samples", "—"))),
+            ("TOTAL SAMPLES", str(health.get("total_samples", 0))),
+            ("NON-MONOTONIC", str(health.get("non_monotonic_timestamps", 0))),
+            ("GAPS", str(health.get("gap_count", 0))),
+            ("MAX GAP", f"{float(health.get('max_gap_seconds', 0.0) or 0.0):.4f}s"),
         )
-        for index, (title, value) in enumerate(cards):
-            x = 41 + index * 190
-            c.rect(x, 513, 178, 52, "#152239", "#2b3b58", 3)
-            c.text(x + 10, 516, 158, 18, title, 9, MUTED)
-            c.text(x + 10, 537, 158, 22, value, 11, TEXT, True)
+        for index, (label, value) in enumerate(cards):
+            card_x = x + 18 + index * 210
+            c.rect(card_x, y + 58, 190, 94, "#f7f9fa", "#cbd3dc", 3)
+            c.text(card_x, y + 69, 190, 22, label, 9, "#64717e", True, Qt.AlignCenter)
+            c.text(card_x, y + 94, 190, 40, value, 22, "#2f5f89", True, Qt.AlignCenter)
+        gaps = int(health.get("gap_count", 0) or 0)
+        c.circle(x + w / 2, y + 245, 64, "#54ad75" if gaps == 0 else "#d3a13a")
+        c.text(x + w / 2 - 64, y + 210, 128, 70, "PASS" if gaps == 0 else "CHECK", 24, "#ffffff", True, Qt.AlignCenter)
+        c.text(x + 70, y + 345, w - 140, 70, "根据逐样本 LSL 时间戳检测乱序、重复和超出 2 倍采样间隔的数据缺口。\n这些指标会随实验一起记录，用于判断数据是否适合训练和论文分析。", 11, "#64717e", False, Qt.AlignCenter)
 
-        names = ", ".join(self._eeg_channel_names) or "等待流元数据"
-        c.text(47, 572, 748, 20, f"通道标签：{names}", 10, MUTED)
-        c.text(
-            47, 594, 748, 20,
-            "时间连续性：乱序/重复 "
-            f"{health.get('non_monotonic_timestamps', '—')} 次，间隙 "
-            f"{health.get('gap_count', '—')} 次，最大间隙 "
-            f"{float(health.get('max_gap_seconds', 0.0) or 0.0):.3f} 秒",
-            10, YELLOW if int(health.get("gap_count", 0) or 0) else GREEN,
-        )
-        c.line(47, 619, 793, 619, "#283752")
-        c.text(
-            47, 626, 748, 20,
-            f"会话：{self._experiment_session_id or '未建立'}   |   "
-            f"识别 {stats['recognitions']} 条   |   带标签试次 {stats['labeled_trials']} 条",
-            10, TEXT,
-        )
-        c.text(
-            47, 649, 748, 20,
-            f"待保存标签：{pending or '无（右上角“添加标签”用于下一段 4 秒试次）'}",
-            10, CYAN,
-        )
-        root = str(self.experiment_recorder.root) if self.experiment_recorder is not None else "未配置"
-        c.text(47, 672, 748, 20, f"保存：{root}（10 秒分块，含 LSL 时间戳和通道元数据）", 9, MUTED)
-
-        c.panel(859, 398, 404, 304, "实时事件")
-        if not self._eeg_events:
-            c.text(879, 448, 345, 24, "暂无采集事件", 12, MUTED)
-        for index, message in enumerate(list(self._eeg_events)[:11]):
-            color = RED if "ERROR" in message else TEXT
-            c.text(879, 438 + index * 22, 354, 20, message, 10, color)
+    def _acquisition_hardware(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
+        c.text(x, y, w, 30, "Hardware Settings · ADS1299", 16, "#24313d", True)
+        headers = ("CH", "PGA Gain", "Input Type", "Bias Include", "SRB2", "SRB1")
+        starts = (x + 20, x + 85, x + 205, x + 365, x + 535, x + 665)
+        widths = (55, 110, 150, 160, 120, 120)
+        for label, left, width in zip(headers, starts, widths):
+            c.text(left, y + 40, width, 28, label, 9, "#64717e", True, Qt.AlignCenter)
+        for index, settings in enumerate(self._hardware_channel_settings):
+            row_y = y + 73 + index * 47
+            c.circle(x + 47, row_y + 16, 13, ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")[index])
+            c.text(x + 34, row_y + 3, 26, 26, str(index + 1), 9, "#ffffff", True, Qt.AlignCenter)
+            for key, left, width in zip(("gain", "input", "bias", "srb2", "srb1"), starts[1:], widths[1:]):
+                fill = "#e9f5e9" if settings[key] in {"Yes", "On"} else ("#f8e8e8" if settings[key] == "Off" else "#f7f9fa")
+                c.rect(left, row_y, width, 31, fill, "#cbd3dc", 1)
+                c.text(left, row_y, width, 31, settings[key], 9, "#24313d", False, Qt.AlignCenter)
+        c.text(x + 18, y + 468, w - 220, 45, "当前 LSL 为只读数据通道。需要直接下发 x / b / s 等 Cyton 命令时，\n必须启用 BrainFlow/串口硬件后端；此版本不会伪造“发送成功”。", 10, "#9b6a19")
+        self._light_button(c, x + w - 180, y + 468, 160, 38, "SEND（硬件后端未启用）", False, "#9aa3aa")
 
     def _draw_live_eeg(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
         histories = [list(values) for values in self._eeg_history]

@@ -7,16 +7,22 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter
-from PySide6.QtWidgets import QLabel, QMessageBox, QInputDialog, QStackedWidget, QWidget
+from PySide6.QtWidgets import QFileDialog, QLabel, QMessageBox, QInputDialog, QStackedWidget, QWidget
 from src.bci.preprocessing import assess_signal_quality
 from src.domain import EEGFrame, EEGStreamDescriptor, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
-from src.services import ExperimentRecorder, MissionPlanningError, WorkbenchService
+from src.services import (
+    ExperimentRecorder,
+    MissionPlanningError,
+    RawEEGCsvRecorder,
+    WorkbenchService,
+)
 from src.views.engineer_dashboard import EngineerDashboard
 from src.views.main_action_router import MainActionRouterMixin
 from src.views.main_dialogs import MainDialogsMixin
@@ -60,7 +66,8 @@ class MainView(
         self.engineer_data_provider = engineer_data_provider
         self.actions = WorkbenchService(swarm_gateway, system_monitor, experiment_recorder)
         self.user: User | None = None
-        self.research_page = "实验"
+        self.research_page = "采集"
+        self.acquisition_tab = "Time Series"
         self.engineer_page = "系统监控"
         self.soldier_root = "作战地图"
         self.soldier_page = "脑控"
@@ -86,6 +93,20 @@ class MainView(
         self._height_dialog: QDialog | None = None
         self._height_input: QDoubleSpinBox | None = None
         self._continuous_recording = False
+        csv_root = (
+            experiment_recorder.root / "csv_sessions"
+            if experiment_recorder is not None
+            else Path.cwd() / "data" / "recordings" / "csv_sessions"
+        )
+        self._raw_csv_recorder = RawEEGCsvRecorder(csv_root)
+        self._csv_replay_paused = False
+        self._openbci_transport = "LSL"
+        self._openbci_ip = "192.168.4.1"
+        self._openbci_channel_count = 8
+        self._hardware_channel_settings = [
+            {"gain": "x24", "input": "Normal", "bias": "Yes", "srb2": "On", "srb1": "Off"}
+            for _ in range(8)
+        ]
         self._active_joystick: str | None = None
         self._manual_vertical = 0.0
         self._manual_forward = 0.0
@@ -133,7 +154,8 @@ class MainView(
     def set_user(self, user: User) -> None:
         self.user = user
         self.user_label.setText(f"{user.display_name}  ·  {user.role_label}")
-        self.research_page = "实验"
+        self.research_page = "采集"
+        self.acquisition_tab = "Time Series"
         self.engineer_page = "系统监控"
         self.soldier_root = "作战地图"
         self.soldier_page = "脑控"
@@ -190,10 +212,13 @@ class MainView(
             )
         self._pipeline_worker = worker
 
-    def _disconnect_eeg_pipeline(self) -> None:
-        self._continuous_recording = False
+    def _disconnect_eeg_pipeline(self, stop_csv_recording: bool = True) -> None:
+        if stop_csv_recording and self._raw_csv_recorder.is_recording:
+            self._raw_csv_recorder.stop()
+        self._continuous_recording = self._raw_csv_recorder.is_recording
         if self._pipeline_worker is not None:
-            self._pipeline_worker.set_continuous_recording(False)
+            if stop_csv_recording:
+                self._pipeline_worker.set_continuous_recording(False)
             if self._pipeline_worker.isRunning():
                 self._pipeline_worker.stop()
         self._eeg_status = "已由用户断开"
@@ -225,6 +250,129 @@ class MainView(
 
         threading.Thread(target=run_discovery, name="LSL-Discovery", daemon=True).start()
         self.update()
+
+    def _choose_csv_replay(self) -> None:
+        selector = getattr(self.eeg_stream, "select_csv", None)
+        if not callable(selector):
+            self._notify("当前 EEG 容器不支持运行时 CSV 回放")
+            return
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "导入 OpenBCI / LSL EEG CSV",
+            str(Path.home()),
+            "EEG CSV (*.csv);;所有文件 (*)",
+        )
+        if not path:
+            self._notify("已取消导入 CSV")
+            return
+        self._disconnect_eeg_pipeline(stop_csv_recording=True)
+        try:
+            selector(path)
+        except Exception as exc:
+            self._notify(f"CSV 导入失败：{exc}")
+            return
+        self._eeg_history = []
+        self._eeg_channel_names = ()
+        self._eeg_channel_units = ()
+        self._latest_recognition = None
+        self._csv_replay_paused = False
+        self._build_eeg_worker(replace=True)
+        self._start_eeg_pipeline()
+        self.research_page = "实验"
+        self._notify(f"已导入并开始回放：{Path(path).name}")
+
+    def _csv_playback_snapshot(self) -> dict[str, object]:
+        snapshot = getattr(self.eeg_stream, "playback_snapshot", None)
+        if callable(snapshot):
+            try:
+                return dict(snapshot())
+            except Exception as exc:
+                return {"backend": "error", "error": str(exc)}
+        return {"backend": "unavailable"}
+
+    def _toggle_csv_playback(self) -> None:
+        if self._csv_playback_snapshot().get("backend") != "csv":
+            self._notify("请先导入 CSV 文件")
+            return
+        running = self._pipeline_worker is not None and self._pipeline_worker.isRunning()
+        if running:
+            self._disconnect_eeg_pipeline(stop_csv_recording=False)
+            self._csv_replay_paused = True
+            self._notify("CSV 回放已暂停")
+        else:
+            self._build_eeg_worker(replace=True)
+            self._start_eeg_pipeline()
+            self._csv_replay_paused = False
+            self._notify("CSV 回放已继续")
+
+    def _rewind_csv_playback(self) -> None:
+        rewind = getattr(self.eeg_stream, "rewind_csv", None)
+        if not callable(rewind):
+            self._notify("当前 EEG 容器不支持 CSV 回放")
+            return
+        was_running = self._pipeline_worker is not None and self._pipeline_worker.isRunning()
+        if was_running:
+            self._disconnect_eeg_pipeline(stop_csv_recording=False)
+        try:
+            rewind()
+        except Exception as exc:
+            self._notify(f"CSV 回到开头失败：{exc}")
+            return
+        self._eeg_history = [deque(maxlen=360) for _ in self._eeg_channel_names]
+        if was_running:
+            self._build_eeg_worker(replace=True)
+            self._start_eeg_pipeline()
+        self._notify("CSV 已回到开头")
+
+    def _seek_csv_playback(self, fraction: float) -> None:
+        seek = getattr(self.eeg_stream, "seek_csv", None)
+        if not callable(seek):
+            self._notify("当前 EEG 容器不支持 CSV 回放")
+            return
+        try:
+            seek(fraction)
+        except Exception as exc:
+            self._notify(f"CSV 定位失败：{exc}")
+            return
+        self._eeg_history = [deque(maxlen=360) for _ in self._eeg_channel_names]
+        self.update()
+
+    def _set_csv_playback_speed(self, speed: float) -> None:
+        setter = getattr(self.eeg_stream, "set_csv_playback_speed", None)
+        if not callable(setter):
+            self._notify("当前 EEG 容器不支持 CSV 回放")
+            return
+        try:
+            setter(speed)
+        except Exception as exc:
+            self._notify(f"设置回放速度失败：{exc}")
+            return
+        self._notify(f"CSV 回放速度：{speed:g}x")
+
+    def _toggle_raw_csv_recording(self) -> None:
+        if self._raw_csv_recorder.is_recording:
+            path = self._raw_csv_recorder.stop()
+            self._continuous_recording = False
+            if self._pipeline_worker is not None:
+                self._pipeline_worker.set_continuous_recording(False)
+            self._notify(f"原始 EEG CSV 已保存：{path}" if path else "CSV 采集已停止（尚未收到数据）")
+            return
+        if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
+            self._notify("EEG 采集未运行，不能开始 CSV 录制")
+            return
+        source = self._pipeline_worker.source_name
+        if source.startswith("CSV"):
+            self._notify("当前是 CSV 回放；原始采集请先在“采集”页切换到实时 LSL")
+            return
+        subject_id = self.user.uid or self.user.username if self.user is not None else ""
+        self._raw_csv_recorder.start(
+            session_id=self._experiment_session_id,
+            subject_id=subject_id,
+            source=source,
+        )
+        self._continuous_recording = True
+        self._pipeline_worker.set_continuous_recording(True)
+        self._notify("已开始保存原始 EEG：CSV 全量记录 + 10 秒 NPZ 分块")
 
     def _on_lsl_discovery_completed(
         self, descriptors: list[EEGStreamDescriptor], error: str,
@@ -263,6 +411,11 @@ class MainView(
     def deactivate(self) -> None:
         if self._stimulus_window is not None:
             self._stimulus_window.close()
+        if self._raw_csv_recorder.is_recording:
+            self._raw_csv_recorder.stop()
+        self._continuous_recording = False
+        if self._pipeline_worker is not None:
+            self._pipeline_worker.set_continuous_recording(False)
         if self._pipeline_worker is not None and self._pipeline_worker.isRunning():
             self._pipeline_worker.stop()
 
@@ -274,6 +427,15 @@ class MainView(
         self._eeg_sample_rate = frame.sample_rate_hz
         self._eeg_channel_names = tuple(frame.channel_names)
         self._eeg_channel_units = tuple(frame.channel_units)
+        if self._raw_csv_recorder.is_recording:
+            try:
+                self._raw_csv_recorder.append(frame)
+            except Exception as exc:
+                self._raw_csv_recorder.stop()
+                self._continuous_recording = False
+                self._eeg_events.appendleft(
+                    f"{datetime.now():%H:%M:%S}  ERROR  CSV 写入失败：{exc}"
+                )
         self.update()
 
     def _on_recognition(self, result: IntentResult) -> None:

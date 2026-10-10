@@ -10,7 +10,7 @@ OpenBCI 设备 → OpenBCI GUI → LSL EEG
         ↓
 质量检测 → 纯 NumPy FBCCA / 可选 FB-EEGNet → 意图安全阈值
         ↓
-科研界面 + recognition_log.csv + raw_trials/*.npz
+科研界面 + lsl_raw_*.csv + recognition_log.csv + raw_trials/*.npz
         ↓ 仅在实时 LSL、安全条件满足且人工开启时
 SwarmGateway 二次确认 → 串行硬件命令
 ```
@@ -25,20 +25,31 @@ LSL 是把 EEG 和时间戳实时送进本软件的传输通道，FBCCA 是只�
 
 ## 科研人员界面的采集中心
 
-进入“科研人员 → 实验”，可以直接完成：
+进入“科研人员 → 采集”，可以直接完成：
 
 - 刷新并选择当前局域机可见的 `type=EEG` LSL 流；
 - 连接、重连、断开 OpenBCI/LSL 数据源；
-- 查看流名、通道标签、实际采样率、逐通道信号质量；
-- 查看 LSL 时间戳乱序/重复、采样间隙和最大间隙；
-- 连续录制 10 秒分块，或给下一段 4 秒试次添加真实标签。
+- 在白色 OpenBCI 风格页面切换 `Time Series / FFT Plot / Focus / Accelerometer / LSL / Packet Loss / Hardware`；
+- 查看流名、通道标签、实际采样率、逐通道信号质量和时间戳连续性；
+- 将实时数据原样保存为 LSL 兼容 CSV，同时保留 10 秒 NPZ 分块；
+- 给下一段 4 秒试次添加真实标签。
+
+`Hardware` 页按说明书展示 ADS1299 的 PGA Gain、Input Type、Bias、SRB2 和 SRB1。
+当前 LSL 连接是只读传输，因此页面不会伪造 Cyton 命令下发结果；等 BrainFlow/串口后端完成后，
+再把 `Send` 接到真实硬件命令接口。
 
 OpenBCI GUI 的推荐路径是：连接设备并确认原始波形后，打开
 `Networking → LSL`，输出 `TimeSeriesRaw` / `type=EEG`。随后在本软件点击
 “刷新 LSL 流”，即使应用最初正在 CSV 回放，也能在不重启软件的情况下切换到实时 LSL，
 不再需要手改流名才能切换设备。
 
-## CSV 回放（默认）
+## CSV 实验回放
+
+进入“科研人员 → 实验”，点击“导入 EEG CSV”可在运行时选择文件，不必重启软件。
+页面支持暂停/继续、回到开头、拖动进度和 `0.5x / 1x / 2x` 回放，并将波形继续送入
+现有质量检测和解码链路。CSV 回放被安全层禁止驱动真实无人机。
+
+默认文件仍可通过环境变量配置：
 
 将数据放到 `data/samples/start-1.csv`，直接运行：
 
@@ -112,6 +123,7 @@ PsychoPy/Pygame 双份界面，避免维护三套不同的频率配置。
 
 ```text
 data/
+├── csv_sessions/       # 一次采集对应一个完整 LSL 兼容 CSV 和 JSON 元数据
 ├── raw_trials/          # 4 秒带真实标签 EEG
 ├── continuous_raw/      # 长时间录制的 10 秒分块
 ├── sessions/            # 会话、试次索引、刺激事件标记
@@ -122,6 +134,7 @@ data/
 ```
 
 - `data/raw_trials/*.npz`：原始 EEG、逐样本 LSL 时间戳、通道名/单位、采样率、范式、被试、会话、真实标签、开始时间、信号质量及识别结果。
+- `data/csv_sessions/lsl_raw_*.csv`：完整原始采集，列为 `sample_index, lsl_timestamp, elapsed_seconds, <各通道>`；同名 JSON 保存会话、被试、来源、采样率和通道元数据。
 - `data/continuous_raw/*.npz`：10 秒原始分块及对应逐样本时间戳和通道元数据。
 - `data/sessions/*.json`：会话元数据；`raw_trials_index.csv` 为试次索引。
 - `data/recognition_logs/recognition_log.csv`：每次 FBCCA 识别、置信度、margin 和门控结果。

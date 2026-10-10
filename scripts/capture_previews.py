@@ -28,8 +28,13 @@ def main() -> int:
 
     window._show_main_view(User("researcher", "科研演示账号", Role.RESEARCHER))
     app.processEvents()
-    window.grab().save(str(output_dir / "research-eeg.png"))
-    for page in ("范式", "算法", "控制", "映射", "数据"):
+    window.grab().save(str(output_dir / "research-acquisition.png"))
+    for acquisition_tab in ("FFT Plot", "LSL", "Packet Loss", "Hardware"):
+        window.main_view.acquisition_tab = acquisition_tab
+        window.main_view.update()
+        app.processEvents()
+        window.grab().save(str(output_dir / f"research-acquisition-{acquisition_tab.replace(' ', '-').lower()}.png"))
+    for page in ("实验", "范式", "算法", "控制", "映射", "数据"):
         window.main_view.research_page = page
         window.main_view.update()
         app.processEvents()
@@ -54,6 +59,8 @@ def main() -> int:
     window.main_view.update()
     app.processEvents()
     window.grab().save(str(output_dir / "soldier-status.png"))
+    window.main_view.deactivate()
+    app.processEvents()
     window.close()
     return 0
 

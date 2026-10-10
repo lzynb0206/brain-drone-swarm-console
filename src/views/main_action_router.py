@@ -17,6 +17,9 @@ class MainActionRouterMixin:
         elif action.startswith("research:"):
             self.research_page = action.split(":", 1)[1]
             self.update()
+        elif action.startswith("acquisition-tab:"):
+            self.acquisition_tab = action.split(":", 1)[1]
+            self.update()
         elif action.startswith("engineer:"):
             self.engineer_page = action.split(":", 1)[1]
             self.update()
@@ -62,12 +65,17 @@ class MainActionRouterMixin:
         elif action == "openbci-guide":
             self._show_openbci_guide()
         elif action == "continuous-record-toggle":
-            if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
-                self._notify("EEG 采集未运行，不能开始连续录制")
-                return
-            self._continuous_recording = not self._continuous_recording
-            self._pipeline_worker.set_continuous_recording(self._continuous_recording)
-            self._notify("连续原始 EEG 录制已开启" if self._continuous_recording else "连续原始 EEG 录制已停止并保存")
+            self._toggle_raw_csv_recording()
+        elif action == "csv-import":
+            self._choose_csv_replay()
+        elif action == "csv-playback-toggle":
+            self._toggle_csv_playback()
+        elif action == "csv-rewind":
+            self._rewind_csv_playback()
+        elif action.startswith("csv-speed:"):
+            self._set_csv_playback_speed(float(action.rsplit(":", 1)[1]))
+        elif action == "csv-seek":
+            self._seek_csv_playback((x - 384) / 650)
         elif action.startswith("algorithm-select:"):
             self._notify(self.actions.select_algorithm(action.split(":", 1)[1]))
         elif action.startswith("algorithm-mode:"):

@@ -17,7 +17,8 @@
 - Flow Deck V1/V2 与 AI Deck 参数检测；AI Deck 摄像头数据尚未接入。
 - 飞行安全门控：实时遥测、3.2V 低电压提示、Flow 下视距离/光流质量和串行命令队列。
 - 脑控执行默认关闭；只允许实时 LSL，且同一意图连续确认两次并经过冷却后提交。
-- 科研采集中心可搜索/选择 OpenBCI LSL 流、连接/断开、显示通道元数据、信号质量与时间戳连续性，并保存带逐样本时间戳的试次和连续原始数据。
+- 科研端新增白色 OpenBCI 风格“采集”页，包含 Time Series、FFT、Focus、Accelerometer、LSL、Packet Loss 和 Hardware Settings；可搜索/选择 LSL 流并保存完整 CSV + NPZ 分块。
+- “实验”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
 - `start-1.csv` 与 LSL采集上位机 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
 - 纯 FBCCA 六频实时识别；包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
@@ -272,7 +273,7 @@ src/services/
 QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
 ```
 
-当前测试集包含 96 项测试，覆盖 Spring REST 登录客户端、CSV/LSL、六频 FBCCA、
+当前测试集包含 99 项测试，覆盖 Spring REST 登录客户端、CSV/LSL、六频 FBCCA、
 刺激测频、信号质量、实验记录、Flow/Lighthouse 安全门控、编队、独立角色 QWidget、
 工作台服务组合和界面交互。详细运行方法见
 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。

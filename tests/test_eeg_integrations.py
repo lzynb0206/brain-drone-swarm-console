@@ -10,8 +10,8 @@ import numpy as np
 from src.adapters.real import CsvEEGStream, LSLEEGStream, SelectableEEGStream
 from src.bci import FBCCADecoder
 from src.bci.config import COMMANDS, FB_EEGNET_ENABLED, TARGET_FREQUENCIES_HZ
-from src.domain import IntentResult
-from src.services import ExperimentRecorder
+from src.domain import EEGFrame, IntentResult
+from src.services import ExperimentRecorder, RawEEGCsvRecorder
 from src.workers import EEGWorker
 
 
@@ -49,6 +49,54 @@ class CsvEEGStreamTest(unittest.TestCase):
         self.assertEqual(32, len(frame.sample_timestamps))
         self.assertAlmostEqual(10.124, frame.sample_timestamps[-1])
         self.assertAlmostEqual(250.0, frame.sample_rate_hz)
+
+    def test_supports_variable_channel_csv_seek_and_playback_speed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "four_channel.csv"
+            with path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(("C3", "C4", "Cz", "Pz"))
+                for sample in range(80):
+                    writer.writerow((sample, sample + 1, sample + 2, sample + 3))
+            stream = CsvEEGStream(
+                path, frame_size=8, expected_channel_count=None, realtime=False,
+            )
+            stream.connect()
+            stream.seek_fraction(0.5)
+            stream.set_playback_speed(2.0)
+            frame = stream.read_frame()
+            snapshot = stream.playback_snapshot()
+        self.assertEqual(4, len(frame.samples))
+        self.assertEqual(2.0, snapshot["speed"])
+        self.assertGreater(snapshot["progress"], 0.5)
+
+
+class RawEEGCsvRecorderTest(unittest.TestCase):
+    def test_writes_lsl_compatible_csv_and_metadata_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = RawEEGCsvRecorder(directory, flush_interval_seconds=0)
+            recorder.start(session_id="session-1", subject_id="S01", source="LSL · obci_eeg1")
+            frame = EEGFrame(
+                timestamp=10.004,
+                sample_rate_hz=250.0,
+                channel_names=("C3", "C4"),
+                samples=((1.0, 2.0), (3.0, 4.0)),
+                sample_timestamps=(10.0, 10.004),
+                channel_units=("uV", "uV"),
+                source_id="openbci",
+            )
+            self.assertEqual(2, recorder.append(frame))
+            path = recorder.stop()
+            assert path is not None
+            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                rows = list(csv.reader(handle))
+            metadata = path.with_suffix(".json").read_text(encoding="utf-8")
+        self.assertEqual(
+            ["sample_index", "lsl_timestamp", "elapsed_seconds", "C3", "C4"],
+            rows[0],
+        )
+        self.assertEqual(["0", "10.0", "0.0", "1.0", "3.0"], rows[1])
+        self.assertIn('"sample_count": 2', metadata)
 
 
 class FBCCADecoderTest(unittest.TestCase):

@@ -143,6 +143,12 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual("数据浏览", self.view.actions.data_tab)
         self.assertEqual("right", self.gateway.command_log[-1].action)
 
+    def test_research_acquisition_tabs_are_stateful(self) -> None:
+        self.view._activate("research:采集")
+        self.view._activate("acquisition-tab:FFT Plot")
+        self.assertEqual("采集", self.view.research_page)
+        self.assertEqual("FFT Plot", self.view.acquisition_tab)
+
     def test_flight_stop_actions_are_routed_to_distinct_gateway_operations(self) -> None:
         self.view._activate("swarm-command:takeoff")
         self.view._activate("swarm-stop-motion")

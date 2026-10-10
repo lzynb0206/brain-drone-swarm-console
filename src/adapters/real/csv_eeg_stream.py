@@ -15,14 +15,16 @@ class CsvEEGStream:
         path: Path | str,
         sample_rate_hz: float = 250.0,
         frame_size: int = 32,
-        expected_channel_count: int = 8,
+        expected_channel_count: int | None = 8,
         loop: bool = True,
         realtime: bool = True,
     ) -> None:
         self.path = Path(path).expanduser().resolve()
         self.sample_rate_hz = float(sample_rate_hz)
         self.frame_size = int(frame_size)
-        self.expected_channel_count = int(expected_channel_count)
+        self.expected_channel_count = (
+            int(expected_channel_count) if expected_channel_count is not None else None
+        )
         self.loop = bool(loop)
         self.realtime = bool(realtime)
         self._rows: list[tuple[float, ...]] = []
@@ -30,6 +32,8 @@ class CsvEEGStream:
         self._channel_names: tuple[str, ...] = ()
         self._position = 0
         self._connected = False
+        self._loaded = False
+        self.playback_speed = 1.0
         self._total_samples_read = 0
         self._non_monotonic_timestamps = 0
         self._gap_count = 0
@@ -43,6 +47,9 @@ class CsvEEGStream:
     def connect(self) -> None:
         if not self.path.is_file():
             raise FileNotFoundError(f"EEG CSV 不存在：{self.path}")
+        if self._loaded:
+            self._connected = True
+            return
         rows: list[tuple[float, ...]] = []
         with self.path.open("r", newline="", encoding="utf-8-sig") as handle:
             reader = csv.reader(handle)
@@ -66,7 +73,7 @@ class CsvEEGStream:
                 channel_offset = 0
                 channel_names = tuple(f"CH{i + 1}" for i in range(source_width))
             width = source_width - channel_offset
-            if width != self.expected_channel_count:
+            if self.expected_channel_count is not None and width != self.expected_channel_count:
                 raise ValueError(
                     f"EEG CSV 通道数应为 {self.expected_channel_count}，实际为 {width}"
                 )
@@ -105,6 +112,7 @@ class CsvEEGStream:
         self._calculate_timestamp_health()
         self._position = 0
         self._total_samples_read = 0
+        self._loaded = True
         self._connected = True
 
     @staticmethod
@@ -139,6 +147,40 @@ class CsvEEGStream:
 
     def disconnect(self) -> None:
         self._connected = False
+
+    def rewind(self) -> None:
+        self._position = 0
+        self._total_samples_read = 0
+
+    def seek_fraction(self, fraction: float) -> None:
+        if not self._rows:
+            return
+        bounded = max(0.0, min(1.0, float(fraction)))
+        self._position = min(len(self._rows) - 1, int(round(bounded * (len(self._rows) - 1))))
+
+    def set_playback_speed(self, speed: float) -> None:
+        if speed <= 0:
+            raise ValueError("CSV playback speed must be positive")
+        self.playback_speed = float(speed)
+
+    def playback_snapshot(self) -> dict[str, object]:
+        total = len(self._rows)
+        position = min(self._position, total)
+        return {
+            "backend": "csv",
+            "path": str(self.path),
+            "file_name": self.path.name,
+            "connected": self.connected,
+            "sample_rate_hz": self.sample_rate_hz,
+            "channel_count": len(self._channel_names),
+            "channel_names": self._channel_names,
+            "total_samples": total,
+            "position": position,
+            "progress": position / total if total else 0.0,
+            "duration_seconds": total / self.sample_rate_hz if self.sample_rate_hz and total else 0.0,
+            "elapsed_seconds": position / self.sample_rate_hz if self.sample_rate_hz else 0.0,
+            "speed": self.playback_speed,
+        }
 
     def flush(self) -> int:
         """CSV replay has no transport backlog; keep its current file position."""
@@ -192,7 +234,7 @@ class CsvEEGStream:
                 frame_timestamps.extend(self._timestamps[self._position:self._position + take])
             self._position += take
         if self.realtime:
-            time.sleep(self.frame_size / self.sample_rate_hz)
+            time.sleep(self.frame_size / self.sample_rate_hz / self.playback_speed)
         self._total_samples_read += len(frame_rows)
         channels = tuple(tuple(row[index] for row in frame_rows) for index in range(len(self._channel_names)))
         return EEGFrame(
