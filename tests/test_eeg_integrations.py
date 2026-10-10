@@ -7,11 +7,12 @@ from pathlib import Path
 
 import numpy as np
 
-from src.adapters.real import CsvEEGStream, LSLEEGStream
+from src.adapters.real import CsvEEGStream, LSLEEGStream, SelectableEEGStream
 from src.bci import FBCCADecoder
 from src.bci.config import COMMANDS, FB_EEGNET_ENABLED, TARGET_FREQUENCIES_HZ
 from src.domain import IntentResult
 from src.services import ExperimentRecorder
+from src.workers import EEGWorker
 
 
 class CsvEEGStreamTest(unittest.TestCase):
@@ -30,6 +31,24 @@ class CsvEEGStreamTest(unittest.TestCase):
         self.assertEqual(8, len(first.samples))
         self.assertEqual((0.0, 10.0, 20.0, 30.0), first.samples[0])
         self.assertEqual((40.0, 50.0, 0.0, 10.0), second.samples[0])
+
+    def test_reads_lsl_recorder_schema_with_names_and_sample_timestamps(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "lsl_raw.csv"
+            with path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(("sample_index", "lsl_timestamp", "elapsed_seconds", "C3", "C4"))
+                for sample in range(40):
+                    writer.writerow((sample, 10 + sample * 0.004, sample * 0.004, sample, -sample))
+            stream = CsvEEGStream(
+                path, frame_size=32, expected_channel_count=2, realtime=False, loop=False,
+            )
+            stream.connect()
+            frame = stream.read_frame()
+        self.assertEqual(("C3", "C4"), frame.channel_names)
+        self.assertEqual(32, len(frame.sample_timestamps))
+        self.assertAlmostEqual(10.124, frame.sample_timestamps[-1])
+        self.assertAlmostEqual(250.0, frame.sample_rate_hz)
 
 
 class FBCCADecoderTest(unittest.TestCase):
@@ -74,6 +93,9 @@ class ExperimentRecorderTest(unittest.TestCase):
             saved = recorder.record(
                 result, np.ones((8, 1000)), true_label="前进", source="test",
                 subject_id="S01", session_id="session-1", start_time="2026-09-08T10:00:00+08:00",
+                sample_timestamps=np.arange(1000) / 250.0,
+                channel_names=tuple(f"EEG{index + 1}" for index in range(8)),
+                channel_units=("uV",) * 8,
             )
             stats = recorder.stats()
             trial_path = Path(directory) / saved["raw_trial_path"]
@@ -81,8 +103,37 @@ class ExperimentRecorderTest(unittest.TestCase):
             self.assertEqual((8, 1000), payload["eeg"].shape)
             self.assertEqual("前进", str(payload["true_label"]))
             self.assertEqual("S01", str(payload["subject_id"]))
+            self.assertEqual((1000,), payload["sample_timestamps"].shape)
+            self.assertEqual("EEG1", str(payload["channel_names"][0]))
+            self.assertEqual("uV", str(payload["channel_units"][0]))
             self.assertTrue((Path(directory) / "sessions" / "session-1.json").is_file())
         self.assertEqual({"recognitions": 2, "labeled_trials": 1}, stats)
+
+    def test_mi_trial_is_saved_without_calling_fbcca_or_logging_a_decision(self) -> None:
+        class DecoderThatMustNotRun:
+            def decode(self, *_args, **_kwargs):
+                raise AssertionError("FBCCA must not run in MI mode")
+
+        class Stream:
+            source_name = "LSL · mi-test"
+
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = ExperimentRecorder(directory)
+            worker = EEGWorker(Stream(), DecoderThatMustNotRun(), recorder)
+            worker.set_experiment_context("S01", "mi-session")
+            worker.set_paradigm_type("MI")
+            worker.capture_next_trial("想象左手")
+            samples = np.ones((8, 1000), dtype=float)
+            timestamps = np.arange(1000, dtype=float) / 250.0
+            worker._collect_labeled_trial(samples, timestamps, 250.0, 1000)
+            stats = recorder.stats()
+            trial = next((Path(directory) / "raw_trials").glob("*.npz"))
+            with np.load(trial) as payload:
+                paradigm_type = str(payload["paradigm_type"])
+                true_label = str(payload["true_label"])
+        self.assertEqual({"recognitions": 0, "labeled_trials": 1}, stats)
+        self.assertEqual("MI", paradigm_type)
+        self.assertEqual("想象左手", true_label)
 
 
 class _FakeInfo:
@@ -108,6 +159,56 @@ class LSLEEGStreamTest(unittest.TestCase):
         self.assertEqual((1.0, 3.0), frame.samples[0])
         self.assertEqual((2.0, 4.0), frame.samples[1])
         self.assertEqual(250.0, frame.sample_rate_hz)
+        self.assertEqual((10.0, 10.004), frame.sample_timestamps)
+
+    def test_discovers_selects_and_reports_timestamp_health(self) -> None:
+        resolver = lambda *_args, **_kwargs: [_FakeInfo()]
+        stream = LSLEEGStream(
+            expected_channel_count=2, resolver=resolver, inlet_factory=_FakeInlet,
+        )
+        descriptors = stream.discover_streams()
+        self.assertEqual(1, len(descriptors))
+        self.assertEqual("obci_eeg1", descriptors[0].name)
+        self.assertEqual(("CH1", "CH2"), descriptors[0].channel_names)
+        stream.select_stream(descriptors[0])
+        stream.connect()
+        stream.read_frame()
+        health = stream.health_snapshot()
+        stream.disconnect()
+        self.assertEqual(2, health["total_samples"])
+        self.assertEqual(0, health["gap_count"])
+
+    def test_selectable_source_switches_from_replay_to_discovered_lsl(self) -> None:
+        class ReplaySource:
+            source_name = "CSV回放"
+            connected = False
+            sample_rate_hz = 250.0
+
+            def connect(self):
+                self.connected = True
+
+            def disconnect(self):
+                self.connected = False
+
+            def read_frame(self):
+                raise AssertionError("should switch to LSL")
+
+            def flush(self):
+                return 0
+
+        def resolver(*_args, **_kwargs):
+            return [_FakeInfo()]
+
+        lsl = LSLEEGStream(
+            expected_channel_count=2, resolver=resolver, inlet_factory=_FakeInlet,
+        )
+        source = SelectableEEGStream(ReplaySource(), lsl)
+        descriptor = source.discover_streams()[0]
+        source.select_stream(descriptor)
+        source.connect()
+        frame = source.read_frame()
+        self.assertTrue(source.source_name.startswith("LSL"))
+        self.assertEqual((1.0, 3.0), frame.samples[0])
 
 
 if __name__ == "__main__":

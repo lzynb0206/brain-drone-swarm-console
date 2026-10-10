@@ -98,6 +98,32 @@ class EEGFrame:
     sample_rate_hz: float
     channel_names: tuple[str, ...]
     samples: tuple[tuple[float, ...], ...]
+    # LSL timestamps belong to individual samples.  Keeping them with the
+    # frame is essential for detecting packet gaps and aligning stimulus
+    # markers; older/offline producers may leave this empty.
+    sample_timestamps: tuple[float, ...] = ()
+    channel_units: tuple[str, ...] = ()
+    source_id: str = ""
+
+
+@dataclass(frozen=True)
+class EEGStreamDescriptor:
+    """Serializable metadata for one discoverable EEG stream."""
+
+    name: str
+    stream_type: str
+    channel_count: int
+    nominal_sample_rate_hz: float
+    source_id: str = ""
+    uid: str = ""
+    channel_names: tuple[str, ...] = ()
+    channel_units: tuple[str, ...] = ()
+
+    @property
+    def display_name(self) -> str:
+        rate = f"{self.nominal_sample_rate_hz:g} Hz" if self.nominal_sample_rate_hz else "不规则采样"
+        source = f" · {self.source_id}" if self.source_id else ""
+        return f"{self.name} · {self.channel_count} 通道 · {rate}{source}"
 
 
 @dataclass(frozen=True)

@@ -9,10 +9,11 @@ from src.adapters.real.disabled_swarm_gateway import DisabledSwarmGateway
 from src.adapters.real.lsl_eeg_stream import LSLEEGStream
 from src.adapters.real.real_system_monitor import RealSystemMonitor
 from src.adapters.real.runtime_engineer_data import RuntimeEngineerDataProvider
+from src.adapters.real.selectable_eeg_stream import SelectableEEGStream
 from src.adapters.real.unavailable_eeg_stream import UnavailableEEGStream
 
 __all__ = [
     "CrazyflieSwarmConfig", "CrazyflieSwarmGateway", "CsvEEGStream", "DisabledSwarmGateway",
     "LSLEEGStream", "RealSystemMonitor", "RuntimeEngineerDataProvider",
-    "UnavailableEEGStream",
+    "SelectableEEGStream", "UnavailableEEGStream",
 ]

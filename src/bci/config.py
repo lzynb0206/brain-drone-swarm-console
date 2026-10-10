@@ -13,6 +13,7 @@ SSVEP_PROFILE_NAME = "单机 Flow 六频"
 COMMANDS = ("起飞", "前进", "后退", "左转", "右转", "降落")
 TARGET_FREQUENCIES_HZ = (11.0, 13.75, 15.0, 16.5, 18.33, 20.625)
 TRUE_LABELS = ("空闲",) + COMMANDS
+MI_TRUE_LABELS = ("静息", "想象左手", "想象右手", "想象双脚")
 LABEL_TO_FREQUENCY = dict(zip(COMMANDS, TARGET_FREQUENCIES_HZ))
 
 # 没有新的带标签训练集、权重和 metadata 前必须保持关闭。

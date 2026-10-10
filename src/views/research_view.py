@@ -37,12 +37,19 @@ class ResearchViewMixin:
     def _research_eeg(self, c: Canvas) -> None:
         # EEG is acquired and decoded in EEGWorker. paintEvent only
         # renders cached values and never blocks on CSV/LSL or performs inference.
-        c.panel(17, 73, 824, 305, "EEG 8通道实时波形")
+        channel_count = len(self._eeg_channel_names) or len(self._eeg_history)
+        c.panel(17, 73, 824, 305, f"EEG {channel_count}通道实时波形")
         self._draw_live_eeg(c, 62, 124, 756, 232)
 
-        c.panel(859, 73, 404, 305, "纯 FBCCA 识别结果")
+        ssvep_mode = self.actions.paradigm_type == "SSVEP"
+        c.panel(859, 73, 404, 305, "纯 FBCCA 识别结果" if ssvep_mode else "运动想象采集状态")
         c.text(879, 116, 360, 25, self._eeg_status, 12, CYAN, True)
-        if self._latest_recognition is None:
+        if not ssvep_mode:
+            c.text(879, 157, 350, 42, "仅采集 / 不输出指令", 22, YELLOW, True)
+            c.text(879, 207, 350, 48, "FBCCA 只适用于 SSVEP 频率。\nMI 分类器完成训练和验证前保持关闭。", 12, MUTED)
+            c.text(879, 270, 350, 24, "标签：静息、想象左手、想象右手、想象双脚", 11, TEXT)
+            c.text(879, 307, 350, 24, "原始 EEG、逐样本时间戳和标签会完整保存", 11, GREEN)
+        elif self._latest_recognition is None:
             c.text(879, 158, 360, 42, "等待积累完整 4 秒 EEG 窗口…", 14, MUTED)
         else:
             result = self._latest_recognition
@@ -57,30 +64,70 @@ class ResearchViewMixin:
                 c.rect(947, y + 5, min(225, score / max(0.001, result.best_score) * 225), 9, BLUE, None, 4)
                 c.text(1178, y - 2, 55, 22, f"{score:.3f}", 10, MUTED, False, Qt.AlignRight)
 
-        c.panel(17, 398, 824, 304, "采集与试次保存")
+        c.panel(17, 398, 824, 304, "OpenBCI / LSL 采集中心")
         source = self._pipeline_worker.source_name if self._pipeline_worker is not None else "未配置"
         pending = self._pipeline_worker.pending_true_label() if self._pipeline_worker is not None else ""
         stats = self.experiment_recorder.stats() if self.experiment_recorder is not None else {"recognitions": 0, "labeled_trials": 0}
-        cards = (
-            ("数据源", source, 41),
-            ("采样率", f"{self._eeg_sample_rate or 250:.0f} Hz", 305),
-            ("已记录识别", str(stats["recognitions"]), 569),
+        c.button(41, 428, 108, 31, "刷新 LSL 流", self._lsl_discovery_in_progress, accent=CYAN)
+        c.button(159, 428, 92, 31, "连接/重连", False, accent=GREEN)
+        c.button(261, 428, 70, 31, "断开", False, accent=RED)
+        c.button(
+            341, 428, 162, 31,
+            "停止连续原始数据" if self._continuous_recording else "开始连续原始数据",
+            self._continuous_recording, accent=RED,
         )
-        for title, value, x in cards:
-            c.rect(x, 455, 248, 70, "#152239", "#2b3b58", 3)
-            c.text(x + 14, 461, 220, 22, title, 11, MUTED)
-            c.text(x + 14, 486, 220, 26, value, 14, TEXT, True)
-        c.rect(41, 544, 760, 116, "#0c1628", "#2b3b58", 3)
-        c.text(58, 553, 300, 28, f"已保存带标签原始试次：{stats['labeled_trials']}", 13, TEXT, True)
-        c.text(58, 584, 700, 24, f"待保存真实标签：{pending or '无（点击右上角“添加标签”）'}", 12, CYAN)
-        c.text(58, 605, 700, 20, f"会话：{self._experiment_session_id or '未建立'}", 10, MUTED)
+        self._hit(41, 428, 108, 31, "lsl-refresh")
+        self._hit(159, 428, 92, 31, "eeg-connect")
+        self._hit(261, 428, 70, 31, "eeg-disconnect")
+        self._hit(341, 428, 162, 31, "continuous-record-toggle")
+        c.button(513, 428, 88, 31, "接入说明", False, accent=CYAN)
+        self._hit(513, 428, 88, 31, "openbci-guide")
+        c.text(611, 428, 187, 31, "OpenBCI → LSL → 本软件", 9, CYAN)
+
+        c.rect(41, 470, 760, 34, "#0c1628", "#2b3b58", 3)
+        c.text(53, 474, 735, 25, f"{self._eeg_status}   |   {source}", 11, TEXT, True)
+        quality_status = str(self._eeg_quality.get("status", "waiting"))
+        usable = int(self._eeg_quality.get("usable_channel_count", 0) or 0)
+        quality_label = {
+            "good": "良好", "partial": "部分可用", "bad": "不可用", "waiting": "等待数据",
+        }.get(quality_status, quality_status)
+        health = self._eeg_health
+        cards = (
+            ("通道", str(channel_count)),
+            ("实际采样率", f"{self._eeg_sample_rate:.1f} Hz" if self._eeg_sample_rate else "—"),
+            ("信号质量", f"{quality_label} · {usable}/{channel_count}"),
+            ("已接收样本", str(health.get("total_samples", "—"))),
+        )
+        for index, (title, value) in enumerate(cards):
+            x = 41 + index * 190
+            c.rect(x, 513, 178, 52, "#152239", "#2b3b58", 3)
+            c.text(x + 10, 516, 158, 18, title, 9, MUTED)
+            c.text(x + 10, 537, 158, 22, value, 11, TEXT, True)
+
+        names = ", ".join(self._eeg_channel_names) or "等待流元数据"
+        c.text(47, 572, 748, 20, f"通道标签：{names}", 10, MUTED)
+        c.text(
+            47, 594, 748, 20,
+            "时间连续性：乱序/重复 "
+            f"{health.get('non_monotonic_timestamps', '—')} 次，间隙 "
+            f"{health.get('gap_count', '—')} 次，最大间隙 "
+            f"{float(health.get('max_gap_seconds', 0.0) or 0.0):.3f} 秒",
+            10, YELLOW if int(health.get("gap_count", 0) or 0) else GREEN,
+        )
+        c.line(47, 619, 793, 619, "#283752")
+        c.text(
+            47, 626, 748, 20,
+            f"会话：{self._experiment_session_id or '未建立'}   |   "
+            f"识别 {stats['recognitions']} 条   |   带标签试次 {stats['labeled_trials']} 条",
+            10, TEXT,
+        )
+        c.text(
+            47, 649, 748, 20,
+            f"待保存标签：{pending or '无（右上角“添加标签”用于下一段 4 秒试次）'}",
+            10, CYAN,
+        )
         root = str(self.experiment_recorder.root) if self.experiment_recorder is not None else "未配置"
-        c.text(58, 625, 720, 24, f"保存目录：{root}", 10, MUTED)
-        c.button(58, 665, 198, 27,
-                 "停止连续 EEG 录制" if self._continuous_recording else "开始连续 EEG 录制",
-                 self._continuous_recording, accent=RED)
-        self._hit(58, 662, 198, 34, "continuous-record-toggle")
-        c.text(272, 665, 520, 27, "连续数据按 10 秒分块保存，停止时写入最后一块", 10, GREEN)
+        c.text(47, 672, 748, 20, f"保存：{root}（10 秒分块，含 LSL 时间戳和通道元数据）", 9, MUTED)
 
         c.panel(859, 398, 404, 304, "实时事件")
         if not self._eeg_events:
@@ -101,7 +148,12 @@ class ResearchViewMixin:
         for index, values in enumerate(histories):
             baseline = y + row_height * (index + 0.5)
             c.line(x, baseline, x + w, baseline, "#1d2c45")
-            c.text(x, baseline - 11, 35, 20, f"CH{index + 1}", 9, MUTED)
+            label = (
+                self._eeg_channel_names[index]
+                if index < len(self._eeg_channel_names)
+                else f"CH{index + 1}"
+            )
+            c.text(x, baseline - 11, 38, 20, label[:7], 8, MUTED)
             if len(values) < 2:
                 continue
             center = sum(values) / len(values)
@@ -138,29 +190,43 @@ class ResearchViewMixin:
             c.text(528, y, 22, 57, "⌄", 16, MUTED, False, Qt.AlignCenter)
             self._hit(296, y, 270, 57, f"paradigm-type:{name}")
         c.rect(623, 205, 450, 366, PANEL, BORDER, 4)
-        c.text(656, 229, 380, 42, "SSVEP参数配置", 19, TEXT, True)
-        c.text(656, 282, 130, 27, "频率配置", 14, MUTED)
-        for index, frequency in enumerate(TARGET_FREQUENCIES_HZ):
-            x, width = 656 + index * 63, 58
-            c.button(x, 322, width, 42, f"{frequency:g}Hz", self.actions.paradigm_frequency == frequency)
-            self._hit(x, 322, width, 42, f"paradigm-frequency:{frequency}")
-        knobs = (
-            ("刺激尺寸", 390, 739 + 299 * self.actions.stimulus_size / 100, "paradigm-size"),
-            ("占空比", 437, 739 + 299 * self.actions.duty_cycle / 100, "paradigm-duty"),
-        )
-        for label, y, knob, action in knobs:
-            c.text(656, y - 8, 88, 34, label, 14, MUTED)
-            c.line(739, y + 7, 1038, y + 7, "#e6e8eb", 7)
-            c.line(739, y + 7, knob, y + 7, BLUE, 7)
-            c.circle(knob, y + 7, 8, "#477af0")
-            c.text(1044, y - 8, 45, 30, f"{self.actions.stimulus_size if action == 'paradigm-size' else self.actions.duty_cycle}%", 11, TEXT)
-            self._hit(730, y - 5, 318, 25, action)
-        c.button(656, 492, 116, 46, "应用配置", True)
-        c.button(783, 492, 116, 46, "恢复默认")
-        c.button(910, 492, 130, 46, "全屏刺激", True, accent=CYAN)
-        self._hit(656, 492, 116, 46, "paradigm-apply")
-        self._hit(783, 492, 116, 46, "paradigm-reset")
-        self._hit(910, 492, 130, 46, "paradigm-start")
+        if self.actions.paradigm_type == "SSVEP":
+            c.text(656, 229, 380, 42, "SSVEP参数配置", 19, TEXT, True)
+            c.text(656, 282, 130, 27, "频率配置", 14, MUTED)
+            for index, frequency in enumerate(TARGET_FREQUENCIES_HZ):
+                x, width = 656 + index * 63, 58
+                c.button(x, 322, width, 42, f"{frequency:g}Hz", self.actions.paradigm_frequency == frequency)
+                self._hit(x, 322, width, 42, f"paradigm-frequency:{frequency}")
+            knobs = (
+                ("刺激尺寸", 390, 739 + 299 * self.actions.stimulus_size / 100, "paradigm-size"),
+                ("占空比", 437, 739 + 299 * self.actions.duty_cycle / 100, "paradigm-duty"),
+            )
+            for label, y, knob, action in knobs:
+                c.text(656, y - 8, 88, 34, label, 14, MUTED)
+                c.line(739, y + 7, 1038, y + 7, "#e6e8eb", 7)
+                c.line(739, y + 7, knob, y + 7, BLUE, 7)
+                c.circle(knob, y + 7, 8, "#477af0")
+                c.text(1044, y - 8, 45, 30, f"{self.actions.stimulus_size if action == 'paradigm-size' else self.actions.duty_cycle}%", 11, TEXT)
+                self._hit(730, y - 5, 318, 25, action)
+            c.button(656, 492, 116, 46, "应用配置", True)
+            c.button(783, 492, 116, 46, "恢复默认")
+            c.button(910, 492, 130, 46, "全屏刺激", True, accent=CYAN)
+            self._hit(656, 492, 116, 46, "paradigm-apply")
+            self._hit(783, 492, 116, 46, "paradigm-reset")
+            self._hit(910, 492, 130, 46, "paradigm-start")
+        else:
+            c.text(656, 229, 380, 42, "运动想象（MI）采集配置", 19, TEXT, True)
+            c.text(656, 278, 380, 24, "当前阶段：采集与标注，不生成无人机指令", 12, YELLOW, True)
+            for index, label in enumerate(("静息", "想象左手", "想象右手", "想象双脚")):
+                x = 656 + (index % 2) * 188
+                y = 318 + (index // 2) * 52
+                c.rect(x, y, 174, 39, "#152239", "#2b3b58", 3)
+                c.text(x, y, 174, 39, label, 12, TEXT, True, Qt.AlignCenter)
+            c.text(656, 428, 380, 23, "建议关注：C3 / Cz / C4（以实际电极帽标注为准）", 11, CYAN)
+            c.text(656, 456, 380, 46, "操作：连接 LSL → 回到“实验”检查质量 →\n点击右上角“添加标签” → 完成 4 秒想象", 11, MUTED)
+            c.button(656, 515, 180, 38, "启用 MI 采集模式", True, accent=CYAN)
+            c.text(848, 515, 190, 38, "FBCCA 已停用", 12, GREEN, True, Qt.AlignCenter)
+            self._hit(656, 515, 180, 38, "paradigm-start")
 
     def _research_algorithm(self, c: Canvas) -> None:
         # This build intentionally uses only the non-trained FBCCA path.
@@ -323,5 +389,3 @@ class ResearchViewMixin:
         c.text(355, 630, 840, 22, f"识别日志：{log_path}", 10, MUTED)
 
     # ---------- Administrator dashboard ----------
-
-

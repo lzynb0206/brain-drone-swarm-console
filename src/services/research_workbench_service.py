@@ -40,6 +40,10 @@ class ResearchWorkbenchService:
         self.marker_count = 0
 
     def apply_paradigm(self) -> str:
+        if self.paradigm_type != "SSVEP":
+            return self._record(
+                f"{self.paradigm_type} 采集模式已应用：仅保存带标签原始 EEG，不运行 FBCCA"
+            )
         return self._record(
             f"范式已应用：{self.paradigm_frequency}Hz，尺寸{self.stimulus_size}%，占空比{self.duty_cycle}%"
         )

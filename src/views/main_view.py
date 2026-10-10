@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import math
+import threading
 import time
 from collections import deque
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter
-from PySide6.QtWidgets import QLabel, QMessageBox, QStackedWidget, QWidget
-from src.domain import EEGFrame, IntentResult, Role, User
+from PySide6.QtWidgets import QLabel, QMessageBox, QInputDialog, QStackedWidget, QWidget
+from src.bci.preprocessing import assess_signal_quality
+from src.domain import EEGFrame, EEGStreamDescriptor, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services import ExperimentRecorder, MissionPlanningError, WorkbenchService
 from src.views.engineer_dashboard import EngineerDashboard
@@ -35,6 +38,7 @@ class MainView(
     """Lifecycle shell coordinating independent role widgets and workers."""
 
     logout_requested = Signal()
+    lsl_discovery_completed = Signal(object, str)
 
     def __init__(
         self,
@@ -66,6 +70,11 @@ class MainView(
         self._toast_scroll_started = 0.0
         self._eeg_history = [deque(maxlen=360) for _ in range(8)]
         self._eeg_sample_rate = 0.0
+        self._eeg_channel_names: tuple[str, ...] = tuple(f"CH{i + 1}" for i in range(8))
+        self._eeg_channel_units: tuple[str, ...] = tuple("" for _ in range(8))
+        self._eeg_quality: dict[str, object] = {}
+        self._eeg_health: dict[str, object] = {}
+        self._lsl_discovery_in_progress = False
         self._eeg_status = "尚未启动"
         self._latest_recognition: IntentResult | None = None
         self._experiment_session_id = ""
@@ -101,16 +110,8 @@ class MainView(
         ):
             self._role_stack.addWidget(page)
             page.action_requested.connect(self._activate)
-        if eeg_stream is not None and intent_decoder is not None and experiment_recorder is not None:
-            self._pipeline_worker = EEGWorker(
-                eeg_stream, intent_decoder, experiment_recorder, parent=self,
-            )
-            self._pipeline_worker.frame_received.connect(self._on_eeg_frame)
-            self._pipeline_worker.recognition_received.connect(self._on_recognition)
-            self._pipeline_worker.status_changed.connect(self._on_eeg_status)
-            self._pipeline_worker.error_occurred.connect(self._on_eeg_error)
-            self._pipeline_worker.labeled_trial_saved.connect(self._on_labeled_trial_saved)
-            self._pipeline_worker.continuous_chunk_saved.connect(self._on_continuous_chunk_saved)
+        self._build_eeg_worker()
+        self.lsl_discovery_completed.connect(self._on_lsl_discovery_completed)
         # Kept as a small compatibility surface for integrations/tests.
         self.user_label = QLabel("", self)
         self.user_label.hide()
@@ -154,9 +155,110 @@ class MainView(
         self.update()
 
     def _start_eeg_pipeline(self) -> None:
+        if self._pipeline_worker is not None and (
+            self._pipeline_worker.isFinished() or self._pipeline_worker.isInterruptionRequested()
+        ):
+            self._build_eeg_worker(replace=True)
         if self._pipeline_worker is not None and not self._pipeline_worker.isRunning():
             self._eeg_status = "正在连接数据源…"
             self._pipeline_worker.start()
+
+    def _build_eeg_worker(self, replace: bool = False) -> None:
+        if replace and self._pipeline_worker is not None:
+            old_worker = self._pipeline_worker
+            if old_worker.isRunning():
+                old_worker.stop()
+            old_worker.deleteLater()
+            self._pipeline_worker = None
+        if self._pipeline_worker is not None:
+            return
+        if self.eeg_stream is None or self.intent_decoder is None or self.experiment_recorder is None:
+            return
+        worker = EEGWorker(
+            self.eeg_stream, self.intent_decoder, self.experiment_recorder, parent=self,
+        )
+        worker.frame_received.connect(self._on_eeg_frame)
+        worker.recognition_received.connect(self._on_recognition)
+        worker.status_changed.connect(self._on_eeg_status)
+        worker.error_occurred.connect(self._on_eeg_error)
+        worker.labeled_trial_saved.connect(self._on_labeled_trial_saved)
+        worker.continuous_chunk_saved.connect(self._on_continuous_chunk_saved)
+        worker.set_paradigm_type(self.actions.paradigm_type)
+        if self.user is not None and self._experiment_session_id:
+            worker.set_experiment_context(
+                self.user.uid or self.user.username, self._experiment_session_id,
+            )
+        self._pipeline_worker = worker
+
+    def _disconnect_eeg_pipeline(self) -> None:
+        self._continuous_recording = False
+        if self._pipeline_worker is not None:
+            self._pipeline_worker.set_continuous_recording(False)
+            if self._pipeline_worker.isRunning():
+                self._pipeline_worker.stop()
+        self._eeg_status = "已由用户断开"
+        self._eeg_events.appendleft(f"{datetime.now():%H:%M:%S}  已由用户断开 EEG 数据源")
+        self.update()
+
+    def _restart_eeg_pipeline(self) -> None:
+        self._disconnect_eeg_pipeline()
+        self._build_eeg_worker(replace=True)
+        self._start_eeg_pipeline()
+
+    def _discover_lsl_streams(self) -> None:
+        discover = getattr(self.eeg_stream, "discover_streams", None)
+        if not callable(discover):
+            self._notify("当前 EEG 数据源不是 LSL；请将 BDS_EEG_BACKEND 配置为 lsl")
+            return
+        if self._lsl_discovery_in_progress:
+            self._notify("正在搜索 LSL EEG 流，请稍候…")
+            return
+        self._lsl_discovery_in_progress = True
+        self._eeg_status = "正在搜索 LSL EEG 流…"
+
+        def run_discovery() -> None:
+            try:
+                descriptors = list(discover())
+                self.lsl_discovery_completed.emit(descriptors, "")
+            except Exception as exc:
+                self.lsl_discovery_completed.emit([], str(exc))
+
+        threading.Thread(target=run_discovery, name="LSL-Discovery", daemon=True).start()
+        self.update()
+
+    def _on_lsl_discovery_completed(
+        self, descriptors: list[EEGStreamDescriptor], error: str,
+    ) -> None:
+        self._lsl_discovery_in_progress = False
+        if error:
+            self._eeg_status = "LSL 搜索失败"
+            self._notify(f"LSL 搜索失败：{error}")
+            return
+        if not descriptors:
+            self._eeg_status = "未发现 LSL EEG 流"
+            self._notify("未发现 EEG 流：请先在 OpenBCI GUI 中启动 Networking → LSL")
+            return
+        labels = [descriptor.display_name for descriptor in descriptors]
+        selected_label, accepted = QInputDialog.getItem(
+            self, "选择 LSL EEG 数据源", "发现的 EEG 流", labels, 0, False,
+        )
+        if not accepted:
+            return
+        descriptor = descriptors[labels.index(selected_label)]
+        self._disconnect_eeg_pipeline()
+        try:
+            self.eeg_stream.select_stream(descriptor)  # type: ignore[attr-defined]
+        except Exception as exc:
+            self._notify(f"切换 LSL 流失败：{exc}")
+            return
+        self._eeg_channel_names = descriptor.channel_names
+        self._eeg_channel_units = descriptor.channel_units
+        self._eeg_events.appendleft(
+            f"{datetime.now():%H:%M:%S}  已选择 {descriptor.display_name}"
+        )
+        self._build_eeg_worker(replace=True)
+        self._start_eeg_pipeline()
+        self._notify(f"正在连接：{descriptor.display_name}")
 
     def deactivate(self) -> None:
         if self._stimulus_window is not None:
@@ -170,6 +272,8 @@ class MainView(
         for history, values in zip(self._eeg_history, frame.samples):
             history.extend(float(value) for value in values)
         self._eeg_sample_rate = frame.sample_rate_hz
+        self._eeg_channel_names = tuple(frame.channel_names)
+        self._eeg_channel_units = tuple(frame.channel_units)
         self.update()
 
     def _on_recognition(self, result: IntentResult) -> None:
@@ -387,6 +491,22 @@ class MainView(
         super().keyPressEvent(event)
 
     def _refresh_runtime(self) -> None:
+        health = getattr(self.eeg_stream, "health_snapshot", None)
+        if callable(health):
+            try:
+                self._eeg_health = dict(health())
+            except Exception:
+                pass
+        if self._eeg_sample_rate > 0 and self._eeg_history and all(
+            len(history) >= 32 for history in self._eeg_history
+        ):
+            try:
+                self._eeg_quality = assess_signal_quality(
+                    np.asarray([list(history) for history in self._eeg_history], dtype=float),
+                    self._eeg_sample_rate,
+                )
+            except Exception:
+                pass
         self.update()
 
     def update(self, *args) -> None:  # type: ignore[override]

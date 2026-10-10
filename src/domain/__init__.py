@@ -5,6 +5,7 @@ from src.domain.mission import MissionPlan, MissionPolicy, MissionStep, TargetPo
 from src.domain.models import (
     DeviceStatus,
     EEGFrame,
+    EEGStreamDescriptor,
     IntentResult,
     Position,
     Role,
@@ -18,6 +19,7 @@ from src.domain.models import (
 __all__ = [
     "DeviceStatus",
     "EEGFrame",
+    "EEGStreamDescriptor",
     "FormationAssignment",
     "FormationPlan",
     "FormationSlot",

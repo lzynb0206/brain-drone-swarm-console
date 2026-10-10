@@ -1,9 +1,10 @@
-# EEG、全屏刺激、FBCCA 与 FB-EEGNet 接入说明
+# OpenBCI、LSL、EEG、运动想象与 FBCCA 接入说明
 
 ## 当前数据链
 
 ```text
-start-1.csv 或 LSL EEG（时间戳校准采样率）
+OpenBCI 设备 → OpenBCI GUI → LSL EEG
+或 start-1.csv / LSL采集上位机导出的 lsl_raw_*.csv
         ↓ EEGStream
 后台 QThread（连续分块录制、刺激同步试次、4 秒滑动窗）
         ↓
@@ -17,6 +18,25 @@ SwarmGateway 二次确认 → 串行硬件命令
 解码结果默认不会调用 `SwarmGateway`。只有实时 LSL、实机已连接并解锁、
 操作员显式开启“脑控执行”、同一意图连续确认两次且冷却通过时，才提交命令。
 CSV 回放被代码硬性禁止驱动实机。没有模型权重时，系统继续运行真实 FBCCA，不生成假的深度模型结果。
+
+这里的职责必须分清：OpenBCI 是采集硬件及其配套软件，EEG 是采集到的脑电数据，
+LSL 是把 EEG 和时间戳实时送进本软件的传输通道，FBCCA 是只针对 SSVEP 频率的解码算法。
+运动想象（MI）模式目前只采集、质检和保存带标签原始数据，不运行 FBCCA，也不生成无人机指令。
+
+## 科研人员界面的采集中心
+
+进入“科研人员 → 实验”，可以直接完成：
+
+- 刷新并选择当前局域机可见的 `type=EEG` LSL 流；
+- 连接、重连、断开 OpenBCI/LSL 数据源；
+- 查看流名、通道标签、实际采样率、逐通道信号质量；
+- 查看 LSL 时间戳乱序/重复、采样间隙和最大间隙；
+- 连续录制 10 秒分块，或给下一段 4 秒试次添加真实标签。
+
+OpenBCI GUI 的推荐路径是：连接设备并确认原始波形后，打开
+`Networking → LSL`，输出 `TimeSeriesRaw` / `type=EEG`。随后在本软件点击
+“刷新 LSL 流”，即使应用最初正在 CSV 回放，也能在不重启软件的情况下切换到实时 LSL，
+不再需要手改流名才能切换设备。
 
 ## CSV 回放（默认）
 
@@ -49,9 +69,21 @@ BDS_EEG_BACKEND=lsl python main.py
 BDS_EEG_BACKEND=lsl BDS_LSL_STREAM_NAME="实际流名" python main.py
 ```
 
-程序优先按 `name` 查找，失败后按 `type=EEG` 查找。采集和推理都在后台线程，
+程序优先按 `name` 查找，失败后按 `type=EEG` 查找，也可以在科研采集中心搜索并选择。
+采集和推理都在后台线程，
 不会阻塞 Qt 主线程。LSL 时间戳用于估计实际采样率；开始全屏刺激试次时，
 采集线程会先清空 inlet 历史缓存，再收集新的 4 秒数据。
+
+CSV 适配器同时支持两种格式：原有纯通道 CSV，以及 LSL采集上位机生成的
+`sample_index, lsl_timestamp, elapsed_seconds, <各通道>` 格式。后一种会保留原始
+LSL 时间戳和通道名，并从有效时间间隔估计实际采样率。
+
+## 运动想象（MI）实验
+
+在“范式”页选择 `MI` 后，采集线程继续接收和显示 EEG，但暂停周期性 FBCCA 解码。
+右上角“添加标签”会提供 `静息 / 想象左手 / 想象右手 / 想象双脚`，从点击后的新数据
+采集完整 4 秒并保存。建议电极位置关注 C3/Cz/C4，但必须以实际电极帽标签和实验方案为准。
+MI 分类器在获得足够的受试者内数据、独立验证和误触发评估前不会接入控制链路。
 
 ## 频率配置
 
@@ -89,7 +121,8 @@ data/
 └── exports/
 ```
 
-- `data/raw_trials/*.npz`：8通道原始 EEG、采样率、被试、会话、真实标签、开始时间、信号质量及识别结果。
+- `data/raw_trials/*.npz`：原始 EEG、逐样本 LSL 时间戳、通道名/单位、采样率、范式、被试、会话、真实标签、开始时间、信号质量及识别结果。
+- `data/continuous_raw/*.npz`：10 秒原始分块及对应逐样本时间戳和通道元数据。
 - `data/sessions/*.json`：会话元数据；`raw_trials_index.csv` 为试次索引。
 - `data/recognition_logs/recognition_log.csv`：每次 FBCCA 识别、置信度、margin 和门控结果。
 - `data/exports/`：保留给后续训练/验证集导出。

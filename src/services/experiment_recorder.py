@@ -60,6 +60,11 @@ class ExperimentRecorder:
         subject_id: str = "",
         session_id: str = "",
         start_time: str = "",
+        sample_timestamps=(),
+        channel_names=(),
+        channel_units=(),
+        paradigm_type: str = "SSVEP",
+        log_recognition: bool = True,
     ) -> dict[str, str]:
         """Log a decision and save the exact EEG array only for a labeled trial."""
 
@@ -68,6 +73,9 @@ class ExperimentRecorder:
             raise ValueError("Raw EEG trial must have shape (channels, samples)")
         if not np.isfinite(data).all():
             raise ValueError("Raw EEG trial contains NaN or Inf")
+        timestamps = self._validated_timestamps(sample_timestamps, data.shape[1])
+        names = self._normalized_labels(channel_names, data.shape[0], "CH")
+        units = self._normalized_labels(channel_units, data.shape[0], "")
 
         timestamp = datetime.now().astimezone().isoformat(timespec="milliseconds")
         start_time = start_time or timestamp
@@ -95,6 +103,9 @@ class ExperimentRecorder:
                     "accepted": result.accepted,
                     "reason": result.reason,
                     "signal_quality": result.signal_quality,
+                    "paradigm_type": str(paradigm_type),
+                    "channel_names": list(names),
+                    "channel_units": list(units),
                 }
                 np.savez_compressed(
                     trial_path,
@@ -105,6 +116,10 @@ class ExperimentRecorder:
                     session_id=np.asarray(session_id),
                     start_time=np.asarray(start_time),
                     signal_quality=np.asarray(quality_json),
+                    sample_timestamps=timestamps,
+                    channel_names=np.asarray(names),
+                    channel_units=np.asarray(units),
+                    paradigm_type=np.asarray(str(paradigm_type)),
                     metadata=np.asarray(json.dumps(metadata, ensure_ascii=False)),
                 )
                 relative_trial_path = str(trial_path.relative_to(self.root))
@@ -133,31 +148,32 @@ class ExperimentRecorder:
                     },
                 )
 
-            self._append_csv(
-                self.recognition_log_path,
-                self.RECOGNITION_FIELDS,
-                {
-                    "timestamp": timestamp,
-                    "subject_id": subject_id,
-                    "session_id": session_id,
-                    "source": source,
-                    "true_label": true_label,
-                    "target_frequency_hz": LABEL_TO_FREQUENCY.get(true_label, ""),
-                    "candidate_label": result.label,
-                    "prediction": result.prediction or "",
-                    "confidence": f"{result.confidence:.8f}",
-                    "margin": f"{result.margin:.8f}",
-                    "accepted": int(result.accepted),
-                    "reason": result.reason,
-                    "sample_rate_hz": result.sample_rate_hz,
-                    "sample_count": result.sample_count,
-                    "used_channels": ",".join(str(value) for value in result.used_channels_1based),
-                    "signal_quality_json": quality_json,
-                    "scores_json": scores_json,
-                    "raw_trial_id": trial_id,
-                    "raw_trial_path": relative_trial_path,
-                },
-            )
+            if log_recognition:
+                self._append_csv(
+                    self.recognition_log_path,
+                    self.RECOGNITION_FIELDS,
+                    {
+                        "timestamp": timestamp,
+                        "subject_id": subject_id,
+                        "session_id": session_id,
+                        "source": source,
+                        "true_label": true_label,
+                        "target_frequency_hz": LABEL_TO_FREQUENCY.get(true_label, ""),
+                        "candidate_label": result.label,
+                        "prediction": result.prediction or "",
+                        "confidence": f"{result.confidence:.8f}",
+                        "margin": f"{result.margin:.8f}",
+                        "accepted": int(result.accepted),
+                        "reason": result.reason,
+                        "sample_rate_hz": result.sample_rate_hz,
+                        "sample_count": result.sample_count,
+                        "used_channels": ",".join(str(value) for value in result.used_channels_1based),
+                        "signal_quality_json": quality_json,
+                        "scores_json": scores_json,
+                        "raw_trial_id": trial_id,
+                        "raw_trial_path": relative_trial_path,
+                    },
+                )
         return {"trial_id": trial_id, "raw_trial_path": relative_trial_path}
 
     def record_marker(
@@ -190,6 +206,9 @@ class ExperimentRecorder:
         session_id: str,
         chunk_index: int,
         started_at: str,
+        sample_timestamps=(),
+        channel_names=(),
+        channel_units=(),
     ) -> str:
         """Persist one bounded continuous EEG chunk and append its searchable index row."""
 
@@ -198,6 +217,9 @@ class ExperimentRecorder:
             raise ValueError("Continuous EEG chunk must have shape (channels, samples)")
         if not np.isfinite(data).all():
             raise ValueError("Continuous EEG chunk contains NaN or Inf")
+        timestamps = self._validated_timestamps(sample_timestamps, data.shape[1])
+        names = self._normalized_labels(channel_names, data.shape[0], "CH")
+        units = self._normalized_labels(channel_units, data.shape[0], "")
         safe_session = re.sub(r"[^0-9A-Za-z_.-]+", "_", session_id or "session")
         session_path = self.continuous_dir / safe_session
         session_path.mkdir(parents=True, exist_ok=True)
@@ -211,6 +233,9 @@ class ExperimentRecorder:
             subject_id=np.asarray(subject_id),
             session_id=np.asarray(session_id),
             started_at=np.asarray(started_at),
+            sample_timestamps=timestamps,
+            channel_names=np.asarray(names),
+            channel_units=np.asarray(units),
         )
         relative = str(path.relative_to(self.root))
         fields = (
@@ -294,6 +319,26 @@ class ExperimentRecorder:
             "recognitions": self._data_row_count(self.recognition_log_path),
             "labeled_trials": self._data_row_count(self.raw_trial_index_path),
         }
+
+    @staticmethod
+    def _validated_timestamps(values, sample_count: int) -> np.ndarray:
+        timestamps = np.asarray(tuple(() if values is None else values), dtype=np.float64)
+        if timestamps.size not in (0, sample_count):
+            raise ValueError(
+                f"EEG sample timestamps must be empty or contain {sample_count} values"
+            )
+        if timestamps.size and not np.isfinite(timestamps).all():
+            raise ValueError("EEG sample timestamps contain NaN or Inf")
+        return timestamps
+
+    @staticmethod
+    def _normalized_labels(values, count: int, prefix: str) -> tuple[str, ...]:
+        labels = tuple(str(value) for value in (() if values is None else values))
+        if len(labels) == count:
+            return labels
+        if prefix:
+            return tuple(f"{prefix}{index + 1}" for index in range(count))
+        return tuple("" for _ in range(count))
 
     @staticmethod
     def _data_row_count(path: Path) -> int:

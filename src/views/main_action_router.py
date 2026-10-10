@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QInputDialog
 
-from src.bci.config import TRUE_LABELS
+from src.bci.config import MI_TRUE_LABELS, TRUE_LABELS
 
 
 class MainActionRouterMixin:
@@ -31,6 +31,10 @@ class MainActionRouterMixin:
             self.update()
         elif action.startswith("paradigm-type:"):
             self.actions.paradigm_type = action.split(":", 1)[1]
+            if self._pipeline_worker is not None:
+                self._pipeline_worker.set_paradigm_type(self.actions.paradigm_type)
+            if self.actions.paradigm_type != "SSVEP":
+                self.actions.bci_control_enabled = False
             self._notify(f"脑控范式已切换：{self.actions.paradigm_type}")
         elif action == "paradigm-size":
             self.actions.stimulus_size = max(0, min(100, round((x - 739) / 299 * 100)))
@@ -43,7 +47,20 @@ class MainActionRouterMixin:
         elif action == "paradigm-reset":
             self._notify(self.actions.reset_paradigm())
         elif action == "paradigm-start":
-            self._open_ssvep_stimulus()
+            if self.actions.paradigm_type == "SSVEP":
+                self._open_ssvep_stimulus()
+            else:
+                self._notify("MI 采集模式已启用：请用右上角“添加标签”记录下一段 4 秒运动想象 EEG")
+        elif action == "lsl-refresh":
+            self._discover_lsl_streams()
+        elif action == "eeg-connect":
+            self._restart_eeg_pipeline()
+            self._notify("正在连接 EEG 数据源…")
+        elif action == "eeg-disconnect":
+            self._disconnect_eeg_pipeline()
+            self._notify("EEG 数据源已断开")
+        elif action == "openbci-guide":
+            self._show_openbci_guide()
         elif action == "continuous-record-toggle":
             if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
                 self._notify("EEG 采集未运行，不能开始连续录制")
@@ -96,8 +113,9 @@ class MainActionRouterMixin:
             if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
                 self._notify("EEG 采集未运行，无法标注试次")
                 return
+            labels = MI_TRUE_LABELS if self.actions.paradigm_type != "SSVEP" else TRUE_LABELS
             label, ok = QInputDialog.getItem(
-                self, "标注下一次 EEG 试次", "真实标签", list(TRUE_LABELS), 0, False,
+                self, "标注下一次 EEG 试次", "真实标签", list(labels), 0, False,
             )
             if ok:
                 self._pipeline_worker.capture_next_trial(label)

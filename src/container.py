@@ -18,6 +18,7 @@ from src.adapters.real import (
     LSLEEGStream,
     RealSystemMonitor,
     RuntimeEngineerDataProvider,
+    SelectableEEGStream,
     UnavailableEEGStream,
 )
 from src.adapters.mock import (
@@ -86,24 +87,31 @@ def create_default_container() -> ApplicationContainer:
         if AUTH_BACKEND == "mock"
         else HttpAuthGateway(AUTH_API_URL)
     )
+    lsl_stream = LSLEEGStream(
+        stream_name=LSL_STREAM_NAME,
+        stream_type=LSL_STREAM_TYPE,
+        timeout_seconds=LSL_RESOLVE_TIMEOUT_SECONDS,
+        frame_size=FRAME_SIZE,
+    )
     if EEG_BACKEND == "lsl":
-        eeg_stream: EEGStream = LSLEEGStream(
-            stream_name=LSL_STREAM_NAME,
-            stream_type=LSL_STREAM_TYPE,
-            timeout_seconds=LSL_RESOLVE_TIMEOUT_SECONDS,
-            frame_size=FRAME_SIZE,
-        )
+        eeg_stream: EEGStream = lsl_stream
     elif EEG_BACKEND == "csv" and EEG_CSV_PATH.is_file():
-        eeg_stream = CsvEEGStream(
-            EEG_CSV_PATH,
-            sample_rate_hz=SAMPLE_RATE_HZ,
-            frame_size=FRAME_SIZE,
-            loop=True,
-            realtime=True,
+        eeg_stream = SelectableEEGStream(
+            CsvEEGStream(
+                EEG_CSV_PATH,
+                sample_rate_hz=SAMPLE_RATE_HZ,
+                frame_size=FRAME_SIZE,
+                loop=True,
+                realtime=True,
+            ),
+            lsl_stream,
         )
     else:
-        eeg_stream = UnavailableEEGStream(
-            f"EEG 数据源不可用：backend={EEG_BACKEND!r}，CSV={EEG_CSV_PATH}"
+        eeg_stream = SelectableEEGStream(
+            UnavailableEEGStream(
+                f"EEG 数据源不可用：backend={EEG_BACKEND!r}，CSV={EEG_CSV_PATH}"
+            ),
+            lsl_stream,
         )
 
     swarm_backend = os.getenv("BDS_SWARM_BACKEND", "disabled").strip().lower()

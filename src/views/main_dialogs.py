@@ -21,6 +21,19 @@ from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 
 class MainDialogsMixin:
     """Own the dashboard's confirmation and configuration dialogs."""
+    def _show_openbci_guide(self) -> None:
+        QMessageBox.information(
+            self,
+            "OpenBCI → LSL 接入步骤",
+            "1. 在 OpenBCI GUI 连接板卡，先确认各通道能看到真实波形。\n"
+            "2. 检查采样率、通道数和电极标签；MI 建议重点核对 C3/Cz/C4。\n"
+            "3. 打开 Networking → LSL，输出 TimeSeriesRaw，类型设为 EEG。\n"
+            "4. 回到本软件“科研人员 → 实验”，点击“刷新 LSL 流”并选择设备。\n"
+            "5. 先看信号质量和时间连续性，再开始连续录制或添加试次标签。\n\n"
+            "说明：LSL 负责实时传输 EEG 和时间戳；FBCCA 只用于 SSVEP。"
+            "MI 模式当前只采集和标注，不生成飞行指令。",
+        )
+
     def _request_motor_stop(self) -> None:
         status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
         if status is not None and status.airborne:
@@ -237,5 +250,4 @@ class MainDialogsMixin:
             self._notify(self.actions.update_user_role(username, role))
 
     # ---------- Researcher dashboard ----------
-
 
