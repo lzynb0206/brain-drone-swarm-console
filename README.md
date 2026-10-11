@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-本仓库处于**真实接口逐步联调阶段**。账号系统连接 Spring Boot/PostgreSQL；科研界面可回放真实 CSV 或读取 LSL、运行纯 FBCCA 并保存实验记录；Crazyflie + Flow Deck 软件适配层和安全命令队列已经加入，但仍需完成现场实机验收。
+本仓库处于**真实接口逐步联调阶段**。账号系统连接 Spring Boot/PostgreSQL；科研界面可通过 BrainFlow 直接连接 ExpandableEEG/OpenBCI，也可读取 LSL 或回放真实 CSV，并保存实验记录；Crazyflie + Flow Deck 软件适配层和安全命令队列已经加入，但仍需完成现场实机验收。
 
 已经可运行的内容：
 
@@ -16,8 +16,9 @@
 - 多架 Crazyflie 连接、Flow 起飞、Lighthouse 绝对位置保持、三机自动编队、整体移动、受控降落、停止移动和锁存急停。
 - Flow Deck V1/V2 与 AI Deck 参数检测；AI Deck 摄像头数据尚未接入。
 - 飞行安全门控：实时遥测、3.2V 低电压提示、Flow 下视距离/光流质量和串行命令队列。
-- 脑控执行默认关闭；只允许实时 LSL，且同一意图连续确认两次并经过冷却后提交。
-- 科研端新增白色 OpenBCI 风格“采集”页，包含 Time Series、FFT、Focus、Accelerometer、LSL、Packet Loss 和 Hardware Settings；可搜索/选择 LSL 流并保存完整 CSV + NPZ 分块。
+- 脑控执行默认关闭；只允许实时硬件或 LSL 数据源，且同一意图连续确认两次并经过冷却后提交。
+- 科研导航新增“采集器”：按照 ExpandableEEG 说明书，以 Cyton 兼容板、8通道、250 Hz 直接连接蓝牙虚拟 COM/串口；同页完成设备搜索、开始/停止、最近5秒波形、实际采样率、丢包/日志、暂停绘图和 CSV 自动保存。BrainFlow 与 pyserial 已列为正式运行依赖。
+- 科研端移植 OpenBCI GUI v6 `ControlPanel.pde` 的五数据源状态布局：Cyton、Ganglion、Playback、Synthetic、Streaming，以及各自的 Serial/WiFi/Bluetooth、通道数、采样率、Session Data 和 BrainFlow Streamer 分支；Session 后进入 Time Series + FFT + Accelerometer 三面板。
 - “实验”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
 - `start-1.csv` 与 LSL采集上位机 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
@@ -33,12 +34,12 @@
 - 足量、平衡且由实验人员确认的六频加空闲训练数据；训练程序已实现，但仓库不附带可冒充有效模型的权重。
 - 生产级 RBAC、审计、服务端身份授权和真实设备安全仲裁。
 
-科研页默认回放本地 `data/samples/start-1.csv`。文件不存在时会明确报告数据源不可用，不再生成 Mock EEG。蜂群后端默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
+本地 `data/samples/start-1.csv` 只作为“实验”页的待回放文件；科研人员登录后不会自动播放，更不会出现在实时“采集”页。文件不存在时会明确报告数据源不可用，不再生成 Mock EEG。蜂群后端默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
 
 ## 技术架构
 
 ```text
-CSV / LSL
+ExpandableEEG/Cyton（BrainFlow直连） / LSL / CSV
     ↓
 EEGWorker（后台采集、窗口化、记录）
     ↓
@@ -201,7 +202,7 @@ BDS_FB_EEGNET_ENABLED=true python main.py
 
 | 数据类型 | 默认状态 | 真实实现位置 |
 | --- | --- | --- |
-| EEG 脑电 | CSV 真实记录回放或 LSL 实时流 | [LSLEEGStream](src/adapters/real/lsl_eeg_stream.py) |
+| EEG 脑电 | ExpandableEEG/Cyton 直接串口、LSL 实时流或 CSV 回放 | [BrainFlowCytonEEGStream](src/adapters/real/brainflow_cyton_eeg_stream.py)、[LSLEEGStream](src/adapters/real/lsl_eeg_stream.py) |
 | 无人机遥测/命令 | 默认禁用；不生成虚假飞机 | [CrazyflieSwarmGateway](src/adapters/real/crazyflie_swarm_gateway.py) |
 | CPU/内存 | 本机实时指标 | [RealSystemMonitor](src/adapters/real/real_system_monitor.py) |
 | 工程模块/日志 | 运行时适配器缓存 | [RuntimeEngineerDataProvider](src/adapters/real/runtime_engineer_data.py) |
@@ -226,7 +227,7 @@ brain-drone-swarm-console/
 │   ├── adapters/
 │   │   ├── mock/                 # 自动化测试和显式离线演示
 │   │   ├── http/                 # Spring Boot JWT 认证客户端
-│   │   └── real/                 # CSV、LSL、Crazyflie、运行时监控
+│   │   └── real/                 # BrainFlow硬件、CSV、LSL、Crazyflie、运行时监控
 │   ├── services/                 # 业务用例和拆分后的工作台子服务
 │   ├── workers/                  # EEG 后台采集、窗口化和记录
 │   ├── views/                    # 独立角色 QWidget、登录和刺激窗口
@@ -273,7 +274,7 @@ src/services/
 QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
 ```
 
-当前测试集包含 99 项测试，覆盖 Spring REST 登录客户端、CSV/LSL、六频 FBCCA、
+当前测试集包含 104 项测试，覆盖 Spring REST 登录客户端、BrainFlow直连、CSV/LSL、OpenBCI 控制面板状态、六频 FBCCA、
 刺激测频、信号质量、实验记录、Flow/Lighthouse 安全门控、编队、独立角色 QWidget、
 工作台服务组合和界面交互。详细运行方法见
 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。

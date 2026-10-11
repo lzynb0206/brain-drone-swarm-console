@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -131,12 +132,24 @@ class EEGWorker(QThread):
     def _acquire_connected_stream(self) -> None:
         buffer: np.ndarray | None = None
         samples_since_decision = 0
+        last_data_at = time.monotonic()
+        no_data_warning_emitted = False
         while not self.isInterruptionRequested():
             buffer, samples_since_decision = self._apply_pending_stimulus(buffer, samples_since_decision)
             try:
                 frame: EEGFrame = self.stream.read_frame()
             except TimeoutError:
+                silent_for = time.monotonic() - last_data_at
+                if silent_for >= 10.0:
+                    self.error_occurred.emit("连续10秒未收到EEG数据，采集已自动停止")
+                    self.requestInterruption()
+                    break
+                if silent_for >= 2.0 and not no_data_warning_emitted:
+                    no_data_warning_emitted = True
+                    self.status_changed.emit("警告：连续2秒未收到EEG数据，CSV保持打开")
                 continue
+            last_data_at = time.monotonic()
+            no_data_warning_emitted = False
             self.frame_received.emit(frame)
             values = np.asarray(frame.samples, dtype=float)
             if values.ndim != 2 or values.shape[1] == 0:

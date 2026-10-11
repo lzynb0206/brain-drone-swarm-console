@@ -32,12 +32,17 @@ class BCIExecutionService:
         self._pending_label = ""
         self._pending_count = 0
 
+    @staticmethod
+    def _is_live_eeg_source(source: str) -> bool:
+        normalized = source.strip().lower()
+        return normalized.startswith("lsl") or normalized.startswith("openbci direct")
+
     def set_enabled(self, enabled: bool, eeg_source: str) -> str:
         if not enabled:
             self.disable()
             return self._record("脑电识别继续运行，但自动飞行执行已关闭")
-        if not eeg_source.lower().startswith("lsl"):
-            return self._record("脑控执行被拒绝：只有实时 LSL 数据源可以驱动实机")
+        if not self._is_live_eeg_source(eeg_source):
+            return self._record("脑控执行被拒绝：只有实时 LSL 或直接硬件数据源可以驱动实机")
         if self.gateway is None:
             return self._record("脑控执行被拒绝：蜂群接口未配置")
         status = self.gateway.status()
@@ -55,9 +60,9 @@ class BCIExecutionService:
     ) -> str | None:
         if not self.enabled:
             return None
-        if not eeg_source.lower().startswith("lsl"):
+        if not self._is_live_eeg_source(eeg_source):
             self.disable()
-            return self._record("数据源已不再是实时 LSL，脑控执行自动关闭")
+            return self._record("数据源已不再是实时硬件/LSL，脑控执行自动关闭")
         if not accepted:
             self._pending_label = ""
             self._pending_count = 0

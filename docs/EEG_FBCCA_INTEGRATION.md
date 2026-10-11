@@ -3,19 +3,20 @@
 ## 当前数据链
 
 ```text
-OpenBCI 设备 → OpenBCI GUI → LSL EEG
-或 start-1.csv / LSL采集上位机导出的 lsl_raw_*.csv
+ExpandableEEG蓝牙虚拟COM/串口 → BrainFlow Cyton驱动（直接采集，推荐）
+或 OpenBCI GUI → LSL EEG（兼容模式）
+或 start-1.csv / 已保存的 lsl_raw_*.csv
         ↓ EEGStream
 后台 QThread（连续分块录制、刺激同步试次、4 秒滑动窗）
         ↓
 质量检测 → 纯 NumPy FBCCA / 可选 FB-EEGNet → 意图安全阈值
         ↓
 科研界面 + lsl_raw_*.csv + recognition_log.csv + raw_trials/*.npz
-        ↓ 仅在实时 LSL、安全条件满足且人工开启时
+        ↓ 仅在实时硬件/LSL、安全条件满足且人工开启时
 SwarmGateway 二次确认 → 串行硬件命令
 ```
 
-解码结果默认不会调用 `SwarmGateway`。只有实时 LSL、实机已连接并解锁、
+解码结果默认不会调用 `SwarmGateway`。只有实时硬件或 LSL、实机已连接并解锁、
 操作员显式开启“脑控执行”、同一意图连续确认两次且冷却通过时，才提交命令。
 CSV 回放被代码硬性禁止驱动实机。没有模型权重时，系统继续运行真实 FBCCA，不生成假的深度模型结果。
 
@@ -23,30 +24,61 @@ CSV 回放被代码硬性禁止驱动实机。没有模型权重时，系统继�
 LSL 是把 EEG 和时间戳实时送进本软件的传输通道，FBCCA 是只针对 SSVEP 频率的解码算法。
 运动想象（MI）模式目前只采集、质检和保存带标签原始数据，不运行 FBCCA，也不生成无人机指令。
 
-## 科研人员界面的采集中心
+## 科研人员界面的“一体化采集器”
 
-进入“科研人员 → 采集”，可以直接完成：
+说明书表明 ExpandableEEG 的蓝牙模式会先由操作系统映射为 COM/串口，然后按
+`Cyton → Serial → 对应COM口` 读取；它不是 Ganglion 的原生 BLE 协议。软件因此使用
+BrainFlow `CYTON_BOARD` 驱动直接读取该串口，固定为8个 EEG 通道和250 Hz，不需要再启动
+OpenBCI GUI，也不需要先转成 LSL。
+
+进入“科研人员 → 采集器”后的推荐流程：
+
+1. 先在 Windows/macOS 蓝牙设置中配对 ExpandableEEG，确认系统生成 COM 或 `/dev/cu.*` 串口。
+2. 选择“直接连接设备”，点击“刷新/选择”，选择对应串口。
+3. 点击“开始采集”。程序在后台建立 BrainFlow 会话并自动创建 CSV。
+4. 页面实时显示8通道最近5秒原始波形、样本数、时长、实际采样率、时间戳缺口和运行日志。
+5. “暂停波形”只停止界面重绘，后台采集和 CSV 保存不会暂停。
+6. 点击“停止采集”后刷新并关闭 CSV，同时安全释放硬件会话。
+
+同一页面仍保留“接收 LSL 流”，用于接收其他 EEG 软件或实验设备发布的 `type=EEG`
+数据；它是兼容输入，不再是 ExpandableEEG 的必经链路。两种实时输入都会进入同一个
+`EEGWorker`、信号质量、实验打标、算法和保存流程。
+
+## OpenBCI兼容控制面板
+
+进入“科研人员 → 采集”后先看到从 OpenBCI GUI v6 `ControlPanel.pde` 移植的
+`System Control Panel`。页面按官方状态机提供 `CYTON / GANGLION / PLAYBACK /
+SYNTHETIC / STREAMING`，并根据数据源切换 Serial、WiFi、Bluetooth、通道数、采样率、
+Session Data、BrainFlow Streamer、回放文件和 Streaming Board Config。启动页不再混入 LSL 参数。
+
+选择实时硬件入口并点击 `Start Session` 后进入运行界面；在那里通过 `Networking` 搜索和选择
+`type=EEG` 的 LSL 流，再主动点击 `Start Data Stream` 才开始收取真实数据。科研人员登录、
+打开采集页或仅进入 Session 都不会自动播放 CSV。`PLAYBACK` 选择的文件会转交给独立“实验”页，
+仍需点击“开始回放”。
+
+采集中心可以完成：
 
 - 刷新并选择当前局域机可见的 `type=EEG` LSL 流；
-- 连接、重连、断开 OpenBCI/LSL 数据源；
-- 在白色 OpenBCI 风格页面切换 `Time Series / FFT Plot / Focus / Accelerometer / LSL / Packet Loss / Hardware`；
+- 建立、启动、停止、重连和断开 OpenBCI/LSL 会话；
+- 在白色 OpenBCI 风格运行页同时查看 `Time Series / FFT Plot / Accelerometer`，并切换 `Focus / Networking / Packet Loss / Hardware`；
 - 查看流名、通道标签、实际采样率、逐通道信号质量和时间戳连续性；
 - 将实时数据原样保存为 LSL 兼容 CSV，同时保留 10 秒 NPZ 分块；
 - 给下一段 4 秒试次添加真实标签。
 
 `Hardware` 页按说明书展示 ADS1299 的 PGA Gain、Input Type、Bias、SRB2 和 SRB1。
-当前 LSL 连接是只读传输，因此页面不会伪造 Cyton 命令下发结果；等 BrainFlow/串口后端完成后，
-再把 `Send` 接到真实硬件命令接口。
+旧的 `Hardware` 页仍只展示 ADS1299 参数，不会伪造通道命令下发结果。当前直接采集后端负责
+连接、启动、读取、停止和释放会话；逐通道 PGA/Bias/SRB 命令仍需在完成实机安全验证后接入。
 
-OpenBCI GUI 的推荐路径是：连接设备并确认原始波形后，打开
+需要与外部 Matlab/OpenViBE 等工具共享数据时，仍可使用 OpenBCI GUI：连接设备并确认原始波形后，打开
 `Networking → LSL`，输出 `TimeSeriesRaw` / `type=EEG`。随后在本软件点击
-“刷新 LSL 流”，即使应用最初正在 CSV 回放，也能在不重启软件的情况下切换到实时 LSL，
-不再需要手改流名才能切换设备。
+“刷新 LSL 流”，选择流后点击 `Start Session → Start Data Stream`，即可在不重启软件的情况下
+切换到实时 LSL，不再需要手改流名才能切换设备。
 
 ## CSV 实验回放
 
 进入“科研人员 → 实验”，点击“导入 EEG CSV”可在运行时选择文件，不必重启软件。
-页面支持暂停/继续、回到开头、拖动进度和 `0.5x / 1x / 2x` 回放，并将波形继续送入
+预配置 CSV 初始为 `READY`，只有点击“开始回放”后才启动。页面支持暂停/继续、回到开头、
+拖动进度和 `0.5x / 1x / 2x` 回放，并将波形继续送入
 现有质量检测和解码链路。CSV 回放被安全层禁止驱动真实无人机。
 
 默认文件仍可通过环境变量配置：

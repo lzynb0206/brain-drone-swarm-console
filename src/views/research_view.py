@@ -19,12 +19,11 @@ class ResearchViewMixin:
         c.top_nav(self.research_page)
         nav = [
             ("采集", 231), ("实验", 297), ("范式", 363), ("算法", 429),
-            ("控制", 495), ("映射", 561), ("数据", 627),
+            ("控制", 495), ("映射", 561), ("数据", 627), ("采集器", 693),
         ]
         for name, x in nav:
             self._hit(x, 0, 60, 57, f"research:{name}")
-        self._hit(710, 0, 60, 56, "self-test")
-        self._hit(778, 0, 60, 56, "workspace-help")
+        self._hit(761, 0, 60, 56, "openbci-guide")
         self._hit(1020, 8, 36, 38, "logout")
         self._hit(1068, 8, 36, 38, "workspace-summary")
         self._hit(1117, 8, 36, 38, "workspace-layout")
@@ -37,14 +36,122 @@ class ResearchViewMixin:
             "控制": self._research_controller,
             "映射": self._research_mapping,
             "数据": self._research_data,
+            "采集器": self._research_integrated_collector,
         }[self.research_page](c)
+
+    def _research_integrated_collector(self, c: Canvas) -> None:
+        """One-stop direct hardware/LSL recorder based on the standalone tool."""
+
+        bg, panel, border = "#eef1f4", "#ffffff", "#ccd3da"
+        ink, sub, blue = "#26323c", "#697681", "#2e628f"
+        c.rect(0, 56, 1280, 664, bg)
+        c.text(24, 67, 600, 32, "EEG 一体化采集器", 18, ink, True)
+        c.text(24, 96, 860, 21, "ExpandableEEG / OpenBCI直连 · LSL兼容输入 · 8通道实时波形 · CSV自动保存", 10, sub)
+
+        # Source and session controls.
+        c.rect(24, 126, 1232, 104, panel, border, 5)
+        c.text(39, 136, 88, 24, "数据来源", 10, ink, True)
+        direct_active = self._collector_source_mode == "direct"
+        self._light_button(c, 128, 133, 172, 31, "直接连接设备", direct_active, blue)
+        self._light_button(c, 308, 133, 145, 31, "接收 LSL 流", not direct_active, blue)
+        self._hit(128, 133, 172, 31, "collector-source:direct")
+        self._hit(308, 133, 145, 31, "collector-source:lsl")
+        source_value = (
+            self._collector_selected_device or "未选择蓝牙COM/串口"
+            if direct_active
+            else str(getattr(self.eeg_stream, "source_name", "obci_eeg1")).replace("LSL · ", "")
+        )
+        c.text(474, 136, 66, 24, "当前设备", 9, sub, True)
+        c.rect(540, 133, 260, 31, "#f7f9fa", border, 2)
+        c.text(550, 133, 240, 31, source_value, 9, ink)
+        self._light_button(c, 815, 133, 118, 31, "刷新/选择", False, blue)
+        self._light_button(c, 941, 133, 134, 31, "开始采集", False, "#31875a")
+        self._light_button(c, 1083, 133, 116, 31, "停止采集", False, "#bd4b4b")
+        self._hit(815, 133, 118, 31, "collector-refresh")
+        self._hit(941, 133, 134, 31, "collector-start")
+        self._hit(1083, 133, 116, 31, "collector-stop")
+        c.text(39, 177, 250, 22, "设备：ExpandableEEG（Cyton兼容）", 9, sub)
+        c.text(315, 177, 140, 22, "通道：固定8通道", 9, sub)
+        c.text(485, 177, 140, 22, "采样率：250 Hz", 9, sub)
+        c.text(650, 177, 270, 22, "连接：蓝牙虚拟COM/串口（115200）", 9, sub)
+        running = self._pipeline_worker is not None and self._pipeline_worker.isRunning()
+        c.circle(1105, 188, 6, "#39a96b" if running else "#c45555")
+        c.text(1118, 176, 114, 24, "采集中" if running else "未采集", 9, ink, True)
+        c.text(39, 203, 1170, 20, self._eeg_status, 9, "#3b6f95")
+
+        csv_stats = self._raw_csv_recorder.snapshot()
+        health = self._eeg_health
+        sample_count = int(csv_stats.get("sample_count", 0) or health.get("total_samples", 0) or 0)
+        duration = float(csv_stats.get("duration_seconds", 0.0) or 0.0)
+        actual_rate = (
+            float(health.get("actual_sample_rate_hz", 0.0) or self._eeg_sample_rate or 0.0)
+            if running or bool(health.get("connected", False))
+            else 0.0
+        )
+        metrics = (
+            ("状态", "正在采集" if running else "等待"),
+            ("样本数", f"{sample_count}"),
+            ("时长", f"{duration:.1f} s"),
+            ("实际采样率", f"{actual_rate:.1f} Hz"),
+        )
+        for index, (label, value) in enumerate(metrics):
+            x = 24 + index * 306
+            c.text(x, 238, 294, 20, label, 9, sub)
+            c.rect(x, 260, 294, 48, "#e3e7ea", border, 3)
+            c.text(x, 260, 294, 48, value, 13, ink, True, Qt.AlignCenter)
+
+        # The standalone LSL recorder's file and plot controls are retained.
+        c.text(24, 317, 760, 24, f"数据文件：{csv_stats.get('path') or '点击开始采集后自动创建CSV'}", 9, ink)
+        self._light_button(c, 938, 314, 122, 30, "打开数据目录")
+        self._light_button(
+            c, 1068, 314, 164, 30,
+            "恢复波形" if self._collector_waveform_paused else "暂停波形",
+            self._collector_waveform_paused,
+            blue,
+        )
+        self._hit(938, 314, 122, 30, "collector-open-directory")
+        self._hit(1068, 314, 164, 30, "collector-pause-waveform")
+
+        c.rect(24, 350, 892, 350, panel, border, 4)
+        c.text(38, 354, 450, 27, "最近5秒原始脑电波形（8通道）", 11, ink, True)
+        c.text(690, 354, 210, 27, "单位 μV · 自动纵向缩放", 9, sub, False, Qt.AlignRight)
+        self._draw_light_eeg(c, 37, 386, 866, 297)
+        c.text(37, 677, 866, 18, "-5s                                  时间                                  0s", 8, sub, False, Qt.AlignCenter)
+
+        c.rect(928, 350, 328, 350, panel, border, 4)
+        c.text(942, 354, 300, 27, "运行日志 / 数据质量", 11, ink, True)
+        gaps = int(health.get("gap_count", 0) or 0)
+        c.text(942, 385, 140, 20, f"数据缺口：{gaps}", 9, "#b44d4d" if gaps else "#31875a", True)
+        c.text(1090, 385, 150, 20, f"通道：{len(self._eeg_channel_names) or 8}", 9, sub, False, Qt.AlignRight)
+        c.line(942, 410, 1242, 410, border)
+        events = list(self._eeg_events)[:11]
+        if not events:
+            events = ["等待开始采集…"]
+        for index, event in enumerate(events):
+            c.text(942, 419 + index * 24, 300, 22, str(event)[:46], 8, ink)
+        c.text(
+            942, 660, 300, 28,
+            "暂停波形只停止绘图，CSV仍持续保存全部样本。",
+            8, "#8b6b2e", False, Qt.AlignCenter,
+        )
 
     def _research_acquisition(self, c: Canvas) -> None:
         """OpenBCI-style live acquisition shell backed by the existing LSL worker."""
+        if self.acquisition_stage == "setup":
+            self._acquisition_setup(c)
+            return
+        if self.acquisition_tab == "Dashboard":
+            self._acquisition_dashboard_page(c)
+            return
         light_bg, panel, border = "#eef2f5", "#ffffff", "#cbd3dc"
         ink, sub, blue = "#24313d", "#64717e", "#2f5f89"
         c.rect(0, 56, 1280, 664, light_bg)
-        source = self._pipeline_worker.source_name if self._pipeline_worker is not None else "未配置"
+        source_snapshot = self._csv_playback_snapshot()
+        source = (
+            self._pipeline_worker.source_name
+            if self._pipeline_worker is not None and source_snapshot.get("backend") == "lsl"
+            else "未选择实时 LSL"
+        )
         channel_count = len(self._eeg_channel_names) or len(self._eeg_history)
         csv_stats = self._raw_csv_recorder.snapshot()
 
@@ -90,25 +197,255 @@ class ResearchViewMixin:
         c.text(31, 664, 274, 28, path[-47:], 9, sub)
 
         c.rect(352, 72, 912, 632, panel, border, 3)
-        tabs = ("Time Series", "FFT Plot", "Focus", "Accelerometer", "LSL", "Packet Loss", "Hardware")
+        tabs = ("Dashboard", "Focus", "LSL", "Packet Loss", "Hardware")
         for index, tab in enumerate(tabs):
-            x = 362 + index * 126
+            x = 362 + index * 174
             active = self.acquisition_tab == tab
-            c.rect(x, 80, 118, 31, blue if active else "#edf1f4", border, 2)
-            c.text(x, 80, 118, 31, tab, 10, "#ffffff" if active else ink, active, Qt.AlignCenter)
-            self._hit(x, 80, 118, 31, f"acquisition-tab:{tab}")
+            c.rect(x, 80, 164, 31, blue if active else "#edf1f4", border, 2)
+            c.text(x, 80, 164, 31, tab, 10, "#ffffff" if active else ink, active, Qt.AlignCenter)
+            self._hit(x, 80, 164, 31, f"acquisition-tab:{tab}")
         c.line(352, 120, 1264, 120, border)
 
         renderers = {
-            "Time Series": self._acquisition_time_series,
-            "FFT Plot": self._acquisition_fft,
             "Focus": self._acquisition_focus,
-            "Accelerometer": self._acquisition_accelerometer,
             "LSL": self._acquisition_lsl,
             "Packet Loss": self._acquisition_packet_loss,
             "Hardware": self._acquisition_hardware,
         }
         renderers[self.acquisition_tab](c, 370, 134, 876, 550)
+
+    def _acquisition_setup(self, c: Canvas) -> None:
+        """Port the official OpenBCI GUI v6 control-panel state layout."""
+        navy, dark_blue, bright_blue = "#00172b", "#0b507c", "#078bd1"
+        panel, border, ink = "#c9c9c9", "#1f3445", "#10283d"
+        active, selected, white = "#94acd0", "#a9efa2", "#f7f7f7"
+        c.rect(0, 56, 1280, 664, navy)
+        c.rect(0, 56, 1280, 48, dark_blue, border, 0, 2)
+        c.rect(16, 58, 315, 44, active, border, 0, 2)
+        c.text(16, 58, 315, 44, "System Control Panel", 18, "#ffffff", True, Qt.AlignCenter)
+        c.text(530, 58, 220, 44, "◉ OPENBCI", 22, "#ffffff", True, Qt.AlignCenter)
+        for index, label in enumerate(("Update", "Shop", "Issues", "Help", "…")):
+            widths = (78, 78, 92, 78, 38)
+            x_positions = (826, 908, 990, 1086, 1170)
+            c.rect(x_positions[index], 61, widths[index], 38, dark_blue, border, 0, 2)
+            c.text(x_positions[index], 61, widths[index], 38, label, 15, "#ffffff", True, Qt.AlignCenter)
+        c.rect(0, 104, 1280, 40, bright_blue)
+        c.rect(1174, 108, 90, 32, bright_blue, "#ffffff", 0, 1)
+        c.text(1174, 108, 90, 32, "Settings", 13, "#ffffff", False, Qt.AlignCenter)
+
+        def box(x: float, y: float, w: float, h: float, title: str) -> None:
+            c.rect(x, y, w, h, panel, border, 0, 1)
+            c.text(x + 12, y + 7, w - 24, 27, title, 15, ink, True)
+
+        def button(
+            x: float,
+            y: float,
+            w: float,
+            h: float,
+            label: str,
+            is_active: bool = False,
+            action: str = "",
+            green: bool = False,
+        ) -> None:
+            fill = selected if green else (active if is_active else white)
+            c.rect(x, y, w, h, fill, border, 0, 1)
+            c.text(x, y, w, h, label, 12, ink, False, Qt.AlignCenter)
+            if action:
+                self._hit(x, y, w, h, action)
+
+        def field(x: float, y: float, w: float, h: float, value: str) -> None:
+            c.rect(x, y, w, h, white, border, 0, 1)
+            c.text(x + 7, y, w - 14, h, value, 12, ink)
+
+        def session_box(x: float, y: float, w: float, h: float) -> None:
+            box(x, y, w, h, "SESSION DATA")
+            c.text(x + 12, y + 35, 58, 27, "Name", 12, ink)
+            field(x + 70, y + 35, w - 82, 27, self._openbci_session_name)
+            button(x + 12, y + 68, w - 24, 28, "GENERATE SESSION NAME", action="openbci-generate-session")
+            half = (w - 36) / 2
+            button(x + 12, y + 103, half, 28, "OpenBCI", self._openbci_session_format == "OpenBCI", "openbci-session-format:OpenBCI")
+            button(x + 24 + half, y + 103, half, 28, "BDF+", self._openbci_session_format == "BDF+", "openbci-session-format:BDF+")
+            c.text(x + 12, y + 136, 145, 28, "Max File Duration", 11, ink)
+            field(x + 156, y + 136, w - 168, 28, "60 Minutes   ⌃")
+
+        def streamer_box(x: float, y: float, w: float, h: float) -> None:
+            box(x, y, w, h, "BRAINFLOW STREAMER")
+            half = (w - 36) / 2
+            button(x + 12, y + 39, half, 28, "Network", self._openbci_streamer_mode == "Network", "openbci-streamer-mode:Network")
+            button(x + 24 + half, y + 39, half, 28, "File", self._openbci_streamer_mode == "File", "openbci-streamer-mode:File")
+            if self._openbci_streamer_mode == "Network":
+                c.text(x + 12, y + 72, 28, 28, "IP", 12, ink)
+                field(x + 40, y + 72, 145, 28, "225.1.1.1")
+                c.text(x + 198, y + 72, 40, 28, "Port", 12, ink)
+                field(x + 238, y + 72, w - 250, 28, "6677")
+            else:
+                c.text(x + 12, y + 72, 75, 28, "Location", 12, ink)
+                field(x + 87, y + 72, w - 99, 28, "Default       ⌃")
+
+        def channel_box(x: float, y: float, w: float, counts: tuple[int, ...]) -> None:
+            box(x, y, w, 72, f"CHANNEL COUNT ({self._openbci_channel_count})")
+            gap = 10
+            bw = (w - 24 - gap * (len(counts) - 1)) / len(counts)
+            for index, count in enumerate(counts):
+                bx = x + 12 + index * (bw + gap)
+                button(bx, y + 37, bw, 27, f"{count} CHANNELS", self._openbci_channel_count == count, f"openbci-channel-count:{count}")
+
+        def wifi_box(x: float, y: float, w: float) -> None:
+            box(x, y, w, 200, "WIFI SHIELDS")
+            half = (w - 36) / 2
+            button(x + 12, y + 39, half, 28, "DYNAMIC IP", self._openbci_wifi_mode == "Dynamic IP", "openbci-wifi-mode:Dynamic IP")
+            button(x + 24 + half, y + 39, half, 28, "STATIC IP", self._openbci_wifi_mode == "Static IP", "openbci-wifi-mode:Static IP")
+            c.rect(x + 12, y + 76, w - 24, 70, "#d8d8d8")
+            if self._openbci_wifi_mode == "Static IP":
+                field(x + 22, y + 95, w - 44, 30, self._openbci_ip)
+            button(x + 12, y + 151, w - 49, 28, "START SEARCH", action="openbci-wifi-search")
+            c.circle(x + w - 25, y + 165, 7, "#999999")
+            c.text(x + 12, y + 178, w - 24, 20, "BOARD IP:", 14, ink, True, Qt.AlignCenter)
+
+        def sample_rate_box(x: float, y: float, w: float, rates: tuple[int, ...]) -> None:
+            box(x, y, w, 82, "SAMPLE RATE")
+            gap = 10
+            bw = (w - 24 - gap * (len(rates) - 1)) / len(rates)
+            for index, rate in enumerate(rates):
+                bx = x + 12 + index * (bw + gap)
+                button(bx, y + 39, bw, 28, f"{rate}Hz", self._openbci_sample_rate == rate, f"openbci-sample-rate:{rate}")
+
+        left_x, left_w, middle_x, middle_w, third_x = 16, 315, 331, 315, 646
+        source_rows = (
+            ("CYTON (live)", "CYTON"),
+            ("GANGLION (live)", "GANGLION"),
+            ("PLAYBACK (from file)", "PLAYBACK"),
+            ("SYNTHETIC (algorithmic)", "SYNTHETIC"),
+            ("STREAMING (from external)", "STREAMING"),
+        )
+        box(left_x, 104, left_w, 186, "DATA SOURCE")
+        for index, (label, value) in enumerate(source_rows):
+            button(left_x + 12, 140 + index * 27, left_w - 24, 27, label, False, f"openbci-source:{value}", self._openbci_source == value)
+        c.rect(left_x, 290, left_w, 58, panel, border, 0, 1)
+        button(left_x + 12, 303, left_w - 24, 34, "START SESSION", action="openbci-start-session")
+
+        if self._openbci_source == "CYTON":
+            box(middle_x, 104, middle_w, 88, "PICK TRANSFER PROTOCOL")
+            button(middle_x + 12, 140, middle_w - 24, 27, "Serial (from Dongle)", self._openbci_transport == "Serial", "openbci-transport:Serial")
+            button(middle_x + 12, 170, middle_w - 24, 27, "Wifi (from Wifi Shield)", self._openbci_transport == "WiFi", "openbci-transport:WiFi")
+            if self._openbci_transport == "Serial":
+                box(middle_x, 192, middle_w, 70, "SERIAL CONNECT")
+                button(middle_x + 12, 226, 190, 27, "AUTO-CONNECT", action="openbci-serial-autoconnect", green=True)
+                button(middle_x + 213, 226, 90, 27, "Manual >")
+                channel_box(middle_x, 262, middle_w, (8, 16))
+                session_box(middle_x, 334, middle_w, 170)
+                streamer_box(middle_x, 504, middle_w, 105)
+                box(middle_x, 609, middle_w, 84, "WRITE TO SD CARD?")
+                field(middle_x + 12, 648, middle_w - 24, 28, "Do not write to SD...          ⌃")
+            else:
+                channel_box(middle_x, 192, middle_w, (8, 16))
+                session_box(middle_x, 264, middle_w, 170)
+                streamer_box(middle_x, 434, middle_w, 105)
+                box(middle_x, 539, middle_w, 84, "WRITE TO SD CARD?")
+                field(middle_x + 12, 578, middle_w - 24, 28, "Do not write to SD...          ⌃")
+                wifi_box(third_x, 104, middle_w)
+                sample_rate_box(third_x, 304, middle_w, (250, 500, 1000))
+        elif self._openbci_source == "GANGLION":
+            box(middle_x, 104, middle_w, 124, "PICK TRANSFER PROTOCOL")
+            protocols = (
+                ("Bluetooth (Native)", "Native BLE"),
+                ("Bluetooth (BLED112 Dongle)", "BLED112"),
+                ("Wifi (from Wifi Shield)", "WiFi"),
+            )
+            for index, (label, value) in enumerate(protocols):
+                button(middle_x + 12, 140 + index * 30, middle_w - 24, 27, label, self._openbci_ganglion_transport == value, f"openbci-ganglion-transport:{value}")
+            if self._openbci_ganglion_transport == "WiFi":
+                session_box(middle_x, 228, middle_w, 170)
+                streamer_box(middle_x, 398, middle_w, 105)
+                wifi_box(third_x, 104, middle_w)
+                sample_rate_box(third_x, 304, middle_w, (200, 1600))
+            else:
+                box(middle_x, 228, middle_w, 180, "BLE DEVICES")
+                c.rect(middle_x + 12, 264, middle_w - 24, 94, "#d8d8d8")
+                button(middle_x + 12, 366, middle_w - 55, 28, "SEARCHING...", action="openbci-ble-search")
+                c.circle(middle_x + middle_w - 27, 380, 8, active, border)
+                session_box(middle_x, 408, middle_w, 170)
+                streamer_box(middle_x, 578, middle_w, 105)
+        elif self._openbci_source == "PLAYBACK":
+            box(middle_x, 104, 425, 100, "PLAYBACK FILE")
+            button(middle_x + 300, 113, 113, 26, "Sample Data", True)
+            file_label = self._openbci_playback_path.rsplit("/", 1)[-1] if self._openbci_playback_path else "SELECT OPENBCI PLAYBACK FILE"
+            button(middle_x + 12, 145, 401, 31, file_label, action="openbci-playback-select")
+            box(middle_x, 204, 425, 72, "PLAYBACK HISTORY")
+            field(middle_x + 12, 240, 401, 28, "Select Recent Playback File                  ⌃")
+        elif self._openbci_source == "SYNTHETIC":
+            channel_box(middle_x, 104, middle_w, (4, 8, 16))
+            streamer_box(middle_x, 176, middle_w, 105)
+        else:
+            box(middle_x, 104, middle_w, 120, "STREAMING BOARD CONFIG")
+            c.text(middle_x + 12, 140, 24, 28, "IP", 12, ink)
+            field(middle_x + 36, 140, 102, 28, "")
+            c.text(middle_x + 152, 140, 48, 28, "PORT", 12, ink)
+            field(middle_x + 200, 140, 64, 28, "0")
+            c.text(middle_x + 12, 176, 70, 28, "BOARD", 12, ink)
+            field(middle_x + 82, 176, 221, 28, f"{self._openbci_board_type}                         ⌃")
+
+        status = self._openbci_status_message
+        status_fill = "#fac5cc" if status.startswith("No ") or "disabled" in status else white
+        c.rect(16, 697, 1248, 19, status_fill, "#25b9df", 0, 1)
+        c.text(24, 697, 1232, 19, status, 10, ink)
+
+    def _acquisition_dashboard_page(self, c: Canvas) -> None:
+        """Three-panel runtime layout matching the OpenBCI GUI manual."""
+        bg, blue, border, ink = "#f4f5f5", "#0d6094", "#8f999f", "#263139"
+        c.rect(0, 56, 1280, 664, bg)
+        c.rect(16, 70, 1248, 38, blue, border, 1)
+        c.rect(16, 70, 260, 38, "#164d72", border, 1)
+        c.text(16, 70, 260, 38, "System Control Panel", 13, "#ffffff", True, Qt.AlignCenter)
+        self._hit(16, 70, 260, 38, "openbci-control-panel")
+        c.text(488, 70, 300, 38, "◉ OPENBCI", 17, "#ffffff", True, Qt.AlignCenter)
+        c.text(1052, 70, 196, 38, "Settings     Layout", 11, "#ffffff", True, Qt.AlignCenter)
+
+        c.rect(16, 108, 1248, 44, "#1490ce", border, 1)
+        streaming = self._pipeline_worker is not None and self._pipeline_worker.isRunning()
+        c.rect(24, 114, 185, 32, "#e4e6e7", "#66747c", 1)
+        c.text(24, 114, 185, 32, "Stop Data Stream" if streaming else "Start Data Stream", 11, ink, True, Qt.AlignCenter)
+        self._hit(24, 114, 185, 32, "openbci-data-stream-toggle")
+        c.rect(216, 114, 82, 32, "#2d8fd0", "#d4e7f1", 1)
+        c.text(216, 114, 82, 32, "Filters", 11, "#ffffff", True, Qt.AlignCenter)
+        nav_items = (("Dashboard", "Dashboard"), ("Focus", "Focus"), ("Networking", "LSL"),
+                     ("Packet Loss", "Packet Loss"), ("Hardware", "Hardware"))
+        for index, (label, tab) in enumerate(nav_items):
+            x = 316 + index * 126
+            c.rect(x, 114, 118, 32, "#f0f2f3", "#687780", 1)
+            c.text(x, 114, 118, 32, label, 9, ink, False, Qt.AlignCenter)
+            self._hit(x, 114, 118, 32, f"acquisition-tab:{tab}")
+        self._light_button(
+            c, 1050, 114, 198, 32,
+            "STOP CSV RECORD" if self._continuous_recording else "START CSV RECORD",
+            self._continuous_recording,
+            "#bd4b4b",
+        )
+        self._hit(1050, 114, 198, 32, "continuous-record-toggle")
+
+        c.rect(16, 158, 610, 526, "#ffffff", border, 1)
+        c.rect(16, 158, 610, 30, "#d5d8da", border, 1)
+        c.text(26, 158, 210, 30, "Time Series", 11, ink, True)
+        c.text(410, 158, 198, 30, "Vert Scale  200 μV   Window 5 sec", 9, ink, False, Qt.AlignRight)
+        c.rect(24, 192, 594, 27, "#eceeef", border, 1)
+        c.text(33, 192, 160, 27, "Channels", 9, ink, True)
+        c.text(210, 192, 180, 27, "Hardware Settings", 9, ink)
+        self._draw_light_eeg(c, 26, 226, 584, 424)
+        c.text(26, 651, 584, 22, "Time (s)      -5        -4        -3        -2        -1        0", 9, "#5d6870", False, Qt.AlignCenter)
+
+        c.rect(638, 158, 626, 252, "#ffffff", border, 1)
+        c.rect(638, 158, 626, 30, "#d5d8da", border, 1)
+        c.text(648, 158, 200, 30, "FFT Plot", 11, ink, True)
+        c.text(965, 158, 280, 30, "Max Freq 60 Hz   Max μV 100   Log/Lin", 9, ink, False, Qt.AlignRight)
+        self._acquisition_fft(c, 650, 190, 598, 208)
+
+        c.rect(638, 422, 626, 262, "#ffffff", border, 1)
+        c.rect(638, 422, 626, 30, "#d5d8da", border, 1)
+        c.text(648, 422, 220, 30, "Accelerometer", 11, ink, True)
+        c.text(1080, 422, 164, 30, "Vert Scale Auto   5 sec", 9, ink, False, Qt.AlignRight)
+        self._acquisition_accelerometer(c, 650, 454, 598, 218)
+        c.rect(16, 688, 1248, 24, "#f7f8f8", border, 1)
+        c.text(26, 688, 1228, 24, self._eeg_status, 9, ink)
 
     def _research_replay(self, c: Canvas) -> None:
         """CSV experiment replay is deliberately separate from live acquisition."""
@@ -120,9 +457,15 @@ class ResearchViewMixin:
         c.rect(16, 72, 1248, 96, panel, border, 3)
         c.text(31, 78, 250, 31, "CSV 实验回放", 17, ink, True)
         self._light_button(c, 31, 116, 116, 34, "导入 EEG CSV", False, blue)
+        playback_running = self._pipeline_worker is not None and self._pipeline_worker.isRunning()
+        playback_label = (
+            "暂停回放"
+            if playback_running
+            else ("继续回放" if self._csv_replay_paused else "开始回放")
+        )
         self._light_button(
             c, 158, 116, 94, 34,
-            "继续回放" if self._csv_replay_paused else "暂停回放",
+            playback_label,
             False,
             "#2d8a57",
         )
@@ -157,7 +500,15 @@ class ResearchViewMixin:
         c.text(946, 238, 290, 19, "数据来源", 9, sub, True)
         c.text(946, 258, 290, 42, str(snapshot.get("path") or "请导入 CSV 文件")[-48:], 10, ink)
         c.text(946, 312, 290, 19, "回放状态", 9, sub, True)
-        state = "PAUSED" if self._csv_replay_paused else ("PLAYING" if is_csv else "NO FILE")
+        state = (
+            "PLAYING"
+            if playback_running and is_csv
+            else (
+                "PAUSED"
+                if self._csv_replay_paused and is_csv
+                else ("READY" if is_csv else "NO FILE")
+            )
+        )
         c.text(946, 333, 290, 30, state, 18, "#2d8a57" if is_csv else "#bd4b4b", True)
         c.text(946, 380, 290, 19, "范式 / 解码", 9, sub, True)
         mode = self.actions.paradigm_type

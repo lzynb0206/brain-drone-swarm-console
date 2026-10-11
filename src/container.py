@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from src.adapters.http import HttpAuthGateway
 from src.adapters.real import (
+    BrainFlowCytonEEGStream,
     CrazyflieSwarmConfig,
     CrazyflieSwarmGateway,
     CsvEEGStream,
@@ -93,8 +94,13 @@ def create_default_container() -> ApplicationContainer:
         timeout_seconds=LSL_RESOLVE_TIMEOUT_SECONDS,
         frame_size=FRAME_SIZE,
     )
+    hardware_stream = BrainFlowCytonEEGStream(frame_size=FRAME_SIZE)
     if EEG_BACKEND == "lsl":
-        eeg_stream: EEGStream = lsl_stream
+        eeg_stream: EEGStream = SelectableEEGStream(
+            lsl_stream,
+            lsl_stream,
+            hardware_stream,
+        )
     elif EEG_BACKEND == "csv" and EEG_CSV_PATH.is_file():
         eeg_stream = SelectableEEGStream(
             CsvEEGStream(
@@ -105,6 +111,7 @@ def create_default_container() -> ApplicationContainer:
                 realtime=True,
             ),
             lsl_stream,
+            hardware_stream,
         )
     else:
         eeg_stream = SelectableEEGStream(
@@ -112,6 +119,7 @@ def create_default_container() -> ApplicationContainer:
                 f"EEG 数据源不可用：backend={EEG_BACKEND!r}，CSV={EEG_CSV_PATH}"
             ),
             lsl_stream,
+            hardware_stream,
         )
 
     swarm_backend = os.getenv("BDS_SWARM_BACKEND", "disabled").strip().lower()

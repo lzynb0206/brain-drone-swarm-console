@@ -28,12 +28,44 @@ def main() -> int:
 
     window._show_main_view(User("researcher", "科研演示账号", Role.RESEARCHER))
     app.processEvents()
+    window.grab().save(str(output_dir / "research-acquisition-setup.png"))
+    setup_variants = (
+        ("cyton-wifi", "CYTON", "WiFi", "Native BLE"),
+        ("ganglion-native", "GANGLION", "", "Native BLE"),
+        ("ganglion-wifi", "GANGLION", "", "WiFi"),
+        ("playback", "PLAYBACK", "", "Native BLE"),
+        ("synthetic", "SYNTHETIC", "", "Native BLE"),
+        ("streaming", "STREAMING", "", "Native BLE"),
+    )
+    for name, source, cyton_transport, ganglion_transport in setup_variants:
+        window.main_view._openbci_source = source
+        window.main_view._openbci_transport = cyton_transport
+        window.main_view._openbci_ganglion_transport = ganglion_transport
+        window.main_view._openbci_channel_count = 4 if source == "GANGLION" else 8
+        window.main_view._openbci_sample_rate = 200 if source == "GANGLION" else 250
+        window.main_view._openbci_streamer_mode = "Network" if source == "SYNTHETIC" else "File"
+        window.main_view.update()
+        app.processEvents()
+        window.grab().save(str(output_dir / f"research-acquisition-setup-{name}.png"))
+    window.main_view._openbci_source = "CYTON"
+    window.main_view._openbci_transport = "Serial"
+    window.main_view._openbci_channel_count = 8
+    window.main_view._openbci_sample_rate = 250
+    window.main_view._openbci_streamer_mode = "File"
+    window.main_view.acquisition_stage = "runtime"
+    window.main_view.acquisition_tab = "Dashboard"
+    window.main_view.update()
+    app.processEvents()
     window.grab().save(str(output_dir / "research-acquisition.png"))
-    for acquisition_tab in ("FFT Plot", "LSL", "Packet Loss", "Hardware"):
+    for acquisition_tab in ("LSL", "Packet Loss", "Hardware"):
         window.main_view.acquisition_tab = acquisition_tab
         window.main_view.update()
         app.processEvents()
         window.grab().save(str(output_dir / f"research-acquisition-{acquisition_tab.replace(' ', '-').lower()}.png"))
+    window.main_view.research_page = "采集器"
+    window.main_view.update()
+    app.processEvents()
+    window.grab().save(str(output_dir / "research-integrated-collector.png"))
     for page in ("实验", "范式", "算法", "控制", "映射", "数据"):
         window.main_view.research_page = page
         window.main_view.update()

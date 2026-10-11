@@ -7,7 +7,13 @@ from pathlib import Path
 
 import numpy as np
 
-from src.adapters.real import CsvEEGStream, LSLEEGStream, SelectableEEGStream
+from src.adapters.real import (
+    BrainFlowCytonEEGStream,
+    CsvEEGStream,
+    LSLEEGStream,
+    SelectableEEGStream,
+    SerialDeviceDescriptor,
+)
 from src.bci import FBCCADecoder
 from src.bci.config import COMMANDS, FB_EEGNET_ENABLED, TARGET_FREQUENCIES_HZ
 from src.domain import EEGFrame, IntentResult
@@ -257,6 +263,98 @@ class LSLEEGStreamTest(unittest.TestCase):
         frame = source.read_frame()
         self.assertTrue(source.source_name.startswith("LSL"))
         self.assertEqual((1.0, 3.0), frame.samples[0])
+
+    def test_selectable_source_can_leave_csv_for_configured_live_lsl_without_connecting(self) -> None:
+        class ReplaySource:
+            source_name = "CSV回放 · demo.csv"
+            connected = False
+            sample_rate_hz = 250.0
+
+            def connect(self): self.connected = True
+            def disconnect(self): self.connected = False
+            def read_frame(self): raise AssertionError("not used")
+
+        lsl = LSLEEGStream(expected_channel_count=2, resolver=lambda *_a, **_k: [])
+        source = SelectableEEGStream(ReplaySource(), lsl)
+        source.select_lsl()
+        snapshot = source.playback_snapshot()
+        self.assertEqual("lsl", snapshot["backend"])
+        self.assertFalse(snapshot["connected"])
+
+
+class BrainFlowCytonEEGStreamTest(unittest.TestCase):
+    class Params:
+        serial_port = ""
+
+    class Api:
+        @staticmethod
+        def get_sampling_rate(_board_id): return 250
+
+        @staticmethod
+        def get_eeg_channels(_board_id): return list(range(1, 9))
+
+        @staticmethod
+        def get_timestamp_channel(_board_id): return 9
+
+    class Board:
+        def __init__(self, _board_id, params):
+            self.port = params.serial_port
+            self.prepared = False
+            self.streaming = False
+            self.released = False
+
+        def prepare_session(self): self.prepared = True
+        def start_stream(self, _size): self.streaming = True
+        def stop_stream(self): self.streaming = False
+        def release_session(self): self.released = True
+        def get_board_data_count(self): return 0
+
+        def get_board_data(self, _count):
+            values = np.zeros((10, 4), dtype=float)
+            for channel in range(8):
+                values[channel + 1] = np.arange(4) + channel * 10
+            values[9] = (10.0, 10.004, 10.008, 10.012)
+            return values
+
+    def test_reads_eight_calibrated_channels_directly_from_cyton_driver(self) -> None:
+        boards = []
+
+        def factory(board_id, params):
+            board = self.Board(board_id, params)
+            boards.append(board)
+            return board
+
+        stream = BrainFlowCytonEEGStream(
+            board_factory=factory,
+            params_factory=self.Params,
+            board_api=self.Api,
+            port_lister=lambda: [],
+        )
+        stream.configure_serial_port("COM8")
+        stream.connect()
+        frame = stream.read_frame()
+        health = stream.health_snapshot()
+        stream.disconnect()
+
+        self.assertEqual(8, len(frame.samples))
+        self.assertEqual((0.0, 1.0, 2.0, 3.0), frame.samples[0])
+        self.assertEqual((10.0, 10.004, 10.008, 10.012), frame.sample_timestamps)
+        self.assertEqual(("uV",) * 8, frame.channel_units)
+        self.assertEqual(4, health["total_samples"])
+        self.assertTrue(boards[0].released)
+
+    def test_selectable_stream_can_switch_to_discovered_direct_device(self) -> None:
+        device = SerialDeviceDescriptor("/dev/cu.ExpandableEEG", "Bluetooth")
+        hardware = BrainFlowCytonEEGStream(port_lister=lambda: [device])
+        lsl = LSLEEGStream(expected_channel_count=8, resolver=lambda *_a, **_k: [])
+        source = SelectableEEGStream(lsl, lsl, hardware)
+
+        discovered = source.discover_hardware_devices()
+        source.select_hardware(discovered[0])
+        snapshot = source.playback_snapshot()
+
+        self.assertEqual("hardware", snapshot["backend"])
+        self.assertEqual("/dev/cu.ExpandableEEG", snapshot["serial_port"])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,9 @@
 """Real and replayable EEG infrastructure adapters."""
 
+from src.adapters.real.brainflow_cyton_eeg_stream import (
+    BrainFlowCytonEEGStream,
+    SerialDeviceDescriptor,
+)
 from src.adapters.real.csv_eeg_stream import CsvEEGStream
 from src.adapters.real.crazyflie_swarm_gateway import (
     CrazyflieSwarmConfig,
@@ -13,7 +17,8 @@ from src.adapters.real.selectable_eeg_stream import SelectableEEGStream
 from src.adapters.real.unavailable_eeg_stream import UnavailableEEGStream
 
 __all__ = [
-    "CrazyflieSwarmConfig", "CrazyflieSwarmGateway", "CsvEEGStream", "DisabledSwarmGateway",
+    "BrainFlowCytonEEGStream", "CrazyflieSwarmConfig", "CrazyflieSwarmGateway",
+    "CsvEEGStream", "DisabledSwarmGateway",
     "LSLEEGStream", "RealSystemMonitor", "RuntimeEngineerDataProvider",
-    "SelectableEEGStream", "UnavailableEEGStream",
+    "SelectableEEGStream", "SerialDeviceDescriptor", "UnavailableEEGStream",
 ]

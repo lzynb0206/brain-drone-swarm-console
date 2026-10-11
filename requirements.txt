@@ -3,3 +3,5 @@ numpy>=1.26,<2.1
 pylsl>=1.17,<2
 psutil>=5.9,<8
 cflib>=0.1.28,<0.2
+brainflow>=5.17,<6
+pyserial>=3.5,<4

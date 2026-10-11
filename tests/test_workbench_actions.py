@@ -145,9 +145,44 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
     def test_research_acquisition_tabs_are_stateful(self) -> None:
         self.view._activate("research:采集")
-        self.view._activate("acquisition-tab:FFT Plot")
+        self.view._activate("acquisition-tab:LSL")
         self.assertEqual("采集", self.view.research_page)
-        self.assertEqual("FFT Plot", self.view.acquisition_tab)
+        self.assertEqual("LSL", self.view.acquisition_tab)
+
+    def test_integrated_collector_is_a_distinct_research_navigation_page(self) -> None:
+        self.view._activate("research:采集器")
+        self.view._activate("collector-source:direct")
+
+        self.assertEqual("采集器", self.view.research_page)
+        self.assertEqual("direct", self.view._collector_source_mode)
+
+        image = QImage(1280, 720, QImage.Format_ARGB32)
+        painter = QPainter(image)
+        try:
+            self.view._render_compat(
+                self.view.research_widget,
+                "_research_integrated_collector",
+                Canvas(painter, 1280, 720),
+            )
+        finally:
+            painter.end()
+        actions = {action for _rect, action in self.view._regions}
+        self.assertIn("collector-refresh", actions)
+        self.assertIn("collector-start", actions)
+        self.assertIn("collector-stop", actions)
+
+    def test_openbci_control_panel_preserves_official_source_branches(self) -> None:
+        self.view._activate("openbci-source:GANGLION")
+        self.assertEqual("GANGLION", self.view._openbci_source)
+        self.assertEqual(4, self.view._openbci_channel_count)
+        self.assertEqual(200, self.view._openbci_sample_rate)
+        self.view._activate("openbci-ganglion-transport:WiFi")
+        self.assertEqual("WiFi", self.view._openbci_ganglion_transport)
+
+        self.view._activate("openbci-source:SYNTHETIC")
+        self.assertEqual("Network", self.view._openbci_streamer_mode)
+        self.view._activate("openbci-channel-count:16")
+        self.assertEqual(16, self.view._openbci_channel_count)
 
     def test_flight_stop_actions_are_routed_to_distinct_gateway_operations(self) -> None:
         self.view._activate("swarm-command:takeoff")
