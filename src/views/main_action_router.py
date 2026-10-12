@@ -68,6 +68,18 @@ class MainActionRouterMixin:
             self._toggle_collector_waveform()
         elif action == "collector-open-directory":
             self._open_collector_data_directory()
+        elif action == "lsl-outlet-toggle":
+            self._toggle_lsl_outlet()
+        elif action == "lsl-collector-refresh":
+            self._discover_lsl_collector_streams()
+        elif action == "lsl-collector-start":
+            self._start_lsl_collection()
+        elif action == "lsl-collector-stop":
+            self._stop_lsl_collection()
+        elif action == "lsl-collector-pause":
+            self._toggle_lsl_collector_waveform()
+        elif action == "lsl-collector-open-directory":
+            self._open_lsl_collector_directory()
         elif action == "eeg-connect":
             self._prepare_openbci_session()
         elif action == "eeg-disconnect":
@@ -131,9 +143,7 @@ class MainActionRouterMixin:
             self._notify("尚未接入 Ganglion BLE 搜索后端；未伪造设备结果")
             self.update()
         elif action == "openbci-serial-autoconnect":
-            self._openbci_status_message = "No Serial/COM port selected."
-            self._notify("尚未接入 BrainFlow 串口硬件后端；Session 后可通过 LSL 接收真实数据")
-            self.update()
+            self._discover_direct_devices()
         elif action == "openbci-guide":
             self._show_openbci_guide()
         elif action == "continuous-record-toggle":

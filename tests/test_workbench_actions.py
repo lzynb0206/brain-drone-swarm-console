@@ -149,27 +149,42 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual("采集", self.view.research_page)
         self.assertEqual("LSL", self.view.acquisition_tab)
 
-    def test_integrated_collector_is_a_distinct_research_navigation_page(self) -> None:
-        self.view._activate("research:采集器")
-        self.view._activate("collector-source:direct")
+    def test_lsl_collector_is_a_distinct_research_navigation_page(self) -> None:
+        self.view._activate("research:LSL收集")
 
-        self.assertEqual("采集器", self.view.research_page)
-        self.assertEqual("direct", self.view._collector_source_mode)
+        self.assertEqual("LSL收集", self.view.research_page)
 
         image = QImage(1280, 720, QImage.Format_ARGB32)
         painter = QPainter(image)
         try:
             self.view._render_compat(
                 self.view.research_widget,
-                "_research_integrated_collector",
+                "_research_lsl_collector",
                 Canvas(painter, 1280, 720),
             )
         finally:
             painter.end()
         actions = {action for _rect, action in self.view._regions}
-        self.assertIn("collector-refresh", actions)
-        self.assertIn("collector-start", actions)
-        self.assertIn("collector-stop", actions)
+        self.assertIn("lsl-collector-refresh", actions)
+        self.assertIn("lsl-collector-start", actions)
+        self.assertIn("lsl-collector-stop", actions)
+
+    def test_acquisition_networking_is_an_lsl_output_not_input(self) -> None:
+        self.view.acquisition_stage = "runtime"
+        self.view.acquisition_tab = "LSL"
+        image = QImage(1280, 720, QImage.Format_ARGB32)
+        painter = QPainter(image)
+        try:
+            self.view._render_compat(
+                self.view.research_widget,
+                "_research_acquisition",
+                Canvas(painter, 1280, 720),
+            )
+        finally:
+            painter.end()
+        actions = {action for _rect, action in self.view._regions}
+        self.assertIn("lsl-outlet-toggle", actions)
+        self.assertNotIn("lsl-refresh", actions)
 
     def test_openbci_control_panel_preserves_official_source_branches(self) -> None:
         self.view._activate("openbci-source:GANGLION")

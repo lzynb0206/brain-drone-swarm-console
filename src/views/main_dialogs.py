@@ -24,12 +24,13 @@ class MainDialogsMixin:
     def _show_openbci_guide(self) -> None:
         QMessageBox.information(
             self,
-            "OpenBCI → LSL 接入步骤",
-            "1. 在 OpenBCI GUI 连接板卡，先确认各通道能看到真实波形。\n"
-            "2. 检查采样率、通道数和电极标签；MI 建议重点核对 C3/Cz/C4。\n"
-            "3. 打开 Networking → LSL，输出 TimeSeriesRaw，类型设为 EEG。\n"
-            "4. 回到本软件“科研人员 → 实验”，点击“刷新 LSL 流”并选择设备。\n"
-            "5. 先看信号质量和时间连续性，再开始连续录制或添加试次标签。\n\n"
+            "采集 → LSL收集 → CSV实验",
+            "1. 先在系统蓝牙设置中配对 ExpandableEEG，确认生成 COM 或 /dev/cu.* 串口。\n"
+            "2. 在“采集”页刷新并选择设备，启动 Session 和 Data Stream，确认8通道真实波形。\n"
+            "3. 检查采样率、通道数和电极标签；MI 建议重点核对 C3/Cz/C4。\n"
+            "4. 需要实时转发时，在采集页 Networking 启动 LSL Stream。\n"
+            "5. 在“LSL收集”页刷新并选择流，开始接收、显示并保存 CSV。\n"
+            "6. 在“实验”页导入 CSV 做回放和算法复盘。\n\n"
             "说明：LSL 负责实时传输 EEG 和时间戳；FBCCA 只用于 SSVEP。"
             "MI 模式当前只采集和标注，不生成飞行指令。",
         )
@@ -250,4 +251,3 @@ class MainDialogsMixin:
             self._notify(self.actions.update_user_role(username, role))
 
     # ---------- Researcher dashboard ----------
-

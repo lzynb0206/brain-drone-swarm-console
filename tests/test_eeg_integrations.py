@@ -17,7 +17,7 @@ from src.adapters.real import (
 from src.bci import FBCCADecoder
 from src.bci.config import COMMANDS, FB_EEGNET_ENABLED, TARGET_FREQUENCIES_HZ
 from src.domain import EEGFrame, IntentResult
-from src.services import ExperimentRecorder, RawEEGCsvRecorder
+from src.services import ExperimentRecorder, LSLEEGOutlet, RawEEGCsvRecorder
 from src.workers import EEGWorker
 
 
@@ -103,6 +103,56 @@ class RawEEGCsvRecorderTest(unittest.TestCase):
         )
         self.assertEqual(["0", "10.0", "0.0", "1.0", "3.0"], rows[1])
         self.assertIn('"sample_count": 2', metadata)
+
+
+class LSLEEGOutletTest(unittest.TestCase):
+    def test_publishes_channel_major_frames_as_lsl_sample_chunks(self) -> None:
+        class Node:
+            def append_child(self, _name: str):
+                return self
+
+            def append_child_value(self, _name: str, _value: str):
+                return self
+
+        class Info:
+            def __init__(self, *args) -> None:
+                self.args = args
+
+            def desc(self) -> Node:
+                return Node()
+
+        class Outlet:
+            def __init__(self, info: Info) -> None:
+                self.info = info
+                self.chunks: list[list[list[float]]] = []
+
+            def push_chunk(self, chunk: list[list[float]]) -> None:
+                self.chunks.append(chunk)
+
+        created: list[Outlet] = []
+
+        def outlet_factory(info: Info) -> Outlet:
+            outlet = Outlet(info)
+            created.append(outlet)
+            return outlet
+
+        publisher = LSLEEGOutlet(outlet_factory=outlet_factory, info_factory=Info)
+        publisher.start(("C3", "C4"), 250.0, ("uV", "uV"))
+        frame = EEGFrame(
+            timestamp=10.004,
+            sample_rate_hz=250.0,
+            channel_names=("C3", "C4"),
+            samples=((1.0, 2.0), (3.0, 4.0)),
+            sample_timestamps=(10.0, 10.004),
+            channel_units=("uV", "uV"),
+            source_id="openbci",
+        )
+
+        self.assertEqual(2, publisher.push_frame(frame))
+        self.assertEqual([[1.0, 3.0], [2.0, 4.0]], created[0].chunks[0])
+        self.assertEqual(2, publisher.snapshot()["total_samples"])
+        publisher.stop()
+        self.assertFalse(publisher.active)
 
 
 class FBCCADecoderTest(unittest.TestCase):

@@ -19,6 +19,7 @@ from src.domain import EEGFrame, EEGStreamDescriptor, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services import (
     ExperimentRecorder,
+    LSLEEGOutlet,
     MissionPlanningError,
     RawEEGCsvRecorder,
     WorkbenchService,
@@ -27,7 +28,7 @@ from src.views.engineer_dashboard import EngineerDashboard
 from src.views.main_action_router import MainActionRouterMixin
 from src.views.main_dialogs import MainDialogsMixin
 from src.views.role_pages import AdminPage, EngineerCanvasPage, ResearchPage, SoldierPage
-from src.workers import EEGWorker
+from src.workers import EEGWorker, LSLRecorderWorker
 from src.widgets.scifi_canvas import CYAN, TEXT, Canvas
 
 if TYPE_CHECKING:
@@ -45,6 +46,7 @@ class MainView(
 
     logout_requested = Signal()
     lsl_discovery_completed = Signal(object, str)
+    lsl_collector_discovery_completed = Signal(object, str)
 
     def __init__(
         self,
@@ -101,10 +103,27 @@ class MainView(
             else Path.cwd() / "data" / "recordings" / "csv_sessions"
         )
         self._raw_csv_recorder = RawEEGCsvRecorder(csv_root)
+        self._lsl_collector_recorder = RawEEGCsvRecorder(csv_root)
         self._csv_replay_paused = False
         self._collector_source_mode = "direct"
         self._collector_selected_device = ""
         self._collector_waveform_paused = False
+        self._lsl_outlet = LSLEEGOutlet()
+        self._lsl_collector_stream = None
+        lsl_factory = getattr(self.eeg_stream, "create_lsl_receiver", None)
+        if callable(lsl_factory):
+            try:
+                self._lsl_collector_stream = lsl_factory()
+            except Exception:
+                self._lsl_collector_stream = None
+        self._lsl_collector_worker: LSLRecorderWorker | None = None
+        self._lsl_collector_history = [deque(maxlen=1250) for _ in range(8)]
+        self._lsl_collector_channel_names = tuple(f"CH{index + 1}" for index in range(8))
+        self._lsl_collector_sample_rate = 0.0
+        self._lsl_collector_status = "未连接 LSL EEG 流"
+        self._lsl_collector_events: deque[str] = deque(maxlen=20)
+        self._lsl_collector_waveform_paused = False
+        self._lsl_collector_discovery_in_progress = False
         self._openbci_source = "CYTON"
         self._openbci_transport = "Serial"
         self._openbci_ganglion_transport = "Native BLE"
@@ -148,6 +167,9 @@ class MainView(
             page.action_requested.connect(self._activate)
         self._build_eeg_worker()
         self.lsl_discovery_completed.connect(self._on_lsl_discovery_completed)
+        self.lsl_collector_discovery_completed.connect(
+            self._on_lsl_collector_discovery_completed
+        )
         # Kept as a small compatibility surface for integrations/tests.
         self.user_label = QLabel("", self)
         self.user_label.hide()
@@ -234,6 +256,7 @@ class MainView(
         self._pipeline_worker = worker
 
     def _disconnect_eeg_pipeline(self, stop_csv_recording: bool = True) -> None:
+        self._lsl_outlet.stop()
         if stop_csv_recording and self._raw_csv_recorder.is_recording:
             self._raw_csv_recorder.stop()
         self._continuous_recording = self._raw_csv_recorder.is_recording
@@ -279,6 +302,24 @@ class MainView(
         if self._openbci_source == "SYNTHETIC":
             self._openbci_status_message = "Synthetic source disabled in research mode."
             self._notify("科研版本不生成模拟 EEG；请使用真实 LSL 或实验 CSV")
+            self.update()
+            return
+        if self._openbci_source == "CYTON" and self._openbci_transport == "Serial":
+            if self._csv_playback_snapshot().get("backend") != "hardware":
+                if not self._discover_direct_devices():
+                    return
+            self._eeg_history = [deque(maxlen=1250) for _ in range(8)]
+            self._eeg_sample_rate = 0.0
+            self._eeg_channel_names = tuple(f"CH{index + 1}" for index in range(8))
+            self._eeg_channel_units = ("uV",) * 8
+            self._eeg_health = {}
+            self._latest_recognition = None
+            self.acquisition_stage = "runtime"
+            self.acquisition_tab = "Dashboard"
+            self._eeg_status = "设备已选择 · 点击 Start Data Stream 开始采集"
+            self._openbci_status_message = "Direct Cyton-compatible session ready."
+            self._build_eeg_worker(replace=True)
+            self._notify("ExpandableEEG会话已建立；点击 Start Data Stream 开始8通道采集")
             self.update()
             return
         self._disconnect_eeg_pipeline(stop_csv_recording=True)
@@ -340,11 +381,11 @@ class MainView(
             self._notify("OpenBCI 实时数据流已停止")
             return
         if self._csv_playback_snapshot().get("backend") == "csv":
-            self._notify("采集页拒绝播放 CSV；请先 Start Session 切换到实时 LSL")
+            self._notify("采集页不回放 CSV；请返回采集设置并选择真实设备")
             return
         self._build_eeg_worker(replace=True)
         self._start_eeg_pipeline()
-        self._notify("正在连接 OpenBCI LSL 实时数据流…")
+        self._notify("正在连接 ExpandableEEG 并读取 8 通道 EEG…")
 
     def _return_openbci_control_panel(self) -> None:
         self._disconnect_eeg_pipeline(stop_csv_recording=True)
@@ -506,6 +547,166 @@ class MainView(
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory))):
             self._notify(f"无法自动打开目录：{directory}")
 
+    def _toggle_lsl_outlet(self) -> None:
+        if self._lsl_outlet.active:
+            self._lsl_outlet.stop()
+            self._notify("LSL EEG 输出已停止")
+            self.update()
+            return
+        if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
+            self._notify("请先在采集页启动 ExpandableEEG 数据流")
+            return
+        try:
+            self._lsl_outlet.start(
+                self._eeg_channel_names or tuple(f"CH{index + 1}" for index in range(8)),
+                self._eeg_sample_rate or 250.0,
+                self._eeg_channel_units or ("uV",) * 8,
+            )
+        except Exception as exc:
+            self._notify(f"启动LSL输出失败：{exc}")
+            return
+        self._notify("LSL输出已启动：name=obci_eeg1，type=EEG，8通道")
+        self.update()
+
+    def _discover_lsl_collector_streams(self) -> None:
+        stream = self._lsl_collector_stream
+        discover = getattr(stream, "discover_streams", None)
+        if not callable(discover):
+            self._notify("当前容器没有独立LSL接收器")
+            return
+        if self._lsl_collector_discovery_in_progress:
+            self._notify("正在搜索LSL EEG流，请稍候…")
+            return
+        if self._lsl_collector_worker is not None and self._lsl_collector_worker.isRunning():
+            self._notify("请先停止LSL收集，再切换数据流")
+            return
+        self._lsl_collector_discovery_in_progress = True
+        self._lsl_collector_status = "正在搜索 type=EEG 的LSL流…"
+
+        def run_discovery() -> None:
+            try:
+                self.lsl_collector_discovery_completed.emit(list(discover()), "")
+            except Exception as exc:
+                self.lsl_collector_discovery_completed.emit([], str(exc))
+
+        threading.Thread(target=run_discovery, name="LSL-Collector-Discovery", daemon=True).start()
+        self.update()
+
+    def _on_lsl_collector_discovery_completed(
+        self, descriptors: list[EEGStreamDescriptor], error: str,
+    ) -> None:
+        self._lsl_collector_discovery_in_progress = False
+        if error:
+            self._lsl_collector_status = "LSL搜索失败"
+            self._notify(f"LSL搜索失败：{error}")
+            return
+        if not descriptors:
+            self._lsl_collector_status = "未发现LSL EEG流"
+            self._notify("未发现流：请在‘采集 → Networking’启动LSL输出")
+            return
+        labels = [descriptor.display_name for descriptor in descriptors]
+        selected, accepted = QInputDialog.getItem(
+            self, "选择LSL EEG数据流", "发现的数据流", labels, 0, False,
+        )
+        if not accepted:
+            return
+        descriptor = descriptors[labels.index(selected)]
+        try:
+            self._lsl_collector_stream.select_stream(descriptor)
+        except Exception as exc:
+            self._notify(f"选择LSL流失败：{exc}")
+            return
+        self._lsl_collector_channel_names = descriptor.channel_names or tuple(
+            f"CH{index + 1}" for index in range(descriptor.channel_count)
+        )
+        history_size = max(1, round((descriptor.nominal_sample_rate_hz or 250.0) * 5))
+        self._lsl_collector_history = [
+            deque(maxlen=history_size) for _ in range(descriptor.channel_count)
+        ]
+        self._lsl_collector_status = f"已选择 {descriptor.display_name}"
+        self._lsl_collector_events.appendleft(
+            f"{datetime.now():%H:%M:%S}  已选择 {descriptor.display_name}"
+        )
+        self.update()
+
+    def _start_lsl_collection(self) -> None:
+        if self._lsl_collector_stream is None:
+            self._notify("当前容器没有独立LSL接收器")
+            return
+        if self._lsl_collector_worker is not None and self._lsl_collector_worker.isRunning():
+            self._notify("LSL收集已经在运行")
+            return
+        if self._lsl_collector_recorder.is_recording:
+            self._lsl_collector_recorder.stop()
+        subject_id = self.user.uid or self.user.username if self.user is not None else ""
+        worker = LSLRecorderWorker(
+            self._lsl_collector_stream,
+            self._lsl_collector_recorder,
+            self._experiment_session_id,
+            subject_id,
+            parent=self,
+        )
+        worker.frame_received.connect(self._on_lsl_collector_frame)
+        worker.status_changed.connect(self._on_lsl_collector_status)
+        worker.error_occurred.connect(self._on_lsl_collector_error)
+        worker.recording_stopped.connect(self._on_lsl_collection_stopped)
+        self._lsl_collector_worker = worker
+        self._lsl_collector_waveform_paused = False
+        self._lsl_collector_status = "正在连接LSL EEG流…"
+        worker.start()
+        self.update()
+
+    def _stop_lsl_collection(self) -> None:
+        worker = self._lsl_collector_worker
+        if worker is not None and worker.isRunning():
+            worker.stop()
+        elif self._lsl_collector_recorder.is_recording:
+            self._lsl_collector_recorder.stop()
+        self._lsl_collector_status = "LSL收集已停止"
+        self.update()
+
+    def _toggle_lsl_collector_waveform(self) -> None:
+        self._lsl_collector_waveform_paused = not self._lsl_collector_waveform_paused
+        self._notify(
+            "已暂停LSL波形，CSV仍持续保存"
+            if self._lsl_collector_waveform_paused
+            else "已恢复LSL波形"
+        )
+        self.update()
+
+    def _open_lsl_collector_directory(self) -> None:
+        directory = self._lsl_collector_recorder.output_dir
+        directory.mkdir(parents=True, exist_ok=True)
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory))):
+            self._notify(f"无法自动打开目录：{directory}")
+
+    def _on_lsl_collector_frame(self, frame: EEGFrame) -> None:
+        if len(self._lsl_collector_history) != len(frame.samples):
+            self._lsl_collector_history = [deque(maxlen=1250) for _ in frame.samples]
+        if not self._lsl_collector_waveform_paused:
+            for history, values in zip(self._lsl_collector_history, frame.samples):
+                history.extend(float(value) for value in values)
+        self._lsl_collector_channel_names = tuple(frame.channel_names)
+        self._lsl_collector_sample_rate = float(frame.sample_rate_hz)
+        self.update()
+
+    def _on_lsl_collector_status(self, status: str) -> None:
+        self._lsl_collector_status = status
+        self._lsl_collector_events.appendleft(f"{datetime.now():%H:%M:%S}  {status}")
+        self.update()
+
+    def _on_lsl_collector_error(self, error: str) -> None:
+        self._lsl_collector_events.appendleft(f"{datetime.now():%H:%M:%S}  ERROR  {error}")
+        self.update()
+
+    def _on_lsl_collection_stopped(self, path: str, sample_count: int) -> None:
+        message = f"LSL收集结束：{sample_count}个样本"
+        if path:
+            message += f" · {path}"
+        self._lsl_collector_events.appendleft(f"{datetime.now():%H:%M:%S}  {message}")
+        self._lsl_collector_status = message
+        self.update()
+
     def _choose_csv_replay(self) -> None:
         selector = getattr(self.eeg_stream, "select_csv", None)
         if not callable(selector):
@@ -617,7 +818,7 @@ class MainView(
             return
         source = self._pipeline_worker.source_name
         if source.startswith("CSV"):
-            self._notify("当前是 CSV 回放；原始采集请先在“采集”页切换到实时 LSL")
+            self._notify("当前是 CSV 回放；原始采集请先在“采集”页连接真实设备")
             return
         subject_id = self.user.uid or self.user.username if self.user is not None else ""
         self._raw_csv_recorder.start(
@@ -673,6 +874,9 @@ class MainView(
             self._pipeline_worker.set_continuous_recording(False)
         if self._pipeline_worker is not None and self._pipeline_worker.isRunning():
             self._pipeline_worker.stop()
+        if self._lsl_collector_worker is not None and self._lsl_collector_worker.isRunning():
+            self._lsl_collector_worker.stop()
+        self._lsl_outlet.stop()
 
     def _on_eeg_frame(self, frame: EEGFrame) -> None:
         if len(self._eeg_history) != len(frame.samples):
@@ -683,6 +887,14 @@ class MainView(
         self._eeg_sample_rate = frame.sample_rate_hz
         self._eeg_channel_names = tuple(frame.channel_names)
         self._eeg_channel_units = tuple(frame.channel_units)
+        if self._lsl_outlet.active:
+            try:
+                self._lsl_outlet.push_frame(frame)
+            except Exception as exc:
+                self._lsl_outlet.stop()
+                self._eeg_events.appendleft(
+                    f"{datetime.now():%H:%M:%S}  ERROR  LSL输出已停止：{exc}"
+                )
         if self._raw_csv_recorder.is_recording:
             try:
                 self._raw_csv_recorder.append(frame)

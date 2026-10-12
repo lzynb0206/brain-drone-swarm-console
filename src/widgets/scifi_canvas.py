@@ -124,14 +124,15 @@ class Canvas:
             self.p.drawLine(QPointF(35, 25 + offset), QPointF(46, 19 + offset))
         self.text(56, 10, 170, 36, "脑控无人机蜂群作战系统", 13, TEXT, True)
         items = [
-            ("采集", 242), ("实验", 308), ("范式", 374), ("算法", 440),
-            ("控制", 506), ("映射", 572), ("数据", 638), ("采集器", 704), ("帮助", 772),
+            ("采集", 238, 54), ("LSL收集", 294, 78), ("实验", 374, 54),
+            ("范式", 430, 54), ("算法", 486, 54), ("控制", 542, 54),
+            ("映射", 598, 54), ("数据", 654, 54), ("帮助", 724, 54),
         ]
-        for name, x in items:
+        for name, x, width in items:
             if name == active:
-                self.rect(x - 11, 0, 61, 56, "#111c31", "#78ddec", 2)
-                self.line(x - 10, 53, x + 49, 53, RED, 2)
-            self.text(x, 0, 38, 54, name, 13, TEXT if name == active else MUTED,
+                self.rect(x, 0, width, 56, "#111c31", "#78ddec", 2)
+                self.line(x, 53, x + width, 53, RED, 2)
+            self.text(x, 0, width, 54, name, 12, TEXT if name == active else MUTED,
                       name == active, Qt.AlignCenter)
         self.circle(1038, 27, 17, "#ef4d3e")
         self.text(1023, 10, 30, 33, "⏻", 17, TEXT, False, Qt.AlignCenter)

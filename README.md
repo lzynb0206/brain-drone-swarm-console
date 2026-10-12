@@ -17,8 +17,8 @@
 - Flow Deck V1/V2 与 AI Deck 参数检测；AI Deck 摄像头数据尚未接入。
 - 飞行安全门控：实时遥测、3.2V 低电压提示、Flow 下视距离/光流质量和串行命令队列。
 - 脑控执行默认关闭；只允许实时硬件或 LSL 数据源，且同一意图连续确认两次并经过冷却后提交。
-- 科研导航新增“采集器”：按照 ExpandableEEG 说明书，以 Cyton 兼容板、8通道、250 Hz 直接连接蓝牙虚拟 COM/串口；同页完成设备搜索、开始/停止、最近5秒波形、实际采样率、丢包/日志、暂停绘图和 CSV 自动保存。BrainFlow 与 pyserial 已列为正式运行依赖。
-- 科研端移植 OpenBCI GUI v6 `ControlPanel.pde` 的五数据源状态布局：Cyton、Ganglion、Playback、Synthetic、Streaming，以及各自的 Serial/WiFi/Bluetooth、通道数、采样率、Session Data 和 BrainFlow Streamer 分支；Session 后进入 Time Series + FFT + Accelerometer 三面板。
+- 科研导航按真实数据链拆成三个连续页面：`采集`用 BrainFlow 直连 ExpandableEEG 的蓝牙虚拟 COM/串口（固定8通道、250 Hz），显示 Time Series、FFT、Accelerometer/质量状态，并可从 Networking 开启 LSL 输出；`LSL收集`独立接收 EEG 流、显示波形/时间戳质量并保存 CSV；`实验`专门回放 CSV。
+- `采集`页采用 OpenBCI GUI 的 System Control Panel 与 Time Series + FFT + Accelerometer 结构，但只保留本项目实际使用的 Cyton 兼容配置，避免实验人员误选 Ganglion、Synthetic 或 Playback。
 - “实验”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
 - `start-1.csv` 与 LSL采集上位机 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
@@ -274,7 +274,7 @@ src/services/
 QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
 ```
 
-当前测试集包含 104 项测试，覆盖 Spring REST 登录客户端、BrainFlow直连、CSV/LSL、OpenBCI 控制面板状态、六频 FBCCA、
+当前测试集包含 106 项测试，覆盖 Spring REST 登录客户端、BrainFlow直连、CSV/LSL、OpenBCI 控制面板状态、六频 FBCCA、
 刺激测频、信号质量、实验记录、Flow/Lighthouse 安全门控、编队、独立角色 QWidget、
 工作台服务组合和界面交互。详细运行方法见
 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。
