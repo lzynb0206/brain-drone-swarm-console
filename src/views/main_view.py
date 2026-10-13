@@ -15,6 +15,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetricsF, QPainter
 from PySide6.QtWidgets import QFileDialog, QLabel, QMessageBox, QInputDialog, QStackedWidget, QWidget
 from src.bci.preprocessing import assess_signal_quality
+from src.bci.config import SSVEP_CHANNEL_NAMES, WINDOW_SECONDS, DECISION_STEP_SECONDS
 from src.domain import EEGFrame, EEGStreamDescriptor, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services import (
@@ -67,6 +68,11 @@ class MainView(
         self.system_monitor = system_monitor
         self.engineer_data_provider = engineer_data_provider
         self.actions = WorkbenchService(swarm_gateway, system_monitor, experiment_recorder)
+        active_decoder = str(getattr(intent_decoder, "active_name", "")).strip()
+        if active_decoder:
+            self.actions.algorithm = active_decoder
+            self.actions.default_algorithm = active_decoder
+            self.actions.loaded_algorithms.add(active_decoder)
         self.user: User | None = None
         self.research_page = "采集"
         self.acquisition_stage = "setup"
@@ -81,7 +87,7 @@ class MainView(
         self._toast_scroll_started = 0.0
         self._eeg_history = [deque(maxlen=360) for _ in range(8)]
         self._eeg_sample_rate = 0.0
-        self._eeg_channel_names: tuple[str, ...] = tuple(f"CH{i + 1}" for i in range(8))
+        self._eeg_channel_names: tuple[str, ...] = tuple(SSVEP_CHANNEL_NAMES)
         self._eeg_channel_units: tuple[str, ...] = tuple("" for _ in range(8))
         self._eeg_quality: dict[str, object] = {}
         self._eeg_health: dict[str, object] = {}
@@ -239,7 +245,12 @@ class MainView(
         if self.eeg_stream is None or self.intent_decoder is None or self.experiment_recorder is None:
             return
         worker = EEGWorker(
-            self.eeg_stream, self.intent_decoder, self.experiment_recorder, parent=self,
+            self.eeg_stream,
+            self.intent_decoder,
+            self.experiment_recorder,
+            window_seconds=WINDOW_SECONDS,
+            decision_step_seconds=DECISION_STEP_SECONDS,
+            parent=self,
         )
         worker.frame_received.connect(self._on_eeg_frame)
         worker.recognition_received.connect(self._on_recognition)
@@ -310,7 +321,7 @@ class MainView(
                     return
             self._eeg_history = [deque(maxlen=1250) for _ in range(8)]
             self._eeg_sample_rate = 0.0
-            self._eeg_channel_names = tuple(f"CH{index + 1}" for index in range(8))
+            self._eeg_channel_names = tuple(SSVEP_CHANNEL_NAMES)
             self._eeg_channel_units = ("uV",) * 8
             self._eeg_health = {}
             self._latest_recognition = None
@@ -507,7 +518,7 @@ class MainView(
                     self._notify(f"切换LSL输入失败：{exc}")
                     return
         self._eeg_history = [deque(maxlen=1250) for _ in range(8)]
-        self._eeg_channel_names = tuple(f"CH{index + 1}" for index in range(8))
+        self._eeg_channel_names = tuple(SSVEP_CHANNEL_NAMES)
         self._eeg_channel_units = ("uV",) * 8
         self._eeg_health = {}
         self._collector_waveform_paused = False
@@ -909,8 +920,10 @@ class MainView(
     def _on_recognition(self, result: IntentResult) -> None:
         self._latest_recognition = result
         label = result.label if result.accepted else f"候选{result.label}（拒绝）"
+        decoder_name = str(getattr(self.intent_decoder, "active_name", "EEG解码"))
         self._eeg_events.appendleft(
-            f"{datetime.now():%H:%M:%S}  FBCCA {label}  分数 {result.best_score:.3f}  差值 {result.margin:.3f}"
+            f"{datetime.now():%H:%M:%S}  {decoder_name} {label}  "
+            f"分数 {result.best_score:.3f}  差值 {result.margin:.3f}"
         )
         if self.actions.is_single_uav_mission(result):
             self._handle_single_uav_mission(result)
@@ -919,11 +932,40 @@ class MainView(
 
         source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
         command_message = self.actions.handle_intent(
-            result.label, result.accepted, source, result.frequency_hz,
+            result.label,
+            result.accepted,
+            source,
+            result.frequency_hz,
+            safety_verified=result.safety_verified,
         )
         if command_message:
             self._eeg_events.appendleft(command_message)
         self.update()
+
+    def _activate_selected_decoder(self) -> str:
+        """Activate the selected UI algorithm in the live decoder manager."""
+
+        selector = getattr(self.intent_decoder, "select", None)
+        if callable(selector):
+            try:
+                message = str(selector(self.actions.algorithm))
+            except Exception as exc:
+                return f"算法未加载：{exc}"
+            self.actions.load_algorithm()
+            return message
+        return self.actions.load_algorithm()
+
+    def _set_default_selected_decoder(self) -> str:
+        message = self._activate_selected_decoder()
+        if message.startswith("算法未加载"):
+            return message
+        return self.actions.set_default_algorithm()
+
+    def _unload_selected_decoder(self) -> str:
+        active = str(getattr(self.intent_decoder, "active_name", "")).strip()
+        if active and active == self.actions.algorithm:
+            return "运行中的解码器不能卸载，请先加载另一个可用算法"
+        return self.actions.unload_algorithm()
 
     def _run_simulated_structured_mission(self) -> None:
         """Inject the hand-written FBCCA-style result into the normal mission path."""

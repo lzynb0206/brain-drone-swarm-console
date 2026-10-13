@@ -62,6 +62,7 @@ class ExperimentRecorder:
         start_time: str = "",
         sample_timestamps=(),
         channel_names=(),
+        original_channel_names=(),
         channel_units=(),
         paradigm_type: str = "SSVEP",
         log_recognition: bool = True,
@@ -75,6 +76,12 @@ class ExperimentRecorder:
             raise ValueError("Raw EEG trial contains NaN or Inf")
         timestamps = self._validated_timestamps(sample_timestamps, data.shape[1])
         names = self._normalized_labels(channel_names, data.shape[0], "CH")
+        original_values = tuple(
+            () if original_channel_names is None else original_channel_names
+        )
+        original_names = self._normalized_labels(
+            original_values or names, data.shape[0], "CH"
+        )
         units = self._normalized_labels(channel_units, data.shape[0], "")
 
         timestamp = datetime.now().astimezone().isoformat(timespec="milliseconds")
@@ -105,6 +112,7 @@ class ExperimentRecorder:
                     "signal_quality": result.signal_quality,
                     "paradigm_type": str(paradigm_type),
                     "channel_names": list(names),
+                    "original_channel_names": list(original_names),
                     "channel_units": list(units),
                 }
                 np.savez_compressed(
@@ -118,6 +126,7 @@ class ExperimentRecorder:
                     signal_quality=np.asarray(quality_json),
                     sample_timestamps=timestamps,
                     channel_names=np.asarray(names),
+                    original_channel_names=np.asarray(original_names),
                     channel_units=np.asarray(units),
                     paradigm_type=np.asarray(str(paradigm_type)),
                     metadata=np.asarray(json.dumps(metadata, ensure_ascii=False)),
@@ -208,6 +217,7 @@ class ExperimentRecorder:
         started_at: str,
         sample_timestamps=(),
         channel_names=(),
+        original_channel_names=(),
         channel_units=(),
     ) -> str:
         """Persist one bounded continuous EEG chunk and append its searchable index row."""
@@ -219,6 +229,12 @@ class ExperimentRecorder:
             raise ValueError("Continuous EEG chunk contains NaN or Inf")
         timestamps = self._validated_timestamps(sample_timestamps, data.shape[1])
         names = self._normalized_labels(channel_names, data.shape[0], "CH")
+        original_values = tuple(
+            () if original_channel_names is None else original_channel_names
+        )
+        original_names = self._normalized_labels(
+            original_values or names, data.shape[0], "CH"
+        )
         units = self._normalized_labels(channel_units, data.shape[0], "")
         safe_session = re.sub(r"[^0-9A-Za-z_.-]+", "_", session_id or "session")
         session_path = self.continuous_dir / safe_session
@@ -235,6 +251,7 @@ class ExperimentRecorder:
             started_at=np.asarray(started_at),
             sample_timestamps=timestamps,
             channel_names=np.asarray(names),
+            original_channel_names=np.asarray(original_names),
             channel_units=np.asarray(units),
         )
         relative = str(path.relative_to(self.root))

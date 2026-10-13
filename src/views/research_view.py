@@ -6,7 +6,12 @@ import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
-from src.bci.config import SSVEP_PROFILE_NAME, TARGET_FREQUENCIES_HZ
+from src.bci.config import (
+    DECISION_STEP_SECONDS,
+    SSVEP_PROFILE_NAME,
+    TARGET_FREQUENCIES_HZ,
+    WINDOW_SECONDS,
+)
 from src.widgets.scifi_canvas import (
     BG, BLUE, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas,
 )
@@ -679,7 +684,8 @@ class ResearchViewMixin:
         c.text(946, 333, 290, 30, state, 18, "#2d8a57" if is_csv else "#bd4b4b", True)
         c.text(946, 380, 290, 19, "范式 / 解码", 9, sub, True)
         mode = self.actions.paradigm_type
-        decoder = "FBCCA（仅 SSVEP）" if mode == "SSVEP" else "运动想象：仅回放和标注"
+        active_decoder = str(getattr(self.intent_decoder, "active_name", "FBCCA"))
+        decoder = f"{active_decoder}（仅 SSVEP）" if mode == "SSVEP" else "运动想象：仅回放和标注"
         c.text(946, 402, 290, 44, f"{mode}\n{decoder}", 11, ink)
         c.line(946, 463, 1244, 463, border)
         if self._latest_recognition is None:
@@ -968,7 +974,6 @@ class ResearchViewMixin:
             self._hit(656, 515, 180, 38, "paradigm-start")
 
     def _research_algorithm(self, c: Canvas) -> None:
-        # This build intentionally uses only the non-trained FBCCA path.
         c.rect(48, 104, 1184, 69, PANEL, BORDER, 3)
         c.text(66, 116, 92, 40, "当前算法:", 14, TEXT)
         c.button(158, 121, 191, 36, self.actions.algorithm)
@@ -981,9 +986,13 @@ class ResearchViewMixin:
             self._hit(x, 116, 101, 46, f"algorithm-mode:{label}")
             x += 101
         c.rect(48, 189, 1184, 171, PANEL, BORDER, 3)
-        metadata = [("名称:", "纯 FBCCA", 73, 207), ("类型:", "无训练模型", 356, 207),
+        transformer_selected = self.actions.algorithm == "Transformer-SSVEP"
+        selected_name = "Transformer-SSVEP" if transformer_selected else "纯 FBCCA"
+        selected_type = "监督训练模型" if transformer_selected else "无训练模型"
+        metadata = [("名称:", selected_name, 73, 207), ("类型:", selected_type, 356, 207),
                     ("数据源:", "硬件 / LSL / CSV", 640, 207), ("准确率:", "待真实标签评估", 922, 207),
-                    ("识别窗:", "4秒", 73, 256), ("更新步长:", "1秒", 356, 256),
+                    ("识别窗:", f"{WINDOW_SECONDS:g}秒", 73, 256),
+                    ("更新步长:", f"{DECISION_STEP_SECONDS:g}秒", 356, 256),
                     ("频率配置:", SSVEP_PROFILE_NAME, 640, 256)]
         for label, value, x, y in metadata:
             c.text(x, y, 86, 38, label, 14, TEXT)
@@ -991,18 +1000,22 @@ class ResearchViewMixin:
         c.line(73, 310, 1207, 310, "#283752")
         c.rect(48, 376, 1184, 295, PANEL, BORDER, 3)
         c.text(73, 394, 200, 37, "算法库", 17, TEXT, True)
-        algorithms = ["FBCCA"]
+        algorithms = ["FBCCA", "Transformer-SSVEP"]
+        status_reader = getattr(self.intent_decoder, "algorithm_statuses", None)
+        statuses = status_reader() if callable(status_reader) else {}
         for i, name in enumerate(algorithms):
-            x = 73 + i * 144
+            x = 73 + i * 176
             selected = name == self.actions.algorithm
             loaded = name in self.actions.loaded_algorithms
             default = name == self.actions.default_algorithm
-            c.rect(x, 441, 128, 96, "#17243a", BLUE if selected else "#2b3a55", 3, 2 if selected else 1)
-            c.text(x, 452, 128, 37, name, 14, TEXT, True, Qt.AlignCenter)
-            c.rect(x + 36, 504, 32, 16, GREEN if loaded else "#526078", None, 8)
-            c.circle(x + 61 if loaded else x + 45, 512, 5, TEXT)
-            c.circle(x + 84, 512, 8, YELLOW if default else "#2b3954")
-            self._hit(x, 441, 128, 96, f"algorithm-select:{name}")
+            available = bool(statuses.get(name, {}).get("available", name == "FBCCA"))
+            c.rect(x, 441, 160, 96, "#17243a", BLUE if selected else "#2b3a55", 3, 2 if selected else 1)
+            c.text(x, 452, 160, 37, name, 13, TEXT, True, Qt.AlignCenter)
+            c.rect(x + 47, 504, 32, 16, GREEN if loaded else "#526078", None, 8)
+            c.circle(x + 72 if loaded else x + 56, 512, 5, TEXT)
+            c.circle(x + 98, 512, 8, YELLOW if default else "#2b3954")
+            c.circle(x + 124, 512, 7, CYAN if available else RED)
+            self._hit(x, 441, 160, 96, f"algorithm-select:{name}")
         labels = [("加载算法", 73, 569, 112), ("卸载算法", 201, 569, 114),
                   ("设为默认", 331, 569, 114), ("性能基准测试", 461, 569, 146)]
         for i, (label, x, y, w) in enumerate(labels):
@@ -1123,7 +1136,7 @@ class ResearchViewMixin:
         stats = self.experiment_recorder.stats() if self.experiment_recorder is not None else {"recognitions": 0, "labeled_trials": 0}
         c.rect(335, 557, 880, 116, "#0c1628", "#263752", 3)
         c.text(355, 567, 840, 27, f"识别日志：{stats['recognitions']} 条    带真实标签试次：{stats['labeled_trials']} 条", 13, TEXT, True)
-        c.text(355, 599, 840, 23, "点击右上角“添加标签”后，将重新采集并保存连续 4 秒带标签 EEG。", 12, CYAN)
+        c.text(355, 599, 840, 23, "添加标签后保存：SSVEP连续2秒；MI连续4秒。", 12, CYAN)
         log_path = str(self.experiment_recorder.recognition_log_path) if self.experiment_recorder is not None else "未配置"
         c.text(355, 630, 840, 22, f"识别日志：{log_path}", 10, MUTED)
 

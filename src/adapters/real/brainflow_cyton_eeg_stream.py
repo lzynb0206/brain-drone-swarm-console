@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from src.bci.config import SSVEP_CHANNEL_NAMES
 from src.domain import EEGFrame
 
 
@@ -47,6 +48,7 @@ class BrainFlowCytonEEGStream:
         params_factory: Callable[[], Any] | None = None,
         board_api: Any | None = None,
         port_lister: Callable[[], list[Any]] | None = None,
+        channel_names: tuple[str, ...] = SSVEP_CHANNEL_NAMES,
     ) -> None:
         self.serial_port = str(serial_port)
         self.frame_size = max(1, int(frame_size))
@@ -54,6 +56,9 @@ class BrainFlowCytonEEGStream:
         self._params_factory = params_factory
         self._board_api = board_api
         self._port_lister = port_lister
+        self.channel_names = tuple(str(value) for value in channel_names)
+        if len(self.channel_names) != 8 or any(not value.strip() for value in self.channel_names):
+            raise ValueError("Cyton direct acquisition requires exactly 8 non-empty channel names")
         self._board: Any | None = None
         self._eeg_channels: tuple[int, ...] = ()
         self._timestamp_channel = -1
@@ -201,7 +206,7 @@ class BrainFlowCytonEEGStream:
         return EEGFrame(
             timestamp=timestamps[-1],
             sample_rate_hz=self.sample_rate_hz,
-            channel_names=tuple(f"CH{index + 1}" for index in range(8)),
+            channel_names=self.channel_names,
             samples=tuple(tuple(float(value) for value in row) for row in eeg),
             sample_timestamps=timestamps,
             channel_units=("uV",) * 8,
@@ -230,8 +235,10 @@ class BrainFlowCytonEEGStream:
             "gap_count": self._gap_count,
             "max_gap_seconds": self._max_gap_seconds,
             "non_monotonic_timestamps": self._non_monotonic_timestamps,
-            "channel_names": tuple(f"CH{index + 1}" for index in range(8)),
+            "channel_names": self.channel_names,
             "channel_units": ("uV",) * 8,
+            "reference": "SRB2/A1",
+            "bias": "BIAS/A2",
         }
 
     def _extract_timestamps(self, data: np.ndarray, sample_count: int) -> tuple[float, ...]:

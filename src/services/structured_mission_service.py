@@ -50,7 +50,7 @@ class StructuredMissionService:
 
         "A": TargetPoint("A", "A点观察区", Position(1.0 / 3.0, 0.5 / 3.0, 0.2)),
         "B": TargetPoint("B","B点作战区", Position(1, 1, 0.4)),
-        "C": TargetPoint("C","C点作战区", Position(1, 1, 0.4)),
+        "C": TargetPoint("C","C点作战区", Position(1, 2, 0.5)),
     }
     # 3. 当解码结果只有 label、没有结构化字段时使用的语义映射。
     TASK_POLICIES: Mapping[str, MissionPolicy] = {

@@ -252,7 +252,8 @@ class SoldierViewMixin:
                       "manual-stick-direction")
         confidence = self._latest_recognition.confidence if self._latest_recognition is not None else 0.0
         result_label = self._latest_recognition.label if self._latest_recognition is not None else "等待 EEG"
-        c.text(456, 603, 280, 30, f"FBCCA：{result_label}", 13, MUTED)
+        decoder_name = str(getattr(self.intent_decoder, "active_name", "EEG解码"))
+        c.text(456, 603, 280, 30, f"{decoder_name}：{result_label}", 13, MUTED)
         c.line(448, 653, 448 + 350 * max(0.0, min(1.0, confidence)), 653, "#63a9e9", 7)
         c.line(448 + 350 * max(0.0, min(1.0, confidence)), 653, 798, 653, "#35425a", 6)
         c.text(806, 628, 100, 51, f"置信度\n{confidence * 100:.1f}%", 14, TEXT, True)

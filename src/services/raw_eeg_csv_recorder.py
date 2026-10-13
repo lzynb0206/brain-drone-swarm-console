@@ -30,6 +30,8 @@ class RawEEGCsvRecorder:
         self._writer: csv.writer | None = None
         self._path: Path | None = None
         self._channel_names: tuple[str, ...] = ()
+        self._original_channel_names: tuple[str, ...] = ()
+        self._channel_units: tuple[str, ...] = ()
         self._sample_rate_hz = 0.0
         self._sample_count = 0
         self._first_timestamp: float | None = None
@@ -61,6 +63,8 @@ class RawEEGCsvRecorder:
             self._first_timestamp = None
             self._last_timestamp = None
             self._channel_names = ()
+            self._original_channel_names = ()
+            self._channel_units = ()
             self._sample_rate_hz = 0.0
             self._path = None
             self._handle = None
@@ -135,7 +139,15 @@ class RawEEGCsvRecorder:
             supplied if len(supplied) == count
             else tuple(f"CH{index + 1}" for index in range(count))
         )
+        original = tuple(str(name).strip() for name in frame.original_channel_names)
+        self._original_channel_names = (
+            original if len(original) == count else self._channel_names
+        )
         self._sample_rate_hz = float(frame.sample_rate_hz)
+        supplied_units = tuple(str(unit).strip() for unit in frame.channel_units)
+        self._channel_units = (
+            supplied_units if len(supplied_units) == count else ("",) * count
+        )
         self._writer.writerow(
             ["sample_index", "lsl_timestamp", "elapsed_seconds", *self._channel_names]
         )
@@ -180,6 +192,8 @@ class RawEEGCsvRecorder:
             "subject_id": self._subject_id,
             "source": self._source,
             "channel_names": list(self._channel_names),
+            "original_channel_names": list(self._original_channel_names),
+            "channel_units": list(self._channel_units),
             "sample_rate_hz": self._sample_rate_hz,
             "sample_count": self._sample_count,
         }

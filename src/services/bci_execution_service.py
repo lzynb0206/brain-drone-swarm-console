@@ -57,6 +57,7 @@ class BCIExecutionService:
         accepted: bool,
         eeg_source: str,
         frequency_hz: float | None = None,
+        safety_verified: bool = False,
     ) -> str | None:
         if not self.enabled:
             return None
@@ -85,13 +86,17 @@ class BCIExecutionService:
         }.get(mapped_label)
         if action is None:
             return None
-        if mapped_label == self._pending_label:
-            self._pending_count += 1
+        if safety_verified:
+            self._pending_label = ""
+            self._pending_count = 0
         else:
-            self._pending_label = mapped_label
-            self._pending_count = 1
-        if self._pending_count < 2:
-            return self._record(f"脑控候选待二次确认：{mapped_label}")
+            if mapped_label == self._pending_label:
+                self._pending_count += 1
+            else:
+                self._pending_label = mapped_label
+                self._pending_count = 1
+            if self._pending_count < 2:
+                return self._record(f"脑控候选待二次确认：{mapped_label}")
         now = time.monotonic()
         if now - self._last_command_time < 2.5:
             return None

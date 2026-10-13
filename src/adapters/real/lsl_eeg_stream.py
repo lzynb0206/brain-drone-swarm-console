@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import time
 from collections import deque
 from typing import Any, Callable, Iterable
 
+from src.bci.config import SSVEP_CHANNEL_NAMES
 from src.domain import EEGFrame, EEGStreamDescriptor
 
 
@@ -42,6 +44,7 @@ class LSLEEGStream:
         self._known_streams: dict[str, Any] = {}
         self._channel_count = 0
         self._channel_names: tuple[str, ...] = ()
+        self._original_channel_names: tuple[str, ...] = ()
         self._channel_units: tuple[str, ...] = ()
         self._source_id = ""
         self._uid = ""
@@ -124,9 +127,10 @@ class LSLEEGStream:
             )
         self.nominal_sample_rate_hz = descriptor.nominal_sample_rate_hz or 250.0
         self.sample_rate_hz = self.nominal_sample_rate_hz
-        self._channel_names = descriptor.channel_names or tuple(
+        self._original_channel_names = descriptor.channel_names or tuple(
             f"CH{i + 1}" for i in range(self._channel_count)
         )
+        self._channel_names = self._configured_montage_names(self._original_channel_names)
         self._channel_units = descriptor.channel_units or tuple("" for _ in self._channel_names)
         self._source_id = descriptor.source_id
         self._uid = descriptor.uid
@@ -183,6 +187,7 @@ class LSLEEGStream:
             sample_timestamps=sample_timestamps,
             channel_units=self._channel_units,
             source_id=self._source_id,
+            original_channel_names=self._original_channel_names,
         )
 
     def health_snapshot(self) -> dict[str, object]:
@@ -200,6 +205,7 @@ class LSLEEGStream:
             "gap_count": self._gap_count,
             "max_gap_seconds": self._max_gap_seconds,
             "channel_names": self._channel_names,
+            "original_channel_names": self._original_channel_names,
             "channel_units": self._channel_units,
         }
 
@@ -290,6 +296,23 @@ class LSLEEGStream:
     @staticmethod
     def _stream_key(name: str, source_id: str) -> str:
         return f"{name}\0{source_id}"
+
+    @staticmethod
+    def _configured_montage_names(names: tuple[str, ...]) -> tuple[str, ...]:
+        """Map only unambiguous generic 8-channel labels to the fixed montage."""
+
+        if len(names) != len(SSVEP_CHANNEL_NAMES):
+            return names
+        generic_patterns = (
+            re.compile(r"CH\d+"),
+            re.compile(r"CHANNEL\d+"),
+            re.compile(r"EEG\d+"),
+            re.compile(r"EXGCHANNEL\d+"),
+        )
+        compact = [re.sub(r"[^A-Z0-9]", "", name.upper()) for name in names]
+        if all(any(pattern.fullmatch(name) for pattern in generic_patterns) for name in compact):
+            return tuple(SSVEP_CHANNEL_NAMES)
+        return names
 
     def _calibrated_sample_rate(self) -> float | None:
         if len(self._timestamps) < 64:

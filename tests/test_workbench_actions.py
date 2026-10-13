@@ -90,6 +90,36 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertIn("只有实时 LSL", message)
         self.assertFalse(self.service.bci_control_enabled)
 
+    def test_decoder_verified_intent_is_not_double_gated_by_execution_service(self) -> None:
+        self.gateway.connect()
+        self.gateway.arm()
+        self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
+        before = len(self.gateway.command_log)
+
+        self.service.handle_intent(
+            "起飞",
+            True,
+            "LSL · obci_eeg1",
+            safety_verified=True,
+        )
+
+        self.assertEqual(before + 1, len(self.gateway.command_log))
+        self.assertEqual("takeoff", self.gateway.command_log[-1].action)
+
+    def test_legacy_decoder_intent_still_requires_execution_confirmation(self) -> None:
+        self.gateway.connect()
+        self.gateway.arm()
+        self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
+        before = len(self.gateway.command_log)
+
+        first = self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
+        self.assertIn("二次确认", first)
+        self.assertEqual(before, len(self.gateway.command_log))
+        self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
+
+        self.assertEqual(before + 1, len(self.gateway.command_log))
+        self.assertEqual("takeoff", self.gateway.command_log[-1].action)
+
     def test_command_audit_correlates_submission_and_completion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             gateway = MockSwarmGateway()

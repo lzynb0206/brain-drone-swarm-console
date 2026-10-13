@@ -38,7 +38,7 @@ class RuntimeEngineerDataProvider:
             ]
         data = {
             "target": [("目标识别服务", "未接入", "等待真实模型/数据接口")],
-            "decoder": [("FBCCA", "已接入", "4秒窗口；仅接受安全门控结果"),
+            "decoder": [("FBCCA / Transformer-SSVEP", "已接入", "2秒窗口；0.25秒更新"),
                         ("EEG 数据源", "在线" if getattr(self.eeg_stream, "connected", False) else "离线",
                          str(getattr(self.eeg_stream, "source_name", "未配置")))],
             "coordination": [("蜂群命令队列", status.state, "已解锁" if status.armed else "已锁定")],

@@ -202,8 +202,15 @@ class WorkbenchService:
     def handle_intent(
         self, label: str, accepted: bool, eeg_source: str,
         frequency_hz: float | None = None,
+        safety_verified: bool = False,
     ) -> str | None:
-        return self.bci.handle(label, accepted, eeg_source, frequency_hz)
+        return self.bci.handle(
+            label,
+            accepted,
+            eeg_source,
+            frequency_hz,
+            safety_verified=safety_verified,
+        )
 
     def run_self_test(self) -> str:
         return self.admin.run_self_test()

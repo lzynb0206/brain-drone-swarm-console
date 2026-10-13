@@ -74,7 +74,11 @@ class ResearchWorkbenchService:
         return self._record(f"默认算法已设为 {self.algorithm}")
 
     def benchmark_algorithm(self) -> str:
-        return self._record("FBCCA 为无训练解码器；请使用带真实标签的试次统计准确率")
+        if self.algorithm == "Transformer-SSVEP":
+            return self._record(
+                "Transformer基准应按会话划分，并报告准确率、空闲误触发率和触发延迟"
+            )
+        return self._record("FBCCA 为无训练解码器；请使用同一批带标签试次作为基线")
 
     def apply_controller(self) -> str:
         values = ", ".join(

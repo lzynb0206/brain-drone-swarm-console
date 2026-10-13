@@ -104,6 +104,9 @@ class EEGFrame:
     sample_timestamps: tuple[float, ...] = ()
     channel_units: tuple[str, ...] = ()
     source_id: str = ""
+    # When a generic LSL label (for example CH1 or EXG Channel 0) is mapped to
+    # the configured montage, retain the source label for audit/reproducibility.
+    original_channel_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -148,6 +151,10 @@ class IntentResult:
     observe_seconds: float = 0.0
     return_policy: str = ""
     landing_policy: str = ""
+    # True only when a decoder-side temporal gate has already accumulated the
+    # required independent/window evidence.  The execution service uses this
+    # to avoid applying its legacy two-confirmation gate a second time.
+    safety_verified: bool = False
 
     @property
     def prediction(self) -> str | None:

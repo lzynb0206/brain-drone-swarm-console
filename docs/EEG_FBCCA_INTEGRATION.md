@@ -1,4 +1,4 @@
-# OpenBCI、LSL、EEG、运动想象与 FBCCA 接入说明
+# OpenBCI、LSL、EEG、运动想象与 SSVEP 解码接入说明
 
 ## 当前数据链
 
@@ -7,9 +7,9 @@ ExpandableEEG蓝牙虚拟COM/串口 → BrainFlow Cyton驱动（直接采集，�
 或 OpenBCI GUI → LSL EEG（兼容模式）
 或 start-1.csv / 已保存的 lsl_raw_*.csv
         ↓ EEGStream
-后台 QThread（连续分块录制、刺激同步试次、4 秒滑动窗）
+后台 QThread（连续分块录制、刺激同步试次、SSVEP 2秒滑动窗）
         ↓
-质量检测 → 纯 NumPy FBCCA / 可选 FB-EEGNet → 意图安全阈值
+质量检测 → FBCCA / Transformer-SSVEP → 意图安全阈值与连续窗口门控
         ↓
 科研界面 + lsl_raw_*.csv + recognition_log.csv + raw_trials/*.npz
         ↓ 仅在实时硬件/LSL、安全条件满足且人工开启时
@@ -59,7 +59,7 @@ OpenBCI GUI，也不需要先转成 LSL。
 - 在白色 OpenBCI 风格运行页同时查看 `Time Series / FFT Plot / Accelerometer`，并切换 `Focus / Networking / Packet Loss / Hardware`；
 - 查看通道标签、实际采样率、逐通道信号质量和时间戳连续性；
 - 从 Networking 开关标准 `name=obci_eeg1, type=EEG` 的 LSL 广播；
-- 给下一段 4 秒试次添加真实标签。
+- 给下一段 SSVEP 2秒试次或 MI 4秒试次添加真实标签。
 
 `Hardware` 页按说明书展示 ADS1299 的 PGA Gain、Input Type、Bias、SRB2 和 SRB1。
 旧的 `Hardware` 页仍只展示 ADS1299 参数，不会伪造通道命令下发结果。当前直接采集后端负责
@@ -110,7 +110,7 @@ BDS_EEG_BACKEND=lsl BDS_LSL_STREAM_NAME="实际流名" python main.py
 程序优先按 `name` 查找，失败后按 `type=EEG` 查找，也可以在科研采集中心搜索并选择。
 采集和推理都在后台线程，
 不会阻塞 Qt 主线程。LSL 时间戳用于估计实际采样率；开始全屏刺激试次时，
-采集线程会先清空 inlet 历史缓存，再收集新的 4 秒数据。
+采集线程会先清空 inlet 历史缓存，再收集新的 SSVEP 2秒数据。
 
 CSV 适配器同时支持两种格式：原有纯通道 CSV，以及 LSL采集上位机生成的
 `sample_index, lsl_timestamp, elapsed_seconds, <各通道>` 格式。后一种会保留原始
@@ -151,7 +151,7 @@ PsychoPy/Pygame 双份界面，避免维护三套不同的频率配置。
 ```text
 data/
 ├── csv_sessions/       # 一次采集对应一个完整 LSL 兼容 CSV 和 JSON 元数据
-├── raw_trials/          # 4 秒带真实标签 EEG
+├── raw_trials/          # SSVEP 2秒 / MI 4秒带真实标签 EEG
 ├── continuous_raw/      # 长时间录制的 10 秒分块
 ├── sessions/            # 会话、试次索引、刺激事件标记
 ├── recognition_logs/    # 识别与硬件命令执行日志
@@ -164,10 +164,10 @@ data/
 - `data/csv_sessions/lsl_raw_*.csv`：完整原始采集，列为 `sample_index, lsl_timestamp, elapsed_seconds, <各通道>`；同名 JSON 保存会话、被试、来源、采样率和通道元数据。
 - `data/continuous_raw/*.npz`：10 秒原始分块及对应逐样本时间戳和通道元数据。
 - `data/sessions/*.json`：会话元数据；`raw_trials_index.csv` 为试次索引。
-- `data/recognition_logs/recognition_log.csv`：每次 FBCCA 识别、置信度、margin 和门控结果。
+- `data/recognition_logs/recognition_log.csv`：每次 EEG 解码、置信度、margin 和门控结果。
 - `data/exports/`：保留给后续训练/验证集导出。
 
-点击科研界面右上角“添加标签”后，程序从点击后的新数据开始采满连续 4 秒，标签只应用于该独立试次。没有人工标签
+点击科研界面右上角“添加标签”后，程序从点击后的新数据开始采满连续 SSVEP 2秒或 MI 4秒，标签只应用于该独立试次。没有人工标签
 时仍会写识别日志，但不会伪造真实标签，也不会保存成有标签训练试次。
 
 PostgreSQL 当前仍只用于账号系统。后续实验元数据接口只保存上述元数据和

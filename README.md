@@ -22,9 +22,12 @@
 - “实验”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
 - `start-1.csv` 与 LSL采集上位机 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
-- 纯 FBCCA 六频实时识别；包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
+- 纯 FBCCA 六频基线，以及可训练的 Transformer-SSVEP：2秒/250 Hz八通道输入、
+  频谱分片、自注意力分类、0.60置信度、连续双窗口确认和0.50秒冷却。
+- 解码器可在科研“算法”页真实切换；缺少 Transformer 权重时明确拒绝加载，不静默伪装。
+- 包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
 - 可选 FB-EEGNet 训练/验证/实时推理；没有匹配权重时自动保留真实 FBCCA，不伪造模型结果。
-- 识别日志、命令提交/完成/失败日志、连续原始 EEG 分块，以及包含真实标签和质量信息的同步 4 秒 `.npz` 试次。
+- 识别日志、命令提交/完成/失败日志、连续原始 EEG 分块，以及包含真实标签和质量信息的同步 SSVEP 2秒/MI 4秒 `.npz` 试次。
 
 尚待现场或外部团队提供的能力：
 
@@ -41,9 +44,9 @@
 ```text
 ExpandableEEG/Cyton（BrainFlow直连） / LSL / CSV
     ↓
-EEGWorker（后台采集、窗口化、记录）
+EEGWorker（后台采集、2秒窗口化、记录）
     ↓
-FBCCA / 可选 FB-EEGNet → IntentSafetyService → BCIExecutionService
+FBCCA / Transformer-SSVEP → 连续窗口安全门 → BCIExecutionService
                                                ↓
 角色 QWidget → WorkbenchService 兼容门面 → SwarmControlService
                                                ↓
@@ -186,7 +189,23 @@ Hover 使用 Crazyflie 官方 Hover setpoint：持续发送机体系 `vx/vy`、�
 - “停止电机”会立即停止当前控制流，属于可恢复的异常处置；确认安全后可以重新启动操控。
 - “紧急停止”是锁存式安全动作，不能当作普通降落使用；触发后需要给无人机断电重启，再在软件中复位并重新连接。
 
-### 训练并启用 FB-EEGNet
+### 训练并启用 Transformer-SSVEP
+
+完整通道表、训练命令、安全门和实验限制见
+[Transformer-SSVEP复现说明](docs/TRANSFORMER_SSVEP_REPRODUCTION.md)。
+
+```bash
+python -m pip install -r requirements-ml.txt
+python -m src.ml.train_transformer_ssvep \
+  --index data/sessions/raw_trials_index.csv \
+  --split-mode session
+```
+
+训练输出 `models/transformer_ssvep.pt` 和
+`models/transformer_ssvep_metadata.json`。随后可在科研“算法”页加载，或使用
+`BDS_INTENT_DECODER=transformer python main.py` 显式启用。
+
+### 训练并启用旧版 FB-EEGNet
 
 采集每个类别（含“空闲”）的足量真实试次后：
 
@@ -215,14 +234,14 @@ BDS_FB_EEGNET_ENABLED=true python main.py
 brain-drone-swarm-console/
 ├── main.py                       # 桌面端启动入口
 ├── requirements.txt              # 基础运行依赖
-├── requirements-ml.txt           # FB-EEGNet 训练/推理额外依赖
+├── requirements-ml.txt           # Transformer/FB-EEGNet 训练与推理依赖
 ├── .env.example                  # 环境变量模板
 ├── src/
 │   ├── app.py                    # 登录页与主工作台切换
 │   ├── container.py              # 真实/Mock 实现装配入口
 │   ├── domain/                   # 与 Qt、硬件无关的数据模型
 │   ├── ports/                    # EEG、蜂群、认证、监控等稳定接口
-│   ├── bci/                      # SSVEP 配置、预处理、FBCCA、刺激测量
+│   ├── bci/                      # SSVEP 配置、FBCCA、Transformer适配与安全门
 │   ├── ml/                       # FB-EEGNet 网络、预处理、训练和推理
 │   ├── adapters/
 │   │   ├── mock/                 # 自动化测试和显式离线演示
@@ -274,7 +293,7 @@ src/services/
 QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
 ```
 
-当前测试集包含 106 项测试，覆盖 Spring REST 登录客户端、BrainFlow直连、CSV/LSL、OpenBCI 控制面板状态、六频 FBCCA、
+当前自动化测试覆盖 Spring REST 登录客户端、BrainFlow直连、CSV/LSL、OpenBCI 控制面板状态、六频 FBCCA、Transformer安全门、
 刺激测频、信号质量、实验记录、Flow/Lighthouse 安全门控、编队、独立角色 QWidget、
 工作台服务组合和界面交互。详细运行方法见
 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。

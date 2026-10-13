@@ -1,4 +1,4 @@
-"""QThread worker for continuous EEG acquisition, windowing and FBCCA."""
+"""QThread worker for continuous EEG acquisition, windowing and decoding."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
+from src.bci.config import DECISION_STEP_SECONDS, WINDOW_SECONDS
 from src.bci.preprocessing import assess_signal_quality
 from src.domain import EEGFrame, IntentResult
 from src.ports import EEGStream, IntentDecoder
@@ -16,7 +17,7 @@ from src.services.experiment_recorder import ExperimentRecorder
 
 
 class EEGWorker(QThread):
-    """Read 32-sample frames and decode 4-second windows outside the Qt UI thread."""
+    """Read frames and decode sliding windows outside the Qt UI thread."""
 
     frame_received = Signal(object)
     recognition_received = Signal(object)
@@ -30,8 +31,8 @@ class EEGWorker(QThread):
         stream: EEGStream,
         decoder: IntentDecoder,
         recorder: ExperimentRecorder,
-        window_seconds: float = 4.0,
-        decision_step_seconds: float = 1.0,
+        window_seconds: float = WINDOW_SECONDS,
+        decision_step_seconds: float = DECISION_STEP_SECONDS,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -57,9 +58,10 @@ class EEGWorker(QThread):
         self._continuous_chunk_index = 0
         self._continuous_chunk_seconds = 10.0
         self._channel_names: tuple[str, ...] = ()
+        self._original_channel_names: tuple[str, ...] = ()
         self._channel_units: tuple[str, ...] = ()
         self._paradigm_type = "SSVEP"
-        self.setObjectName("EEG-Acquisition-FBCCA")
+        self.setObjectName("EEG-Acquisition-Decode")
 
     @property
     def source_name(self) -> str:
@@ -156,6 +158,9 @@ class EEGWorker(QThread):
                 continue
             frame_timestamps = self._frame_timestamps(frame, values.shape[1])
             self._channel_names = tuple(frame.channel_names)
+            self._original_channel_names = tuple(
+                frame.original_channel_names or frame.channel_names
+            )
             self._channel_units = tuple(frame.channel_units)
             if buffer is None or buffer.shape[0] != values.shape[0]:
                 buffer = values
@@ -164,14 +169,19 @@ class EEGWorker(QThread):
                 buffer = np.concatenate((buffer, values), axis=1)
                 samples_since_decision += values.shape[1]
             window_samples = max(100, round(frame.sample_rate_hz * self.window_seconds))
+            with self._state_lock:
+                paradigm_type = self._paradigm_type
+            labeled_window_samples = (
+                max(100, round(frame.sample_rate_hz * 4.0))
+                if paradigm_type != "SSVEP"
+                else window_samples
+            )
             self._collect_continuous(values, frame_timestamps, frame.sample_rate_hz)
             self._collect_labeled_trial(
-                values, frame_timestamps, frame.sample_rate_hz, window_samples,
+                values, frame_timestamps, frame.sample_rate_hz, labeled_window_samples,
             )
             if buffer.shape[1] > window_samples:
                 buffer = buffer[:, -window_samples:]
-            with self._state_lock:
-                paradigm_type = self._paradigm_type
             if paradigm_type != "SSVEP":
                 continue
             step_samples = max(1, round(frame.sample_rate_hz * self.decision_step_seconds))
@@ -188,10 +198,13 @@ class EEGWorker(QThread):
                 self.recorder.record(
                     result, window, source=self.source_name, subject_id=subject_id,
                     session_id=session_id, start_time=start_time,
+                    channel_names=self._channel_names,
+                    original_channel_names=self._original_channel_names,
+                    channel_units=self._channel_units,
                 )
                 self.recognition_received.emit(result)
             except Exception as exc:
-                self.error_occurred.emit(f"FBCCA/保存失败：{exc}")
+                self.error_occurred.emit(f"EEG解码/保存失败：{exc}")
         self._flush_continuous(0.0)
 
     def _apply_pending_stimulus(
@@ -213,6 +226,9 @@ class EEGWorker(QThread):
         with self._state_lock:
             self._pending_true_label = label
             self._capture_generation += 1
+        reset_decoder = getattr(self.decoder, "reset", None)
+        if callable(reset_decoder):
+            reset_decoder()
         subject_id, session_id = self._experiment_context()
         self.recorder.record_marker(
             "stimulus_capture_started",
@@ -276,6 +292,7 @@ class EEGWorker(QThread):
             self._continuous_started_at,
             sample_timestamps=timestamps,
             channel_names=self._channel_names,
+            original_channel_names=self._original_channel_names,
             channel_units=self._channel_units,
         )
         self._continuous_chunk_index += 1
@@ -340,6 +357,7 @@ class EEGWorker(QThread):
             self._labeled_start_time,
             sample_timestamps=labeled_timestamps,
             channel_names=self._channel_names,
+            original_channel_names=self._original_channel_names,
             channel_units=self._channel_units,
             paradigm_type=paradigm_type,
             log_recognition=paradigm_type == "SSVEP",

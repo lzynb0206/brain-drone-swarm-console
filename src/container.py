@@ -29,7 +29,7 @@ from src.adapters.mock import (
     MockSwarmGateway,
     MockSystemMonitor,
 )
-from src.bci import FBCCADecoder
+from src.bci import ConsecutiveWindowGate, FBCCADecoder, RuntimeIntentDecoder
 from src.bci.config import (
     EEG_BACKEND,
     EEG_CSV_PATH,
@@ -42,6 +42,12 @@ from src.bci.config import (
     FB_EEGNET_ENABLED,
     FB_EEGNET_METADATA_PATH,
     FB_EEGNET_MODEL_PATH,
+    INTENT_DECODER,
+    TRANSFORMER_COOLDOWN_SECONDS,
+    TRANSFORMER_METADATA_PATH,
+    TRANSFORMER_MIN_CONFIDENCE,
+    TRANSFORMER_MODEL_PATH,
+    TRANSFORMER_REQUIRED_WINDOWS,
 )
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services.auth_service import AuthService
@@ -133,15 +139,45 @@ def create_default_container() -> ApplicationContainer:
         )
     system_monitor = RealSystemMonitor()
     engineer_data_provider = RuntimeEngineerDataProvider(eeg_stream, swarm_gateway)
-    intent_decoder: IntentDecoder = FBCCADecoder()
+    baseline_decoder: IntentDecoder = FBCCADecoder()
     if FB_EEGNET_ENABLED:
         from src.bci.hybrid_decoder import HybridIntentDecoder
         from src.ml.predictor import FBEEGNetPredictor
 
-        intent_decoder = HybridIntentDecoder(
+        baseline_decoder = HybridIntentDecoder(
             FBEEGNetPredictor(FB_EEGNET_MODEL_PATH, FB_EEGNET_METADATA_PATH),
-            intent_decoder,
+            baseline_decoder,
         )
+    from src.bci.transformer_decoder import TransformerIntentDecoder
+    from src.ml.transformer_predictor import TransformerSSVEPPredictor
+
+    transformer_decoder = ConsecutiveWindowGate(
+        TransformerIntentDecoder(
+            TransformerSSVEPPredictor(
+                TRANSFORMER_MODEL_PATH,
+                TRANSFORMER_METADATA_PATH,
+            )
+        ),
+        min_confidence=TRANSFORMER_MIN_CONFIDENCE,
+        required_windows=TRANSFORMER_REQUIRED_WINDOWS,
+        cooldown_seconds=TRANSFORMER_COOLDOWN_SECONDS,
+    )
+    decoder_aliases = {
+        "fbcca": "FBCCA",
+        "transformer": "Transformer-SSVEP",
+        "transformer-ssvep": "Transformer-SSVEP",
+    }
+    if INTENT_DECODER not in decoder_aliases:
+        raise ValueError(
+            "BDS_INTENT_DECODER must be one of: fbcca, transformer, transformer-ssvep"
+        )
+    intent_decoder: IntentDecoder = RuntimeIntentDecoder(
+        {
+            "FBCCA": baseline_decoder,
+            "Transformer-SSVEP": transformer_decoder,
+        },
+        initial=decoder_aliases[INTENT_DECODER],
+    )
 
     return ApplicationContainer(
         auth_service=AuthService(auth_gateway),

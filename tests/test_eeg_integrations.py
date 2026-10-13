@@ -15,7 +15,12 @@ from src.adapters.real import (
     SerialDeviceDescriptor,
 )
 from src.bci import FBCCADecoder
-from src.bci.config import COMMANDS, FB_EEGNET_ENABLED, TARGET_FREQUENCIES_HZ
+from src.bci.config import (
+    COMMANDS,
+    FB_EEGNET_ENABLED,
+    SSVEP_CHANNEL_NAMES,
+    TARGET_FREQUENCIES_HZ,
+)
 from src.domain import EEGFrame, IntentResult
 from src.services import ExperimentRecorder, LSLEEGOutlet, RawEEGCsvRecorder
 from src.workers import EEGWorker
@@ -103,6 +108,8 @@ class RawEEGCsvRecorderTest(unittest.TestCase):
         )
         self.assertEqual(["0", "10.0", "0.0", "1.0", "3.0"], rows[1])
         self.assertIn('"sample_count": 2', metadata)
+        self.assertIn('"channel_units": [', metadata)
+        self.assertIn('"original_channel_names": [', metadata)
 
 
 class LSLEEGOutletTest(unittest.TestCase):
@@ -209,6 +216,7 @@ class ExperimentRecorderTest(unittest.TestCase):
             self.assertEqual("S01", str(payload["subject_id"]))
             self.assertEqual((1000,), payload["sample_timestamps"].shape)
             self.assertEqual("EEG1", str(payload["channel_names"][0]))
+            self.assertEqual("EEG1", str(payload["original_channel_names"][0]))
             self.assertEqual("uV", str(payload["channel_units"][0]))
             self.assertTrue((Path(directory) / "sessions" / "session-1.json").is_file())
         self.assertEqual({"recognitions": 2, "labeled_trials": 1}, stats)
@@ -254,6 +262,15 @@ class _FakeInlet:
 
 
 class LSLEEGStreamTest(unittest.TestCase):
+    def test_maps_only_generic_eight_channel_labels_to_fixed_ssvep_montage(self) -> None:
+        generic = tuple(f"EXG Channel {index}" for index in range(8))
+        named = ("C3", "C4", "Cz", "P3", "P4", "O1", "Oz", "O2")
+        self.assertEqual(
+            SSVEP_CHANNEL_NAMES,
+            LSLEEGStream._configured_montage_names(generic),
+        )
+        self.assertEqual(named, LSLEEGStream._configured_montage_names(named))
+
     def test_wraps_lsl_samples_in_common_frame_contract(self) -> None:
         resolver = lambda *_args, **_kwargs: [object()]
         stream = LSLEEGStream(expected_channel_count=2, resolver=resolver, inlet_factory=_FakeInlet)
@@ -390,6 +407,7 @@ class BrainFlowCytonEEGStreamTest(unittest.TestCase):
         self.assertEqual((0.0, 1.0, 2.0, 3.0), frame.samples[0])
         self.assertEqual((10.0, 10.004, 10.008, 10.012), frame.sample_timestamps)
         self.assertEqual(("uV",) * 8, frame.channel_units)
+        self.assertEqual(SSVEP_CHANNEL_NAMES, frame.channel_names)
         self.assertEqual(4, health["total_samples"])
         self.assertTrue(boards[0].released)
 

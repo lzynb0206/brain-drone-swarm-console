@@ -1,4 +1,4 @@
-"""Shared settings for CSV replay, LSL acquisition and FBCCA decoding."""
+"""Shared settings for acquisition and SSVEP decoding."""
 
 from __future__ import annotations
 
@@ -16,6 +16,11 @@ TRUE_LABELS = ("空闲",) + COMMANDS
 MI_TRUE_LABELS = ("静息", "想象左手", "想象右手", "想象双脚")
 LABEL_TO_FREQUENCY = dict(zip(COMMANDS, TARGET_FREQUENCIES_HZ))
 
+# 第三篇论文所用的枕区/顶枕区八通道顺序。硬件、LSL metadata、训练 metadata
+# 必须保持相同顺序，代码不会尝试从无标签的 CH1..CH8 猜测电极位置。
+SSVEP_CHANNEL_NAMES = ("O1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "P4")
+SSVEP_CHANNELS_1BASED = tuple(range(1, len(SSVEP_CHANNEL_NAMES) + 1))
+
 # 没有新的带标签训练集、权重和 metadata 前必须保持关闭。
 FB_EEGNET_ENABLED = os.getenv("BDS_FB_EEGNET_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 FB_EEGNET_MODEL_PATH = Path(
@@ -25,11 +30,27 @@ FB_EEGNET_METADATA_PATH = Path(
     os.getenv("BDS_FB_EEGNET_METADATA", str(PROJECT_ROOT / "models" / "fb_eegnet_metadata.json"))
 ).expanduser()
 
+INTENT_DECODER = os.getenv("BDS_INTENT_DECODER", "fbcca").strip().lower()
+TRANSFORMER_MODEL_PATH = Path(
+    os.getenv(
+        "BDS_TRANSFORMER_MODEL",
+        str(PROJECT_ROOT / "models" / "transformer_ssvep.pt"),
+    )
+).expanduser()
+TRANSFORMER_METADATA_PATH = Path(
+    os.getenv(
+        "BDS_TRANSFORMER_METADATA",
+        str(PROJECT_ROOT / "models" / "transformer_ssvep_metadata.json"),
+    )
+).expanduser()
+TRANSFORMER_MIN_CONFIDENCE = float(os.getenv("BDS_TRANSFORMER_MIN_CONFIDENCE", "0.60"))
+TRANSFORMER_REQUIRED_WINDOWS = int(os.getenv("BDS_TRANSFORMER_REQUIRED_WINDOWS", "2"))
+TRANSFORMER_COOLDOWN_SECONDS = float(os.getenv("BDS_TRANSFORMER_COOLDOWN_SECONDS", "0.50"))
+
 SAMPLE_RATE_HZ = float(os.getenv("BDS_EEG_SAMPLE_RATE", "250"))
 FRAME_SIZE = int(os.getenv("BDS_EEG_FRAME_SIZE", "32"))
-WINDOW_SECONDS = float(os.getenv("BDS_EEG_WINDOW_SECONDS", "4"))
-DECISION_STEP_SECONDS = float(os.getenv("BDS_EEG_DECISION_STEP_SECONDS", "1"))
-SSVEP_CHANNELS_1BASED = (2, 7)
+WINDOW_SECONDS = float(os.getenv("BDS_EEG_WINDOW_SECONDS", "2"))
+DECISION_STEP_SECONDS = float(os.getenv("BDS_EEG_DECISION_STEP_SECONDS", "0.25"))
 
 FBCCA_MIN_SCORE = float(os.getenv("BDS_FBCCA_MIN_SCORE", "0.06"))
 FBCCA_MIN_MARGIN = float(os.getenv("BDS_FBCCA_MIN_MARGIN", "0.01"))

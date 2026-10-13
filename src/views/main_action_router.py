@@ -164,11 +164,11 @@ class MainActionRouterMixin:
             self.actions.algorithm_mode = action.split(":", 1)[1]
             self._notify(f"算法模式已切换：{self.actions.algorithm_mode}")
         elif action == "algorithm-load":
-            self._notify(self.actions.load_algorithm())
+            self._notify(self._activate_selected_decoder())
         elif action == "algorithm-unload":
-            self._notify(self.actions.unload_algorithm())
+            self._notify(self._unload_selected_decoder())
         elif action == "algorithm-default":
-            self._notify(self.actions.set_default_algorithm())
+            self._notify(self._set_default_selected_decoder())
         elif action == "algorithm-benchmark":
             self._notify(self.actions.benchmark_algorithm())
         elif action.startswith("controller-select:"):
