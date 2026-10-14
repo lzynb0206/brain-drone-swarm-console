@@ -24,7 +24,7 @@
 | 当前证据 | 已有价值 | 论文前需要补的内容 |
 |---|---|---|
 | `src/domain/models.py` 的 `IntentResult` 已有 `scores`、`confidence`、`margin`、任务字段 | 可以扩展结构化意图，已有多候选原始信息 | 概率校准、空闲/无控制状态、窗口起止、序列号、意图有效期、校准版本 |
-| `src/services/single_uav_mission_service.py:155` 使用 `aircraft[0]` | 单机高层任务能生成执行步骤 | 从固定第一架改成显式分配结果；增加多任务池及任务生命周期 |
+| `src/services/structured_mission_service.py` 使用 `aircraft[0]` | 单机高层任务能生成执行步骤 | 从固定第一架改成显式分配结果；增加多任务池及任务生命周期 |
 | 单机任务默认目标为 A，支持 GOTO/INSPECT、驻留、返航、降落 | 已有任务语义与动作分解 | 扩展配置化 A/B/C/D 目标，不必马上加入自然语言模型 |
 | 单机规划生成直线插值航点，执行步骤主要发出 `move_relative` | 无障碍基础任务可复用 | 路径几何、坐标系、实际执行轨迹和到达条件需要一致 |
 | `src/services/formation_service.py:45` 已调用匈牙利算法 | 已经有标准匹配算法代码可复用 | 编队槽位匹配不是动态巡检任务调度；不能把“首次使用匈牙利”列为创新 |

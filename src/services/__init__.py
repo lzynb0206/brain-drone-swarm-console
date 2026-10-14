@@ -13,8 +13,7 @@ from src.services.intent_safety_service import IntentSafetyDecision, IntentSafet
 from src.services.lsl_eeg_outlet import LSLEEGOutlet
 from src.services.raw_eeg_csv_recorder import RawEEGCsvRecorder
 from src.services.research_workbench_service import ResearchWorkbenchService
-from src.services.single_uav_mission_service import MissionPlanningError, SingleUAVMissionService
-from src.services.structured_mission_service import StructuredMissionService
+from src.services.structured_mission_service import MissionPlanningError, StructuredMissionService
 from src.services.swarm_control_service import SwarmControlService
 from src.services.ssvep_experiment_protocol import (
     AutomaticExperimentConfig,
@@ -30,7 +29,7 @@ __all__ = [
     "AdminOperationsService", "BCIExecutionService", "ExperimentClock", "ExperimentMarkerOutlet",
     "ExperimentRecorder", "ExperimentTimestamp",
     "IntentSafetyDecision", "IntentSafetyService", "LSLEEGOutlet", "MappingEntry", "MissionPlanningError",
-    "RawEEGCsvRecorder", "ResearchWorkbenchService", "SingleUAVMissionService", "StructuredMissionService",
+    "RawEEGCsvRecorder", "ResearchWorkbenchService", "StructuredMissionService",
     "SwarmControlService", "WorkbenchExportService", "WorkbenchService",
     "AutomaticExperimentConfig", "AutomaticExperimentProtocol", "ExperimentPhase",
     "ExperimentTrial", "ProtocolTransition", "build_balanced_trial_plan",

@@ -57,6 +57,7 @@ src/
 ├── bci/                     # 六频配置、质量检测、FBCCA、混合解码
 ├── ml/                      # FB-EEGNet 训练、评估和可选推理
 ├── workers/                 # EEG 后台采集、同步试次和连续录制
+├── controllers/             # Qt工作流控制器（独立LSL收集等）
 ├── services/                # 业务用例、实验记录和脑控安全
 ├── views/                   # PySide6页面
 ├── widgets/                 # 可复用面板、仪表、图表组件
@@ -66,13 +67,15 @@ src/
 ### 核心模块拆分
 
 - `adapters/real/crazyflie_swarm_gateway.py` 只保留应用侧蜂群状态机；配置与协议、
-  串行命令队列、遥测转换、安全参数校验、Flow/Lighthouse 控制循环和 cflib 连接
+  串行命令队列、遥测转换、安全参数校验、事件日志、编队状态转换、
+  Flow/Lighthouse 控制循环和 cflib 连接
   分别位于同目录的 `crazyflie_contracts.py`、`crazyflie_command_queue.py`、
-  `crazyflie_telemetry.py`、`crazyflie_safety.py`、`crazyflie_flow_control.py` 和
-  `crazyflie_cflib_backend.py`。
-- `WorkbenchService` 是兼容门面；科研配置、蜂群控制、脑控执行门控、管理员操作和
+  `crazyflie_telemetry.py`、`crazyflie_safety.py`、`crazyflie_event_journal.py`、
+  `crazyflie_formation_state.py`、`crazyflie_flow_control.py` 和 `crazyflie_cflib_backend.py`。
+- `WorkbenchService` 是应用门面；科研配置、蜂群控制、脑控执行门控、管理员操作和
   JSON 导出由独立服务实现。
-- `MainView` 负责生命周期与共享采集状态；科研、作战、管理员和工程画布页面是
+- `MainView` 负责生命周期与共享 EEG 管线；独立 LSL 收集由
+  `controllers/lsl_collection_controller.py` 管理。科研、作战、管理员和工程画布页面是
   `role_pages.py` 中的独立 `QWidget`，通过 Qt Signal 把语义动作交给主界面路由。
 
 ## 4. 各页面应该连接的接口

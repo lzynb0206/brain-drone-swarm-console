@@ -29,11 +29,7 @@ def main() -> int:
     window._show_main_view(User("researcher", "科研演示账号", Role.RESEARCHER))
     app.processEvents()
     window.grab().save(str(output_dir / "research-acquisition-setup.png"))
-    window.main_view._openbci_source = "CYTON"
-    window.main_view._openbci_transport = "Serial"
-    window.main_view._openbci_channel_count = 8
     window.main_view._openbci_sample_rate = 250
-    window.main_view._openbci_streamer_mode = "File"
     window.main_view.acquisition_stage = "runtime"
     window.main_view.acquisition_tab = "Dashboard"
     window.main_view.update()

@@ -60,8 +60,6 @@ class MainActionRouterMixin:
             self._start_automatic_ssvep_experiment()
         elif action == "soldier-ssvep-control":
             self._open_ssvep_control()
-        elif action == "lsl-refresh":
-            self._discover_lsl_streams()
         elif action.startswith("collector-source:"):
             self._select_collector_source(action.split(":", 1)[1])
         elif action == "collector-refresh":
@@ -86,68 +84,12 @@ class MainActionRouterMixin:
             self._toggle_lsl_collector_waveform()
         elif action == "lsl-collector-open-directory":
             self._open_lsl_collector_directory()
-        elif action == "eeg-connect":
-            self._prepare_openbci_session()
-        elif action == "eeg-disconnect":
-            self._disconnect_eeg_pipeline()
-            self._notify("EEG 数据源已断开")
         elif action == "openbci-start-session":
             self._prepare_openbci_session()
         elif action == "openbci-data-stream-toggle":
             self._toggle_openbci_data_stream()
         elif action == "openbci-control-panel":
             self._return_openbci_control_panel()
-        elif action.startswith("openbci-source:"):
-            self._openbci_source = action.split(":", 1)[1]
-            self._openbci_transport = "Serial" if self._openbci_source == "CYTON" else ""
-            self._openbci_ganglion_transport = "Native BLE"
-            self._openbci_channel_count = 4 if self._openbci_source == "GANGLION" else 8
-            self._openbci_sample_rate = 200 if self._openbci_source == "GANGLION" else 250
-            self._openbci_streamer_mode = (
-                "Network" if self._openbci_source == "SYNTHETIC" else "File"
-            )
-            self._openbci_status_message = f"Data source selected: {self._openbci_source}"
-            self.update()
-        elif action.startswith("openbci-transport:"):
-            self._openbci_transport = action.split(":", 1)[1]
-            self._openbci_status_message = f"Transfer protocol selected: {self._openbci_transport}"
-            self.update()
-        elif action.startswith("openbci-ganglion-transport:"):
-            self._openbci_ganglion_transport = action.split(":", 1)[1]
-            self._openbci_status_message = (
-                f"Transfer protocol selected: {self._openbci_ganglion_transport}"
-            )
-            self.update()
-        elif action.startswith("openbci-wifi-mode:"):
-            self._openbci_wifi_mode = action.split(":", 1)[1]
-            self.update()
-        elif action.startswith("openbci-streamer-mode:"):
-            self._openbci_streamer_mode = action.split(":", 1)[1]
-            self.update()
-        elif action.startswith("openbci-session-format:"):
-            self._openbci_session_format = action.split(":", 1)[1]
-            self.update()
-        elif action.startswith("openbci-board-type:"):
-            self._openbci_board_type = action.split(":", 1)[1]
-            self.update()
-        elif action.startswith("openbci-channel-count:"):
-            self._openbci_channel_count = int(action.rsplit(":", 1)[1])
-            self.update()
-        elif action.startswith("openbci-sample-rate:"):
-            self._openbci_sample_rate = int(action.rsplit(":", 1)[1])
-            self.update()
-        elif action == "openbci-playback-select":
-            self._choose_openbci_playback_file()
-        elif action == "openbci-generate-session":
-            self._generate_openbci_session_name()
-        elif action == "openbci-wifi-search":
-            self._openbci_status_message = "No Wifi Shield Found"
-            self._notify("尚未接入 BrainFlow WiFi Shield 搜索后端；未伪造设备结果")
-            self.update()
-        elif action == "openbci-ble-search":
-            self._openbci_status_message = "No Ganglion BLE device found"
-            self._notify("尚未接入 Ganglion BLE 搜索后端；未伪造设备结果")
-            self.update()
         elif action == "openbci-serial-autoconnect":
             self._discover_direct_devices()
         elif action == "openbci-guide":

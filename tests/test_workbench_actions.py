@@ -239,6 +239,17 @@ class MainViewActionRoutingTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.view.close()
 
+    @staticmethod
+    def _render_page(page, method_name: str) -> set[str]:
+        image = QImage(1280, 720, QImage.Format_ARGB32)
+        painter = QPainter(image)
+        page._regions = []
+        try:
+            getattr(page, method_name)(Canvas(painter, 1280, 720))
+        finally:
+            painter.end()
+        return {action for _rect, action in page._regions}
+
     def test_painted_control_actions_change_application_state(self) -> None:
         self.view._activate("paradigm-frequency:15")
         self.view._activate("algorithm-select:LSTM")
@@ -267,17 +278,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
     def test_acquisition_setup_keeps_primary_actions_available(self) -> None:
         self.view.acquisition_stage = "setup"
-        image = QImage(1280, 720, QImage.Format_ARGB32)
-        painter = QPainter(image)
-        try:
-            self.view._render_compat(
-                self.view.research_widget,
-                "_research_acquisition",
-                Canvas(painter, 1280, 720),
-            )
-        finally:
-            painter.end()
-        actions = {action for _rect, action in self.view._regions}
+        actions = self._render_page(self.view.research_widget, "_research_acquisition")
         self.assertIn("openbci-serial-autoconnect", actions)
         self.assertIn("openbci-start-session", actions)
         self.assertIn("openbci-guide", actions)
@@ -287,17 +288,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
         self.assertEqual("LSL收集", self.view.research_page)
 
-        image = QImage(1280, 720, QImage.Format_ARGB32)
-        painter = QPainter(image)
-        try:
-            self.view._render_compat(
-                self.view.research_widget,
-                "_research_lsl_collector",
-                Canvas(painter, 1280, 720),
-            )
-        finally:
-            painter.end()
-        actions = {action for _rect, action in self.view._regions}
+        actions = self._render_page(self.view.research_widget, "_research_lsl_collector")
         self.assertIn("lsl-collector-refresh", actions)
         self.assertIn("lsl-collector-start", actions)
         self.assertIn("lsl-collector-stop", actions)
@@ -305,32 +296,13 @@ class MainViewActionRoutingTest(unittest.TestCase):
     def test_acquisition_networking_is_an_lsl_output_not_input(self) -> None:
         self.view.acquisition_stage = "runtime"
         self.view.acquisition_tab = "LSL"
-        image = QImage(1280, 720, QImage.Format_ARGB32)
-        painter = QPainter(image)
-        try:
-            self.view._render_compat(
-                self.view.research_widget,
-                "_research_acquisition",
-                Canvas(painter, 1280, 720),
-            )
-        finally:
-            painter.end()
-        actions = {action for _rect, action in self.view._regions}
+        actions = self._render_page(self.view.research_widget, "_research_acquisition")
         self.assertIn("lsl-outlet-toggle", actions)
         self.assertNotIn("lsl-refresh", actions)
 
-    def test_openbci_control_panel_preserves_official_source_branches(self) -> None:
-        self.view._activate("openbci-source:GANGLION")
-        self.assertEqual("GANGLION", self.view._openbci_source)
-        self.assertEqual(4, self.view._openbci_channel_count)
-        self.assertEqual(200, self.view._openbci_sample_rate)
-        self.view._activate("openbci-ganglion-transport:WiFi")
-        self.assertEqual("WiFi", self.view._openbci_ganglion_transport)
-
-        self.view._activate("openbci-source:SYNTHETIC")
-        self.assertEqual("Network", self.view._openbci_streamer_mode)
-        self.view._activate("openbci-channel-count:16")
-        self.assertEqual(16, self.view._openbci_channel_count)
+    def test_acquisition_setup_uses_fixed_hardware_profile(self) -> None:
+        self.assertEqual(250, self.view._openbci_sample_rate)
+        self.assertEqual(8, len(self.view._hardware_channel_settings))
 
     def test_flight_stop_actions_are_routed_to_distinct_gateway_operations(self) -> None:
         self.view._activate("swarm-command:takeoff")
@@ -373,10 +345,11 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.view.resize(1280, 720)
         self.view.set_user(User("researcher", "测试科研员", Role.RESEARCHER))
         self.view.research_page = "算法"
+        self.view.actions.algorithm = "SVM"
         self.view.show()
         self.app.processEvents()
 
-        QTest.mouseClick(self.view, Qt.LeftButton, pos=QPoint(100, 485))
+        QTest.mouseClick(self.view.research_widget, Qt.LeftButton, pos=QPoint(100, 485))
 
         self.assertEqual("FBCCA", self.view.actions.algorithm)
 
@@ -386,11 +359,12 @@ class MainViewActionRoutingTest(unittest.TestCase):
         image = QImage(1280, 720, QImage.Format_ARGB32)
         painter = QPainter(image)
         try:
-            view._soldier_brain(Canvas(painter, 1280, 720))
+            view.soldier_widget._regions = []
+            view.soldier_widget._soldier_brain(Canvas(painter, 1280, 720))
         finally:
             painter.end()
             view.close()
-        self.assertGreaterEqual(len(view._regions), 10)
+        self.assertGreaterEqual(len(view.soldier_widget._regions), 10)
 
     def test_uri_dialog_cancel_returns_to_main_view(self) -> None:
         self.view._configure_swarm_uris_dialog()
@@ -456,12 +430,12 @@ class MainViewActionRoutingTest(unittest.TestCase):
         image = QImage(1280, 720, QImage.Format_ARGB32)
         painter = QPainter(image)
         try:
-            self.view._regions = []
-            self.view._soldier_brain(Canvas(painter, 1280, 720))
+            self.view.soldier_widget._regions = []
+            self.view.soldier_widget._soldier_brain(Canvas(painter, 1280, 720))
         finally:
             painter.end()
 
-        actions = [action for _rect, action in self.view._regions]
+        actions = [action for _rect, action in self.view.soldier_widget._regions]
         self.assertIn("mission-simulate", actions)
         # Lighthouse switching is deliberately unavailable until real height
         # and positioning telemetry confirm that the aircraft is airborne.
@@ -478,12 +452,12 @@ class MainViewActionRoutingTest(unittest.TestCase):
         image = QImage(1280, 720, QImage.Format_ARGB32)
         painter = QPainter(image)
         try:
-            self.view._regions = []
-            self.view._soldier_brain(Canvas(painter, 1280, 720))
+            self.view.soldier_widget._regions = []
+            self.view.soldier_widget._soldier_brain(Canvas(painter, 1280, 720))
         finally:
             painter.end()
 
-        actions = [action for _rect, action in self.view._regions]
+        actions = [action for _rect, action in self.view.soldier_widget._regions]
         self.assertIn("soldier-ssvep-control", actions)
 
     def test_soldier_ssvep_action_opens_operational_window(self) -> None:

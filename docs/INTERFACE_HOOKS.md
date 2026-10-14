@@ -25,17 +25,17 @@ XDF 文件读写必须放在 `QThread`、线程池或独立进程中，不能写
 | 界面 | 当前状态 | 真实接入内容 | 代码位置 |
 | --- | --- | --- | --- |
 | UI-01 登录 | Spring Boot + PostgreSQL 注册/登录；BCrypt 哈希；短期 JWT；Mock 可切换 | 补刷新令牌、管理员授权、登录限流、审计和密码重置邮件 | `LoginView`、`HttpAuthGateway`、`brain-drone-swarm-server` |
-| UI-02 作战地图 | Crazyflie 实时缓存；目标接口未接入 | 目标识别、避障、蜂群任务 | `MainView._soldier_combat`、`SwarmGateway` |
-| UI-03 脑控操作 | 单机连接、Flow Hover、双摇杆、降落/停电机/急停和受控脑控路径 | 实验室实机验收 | `MainView._soldier_brain`、`WorkbenchService`、`CrazyflieSwarmGateway` |
-| UI-04 士兵状态 | 固定指标 | EEG/EMG/心率/体温/血氧 LSL 流与告警 | `MainView._soldier_status` |
-| UI-05 实验台 | CSV/LSL、连续录制、刺激同步4秒试次、质量检测和识别日志 | 实验元数据API | `MainView._research_eeg`、`EEGWorker`、`ExperimentRecorder` |
+| UI-02 作战地图 | Crazyflie 实时缓存；目标接口未接入 | 目标识别、避障、蜂群任务 | `SoldierPage._soldier_combat`、`SwarmGateway` |
+| UI-03 脑控操作 | 单机连接、Flow Hover、双摇杆、降落/停电机/急停和受控脑控路径 | 实验室实机验收 | `SoldierPage._soldier_brain`、`WorkbenchService`、`CrazyflieSwarmGateway` |
+| UI-04 士兵状态 | 固定指标 | EEG/EMG/心率/体温/血氧 LSL 流与告警 | `SoldierPage._soldier_status` |
+| UI-05 实验台 | CSV/LSL、连续录制、刺激同步4秒试次、质量检测和识别日志 | 实验元数据API | `ResearchPage._research_replay`、`LSLCollectionController`、`EEGWorker`、`ExperimentRecorder` |
 | UI-06 范式配置 | 原生六频全屏刺激、快捷键、Marker、实测频率和频谱保存 | 多显示器/光电二极管现场校验 | `SSVEPStimulusWindow`、`StimulusSessionRecorder` |
 | UI-07 算法配置 | 纯FBCCA和可选FB-EEGNet训练/验证/推理 | 真实数据评估、模型审批和版本注册 | `src/bci/`、`src/ml/` |
-| UI-08 控制器配置 | 滑块、应用、保存和重置可操作 | PID/MPC 参数校验、应用、版本化保存 | `MainView._research_controller`、`WorkbenchService` |
-| UI-09 指令映射 | 六频映射可增删改并进入单机受控动作路径；Flow Deck 验收按钮已接网关 | 映射服务端持久化和版本审批 | `MainView._research_mapping`、`WorkbenchService` |
-| UI-10 数据工坊 | 会话、Marker、原始试次、连续分块和CSV/JSON索引 | 实验元数据PostgreSQL API | `MainView._research_data`、`ExperimentRecorder` |
+| UI-08 控制器配置 | 滑块、应用、保存和重置可操作 | PID/MPC 参数校验、应用、版本化保存 | `ResearchPage._research_controller`、`WorkbenchService` |
+| UI-09 指令映射 | 六频映射可增删改并进入单机受控动作路径；Flow Deck 验收按钮已接网关 | 映射服务端持久化和版本审批 | `ResearchPage._research_mapping`、`WorkbenchService` |
+| UI-10 数据工坊 | 会话、Marker、原始试次、连续分块和CSV/JSON索引 | 实验元数据PostgreSQL API | `ResearchPage._research_data`、`ExperimentRecorder` |
 | UI-11 工程监控 | 本机资源、适配器状态和 Crazyflie 日志 | GPU/链路吞吐量采集器 | `EngineerDashboard`、`RuntimeEngineerDataProvider`、`RealSystemMonitor` |
-| UI-12 管理后台 | 本地清理/备份状态可操作 | 设备、用户/RBAC、存储、备份服务 | `MainView._paint_admin`、`WorkbenchService` |
+| UI-12 管理后台 | 本地清理/备份状态可操作 | 设备、用户/RBAC、存储、备份服务 | `AdminPage._paint_admin`、`WorkbenchService` |
 | UI-13 系统诊断 | Qt 进度条、自检和算法侧50Hz质量指标 | 设备链路丢包/延迟和完整诊断服务 | `EngineerDashboard`、`SystemMonitor`、`assess_signal_quality` |
 
 ## 已存在的稳定接口

@@ -26,7 +26,7 @@ class LoginFlowTest(unittest.TestCase):
         login._attempt_login()
 
         self.assertIs(self.window.pages.currentWidget(), self.window.main_view)
-        self.assertIn("科研人员", self.window.main_view.user_label.text())
+        self.assertEqual("科研人员", self.window.main_view.user.role_label)
 
         self.window.main_view.logout_requested.emit()
         self.assertIs(self.window.pages.currentWidget(), login)

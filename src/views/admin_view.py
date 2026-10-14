@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 
-from src.widgets.scifi_canvas import (
-    BG, BLUE, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas,
-)
+from src.widgets.scifi_canvas import BLUE, BORDER, MUTED, PANEL, TEXT, Canvas
 
 
 class AdminViewMixin:
@@ -71,5 +69,4 @@ class AdminViewMixin:
             c.line(x, row_y + 44, x + w, row_y + 44, "#273752")
 
     # ---------- Engineering dashboard ----------
-
 

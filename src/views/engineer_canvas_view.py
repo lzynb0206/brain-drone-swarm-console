@@ -7,9 +7,7 @@ import math
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
-from src.widgets.scifi_canvas import (
-    BG, BLUE, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas,
-)
+from src.widgets.scifi_canvas import BLUE, BORDER, CYAN, GREEN, MUTED, RED, TEXT, YELLOW, Canvas
 
 
 class EngineerCanvasViewMixin:
@@ -130,5 +128,4 @@ class EngineerCanvasViewMixin:
         c.button(648, 674, 94, 31, "深度诊断", True, accent=CYAN)
 
     # ---------- Soldier/commander dashboards ----------
-
 

@@ -15,28 +15,41 @@ import numpy as np
 
 from src.bci.config import LABEL_TO_FREQUENCY
 from src.domain import IntentResult
+from src.services.experiment_record_schema import (
+    PHASE_NAMES,
+    RECOGNITION_FIELDS,
+    TRIAL_FIELDS,
+    append_csv,
+    canonical_phase,
+    csv_optional,
+    data_row_count,
+    json_from_array,
+    json_safe_dict,
+    normalized_labels,
+    optional_float,
+    optional_float_array,
+    phase_times_from_metadata,
+    safe_trial_id,
+    validated_timestamps,
+)
 
 
 class ExperimentRecorder:
-    RECOGNITION_FIELDS = (
-        "timestamp", "subject_id", "session_id", "source", "true_label",
-        "target_frequency_hz", "candidate_label", "prediction", "confidence",
-        "margin", "accepted", "reason", "sample_rate_hz", "sample_count",
-        "used_channels", "signal_quality_json", "scores_json", "raw_trial_id",
-        "raw_trial_path", "window_start_lsl_time", "window_end_lsl_time",
-        "window_duration_seconds", "clock_source",
-    )
-    TRIAL_FIELDS = (
-        "trial_id", "start_time", "subject_id", "session_id", "path", "true_label",
-        "target_frequency_hz", "candidate_label", "prediction", "confidence",
-        "margin", "accepted", "reason", "source", "sample_rate_hz", "channels",
-        "samples", "signal_quality_json", "block_id", "block_index", "trial_index",
-        "repetition", "random_seed", "cue_lsl_time", "stimulus_lsl_time",
-        "analysis_lsl_time", "rest_lsl_time", "window_start_lsl_time",
-        "window_end_lsl_time", "window_duration_seconds", "clock_source",
-        "trial_metadata_json",
-    )
-    PHASE_NAMES = ("cue", "stimulus", "analysis", "rest")
+    RECOGNITION_FIELDS = RECOGNITION_FIELDS
+    TRIAL_FIELDS = TRIAL_FIELDS
+    PHASE_NAMES = PHASE_NAMES
+    _append_csv = staticmethod(append_csv)
+    _canonical_phase = staticmethod(canonical_phase)
+    _phase_times_from_metadata = staticmethod(phase_times_from_metadata)
+    _optional_float = staticmethod(optional_float)
+    _optional_float_array = staticmethod(optional_float_array)
+    _csv_optional = staticmethod(csv_optional)
+    _safe_trial_id = staticmethod(safe_trial_id)
+    _json_safe_dict = staticmethod(json_safe_dict)
+    _json_from_array = staticmethod(json_from_array)
+    _validated_timestamps = staticmethod(validated_timestamps)
+    _normalized_labels = staticmethod(normalized_labels)
+    _data_row_count = staticmethod(data_row_count)
 
     def __init__(self, root: Path | str) -> None:
         self.root = Path(root).expanduser().resolve()
@@ -421,96 +434,6 @@ class ExperimentRecorder:
             path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         self._known_sessions.add(session_id)
 
-    @staticmethod
-    def _append_csv(path: Path, fields, row: dict) -> None:
-        fields = tuple(str(field) for field in fields)
-        exists = path.exists() and path.stat().st_size > 0
-        if exists:
-            with path.open("r", encoding="utf-8-sig", newline="") as handle:
-                reader = csv.DictReader(handle)
-                current_fields = tuple(reader.fieldnames or ())
-                previous_rows = list(reader) if current_fields != fields else []
-            if current_fields != fields:
-                temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-                with temporary.open("w", newline="", encoding="utf-8-sig") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
-                    writer.writeheader()
-                    writer.writerows(previous_rows)
-                temporary.replace(path)
-        with path.open("a", newline="", encoding="utf-8-sig") as handle:
-            writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
-            if not exists:
-                writer.writeheader()
-            writer.writerow(row)
-
-    @classmethod
-    def _canonical_phase(cls, value: str) -> str:
-        normalized = re.sub(r"[^a-z]+", "_", str(value).strip().lower()).strip("_")
-        tokens = set(normalized.split("_"))
-        for phase in cls.PHASE_NAMES:
-            if phase == normalized or phase in tokens:
-                return phase
-        return ""
-
-    @classmethod
-    def _phase_times_from_metadata(cls, metadata: Mapping[str, object]) -> dict[str, float]:
-        values: dict[str, float] = {}
-        nested = metadata.get("phase_timestamps_lsl", {})
-        if isinstance(nested, Mapping):
-            for phase in cls.PHASE_NAMES:
-                converted = cls._optional_float(nested.get(phase))
-                if converted is not None:
-                    values[phase] = converted
-        for phase in cls.PHASE_NAMES:
-            converted = cls._optional_float(metadata.get(f"{phase}_lsl_time"))
-            if converted is not None:
-                values[phase] = converted
-        return values
-
-    @staticmethod
-    def _optional_float(value: object) -> float | None:
-        if value is None or value == "":
-            return None
-        try:
-            converted = float(value)
-        except (TypeError, ValueError):
-            return None
-        return converted if np.isfinite(converted) else None
-
-    @classmethod
-    def _optional_float_array(cls, value: object) -> np.ndarray:
-        converted = cls._optional_float(value)
-        return np.asarray(np.nan if converted is None else converted, dtype=np.float64)
-
-    @classmethod
-    def _csv_optional(cls, value: object) -> str:
-        converted = cls._optional_float(value)
-        return "" if converted is None else f"{converted:.9f}"
-
-    @staticmethod
-    def _safe_trial_id(value: str) -> str:
-        safe = re.sub(r"[^0-9A-Za-z_.-]+", "_", str(value)).strip("._")[:160]
-        if not safe:
-            raise ValueError("Trial ID must contain at least one safe character")
-        return safe
-
-    @staticmethod
-    def _json_safe_dict(values: Mapping[str, object] | None) -> dict[str, object]:
-        if values is None:
-            return {}
-
-        def default(value: object) -> object:
-            item = getattr(value, "item", None)
-            if callable(item):
-                try:
-                    return item()
-                except (TypeError, ValueError):
-                    pass
-            return str(value)
-
-        encoded = json.dumps(dict(values), ensure_ascii=False, sort_keys=True, default=default)
-        return dict(json.loads(encoded))
-
     def _patch_trial_phase_locked(self, trial_id: str, phase: str, timestamp: float) -> None:
         """Backfill a late rest marker into an already-saved trial and index."""
 
@@ -576,48 +499,11 @@ class ExperimentRecorder:
             writer.writerows(rows)
         temporary.replace(path)
 
-    @staticmethod
-    def _json_from_array(value: np.ndarray | None) -> dict[str, object]:
-        if value is None:
-            return {}
-        try:
-            decoded = json.loads(str(np.asarray(value).item()))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return {}
-        return decoded if isinstance(decoded, dict) else {}
-
     def stats(self) -> dict[str, int]:
         return {
             "recognitions": self._data_row_count(self.recognition_log_path),
             "labeled_trials": self._data_row_count(self.raw_trial_index_path),
         }
-
-    @staticmethod
-    def _validated_timestamps(values, sample_count: int) -> np.ndarray:
-        timestamps = np.asarray(tuple(() if values is None else values), dtype=np.float64)
-        if timestamps.size not in (0, sample_count):
-            raise ValueError(
-                f"EEG sample timestamps must be empty or contain {sample_count} values"
-            )
-        if timestamps.size and not np.isfinite(timestamps).all():
-            raise ValueError("EEG sample timestamps contain NaN or Inf")
-        return timestamps
-
-    @staticmethod
-    def _normalized_labels(values, count: int, prefix: str) -> tuple[str, ...]:
-        labels = tuple(str(value) for value in (() if values is None else values))
-        if len(labels) == count:
-            return labels
-        if prefix:
-            return tuple(f"{prefix}{index + 1}" for index in range(count))
-        return tuple("" for _ in range(count))
-
-    @staticmethod
-    def _data_row_count(path: Path) -> int:
-        if not path.exists():
-            return 0
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            return max(0, sum(1 for _ in handle) - 1)
 
     def recent_trials(self, limit: int = 12) -> list[dict[str, str]]:
         if not self.raw_trial_index_path.exists():

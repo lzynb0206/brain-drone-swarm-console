@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetricsF, QPainter
-from PySide6.QtWidgets import QFileDialog, QLabel, QMessageBox, QInputDialog, QStackedWidget, QWidget
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QInputDialog, QStackedWidget, QWidget
 from src.bci.preprocessing import assess_signal_quality
 from src.bci.config import (
     DECISION_STEP_SECONDS,
@@ -22,6 +22,7 @@ from src.bci.config import (
     SSVEP_CHANNEL_NAMES,
     WINDOW_SECONDS,
 )
+from src.controllers import LSLCollectionController
 from src.domain import EEGFrame, EEGStreamDescriptor, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services import (
@@ -35,7 +36,7 @@ from src.views.engineer_dashboard import EngineerDashboard
 from src.views.main_action_router import MainActionRouterMixin
 from src.views.main_dialogs import MainDialogsMixin
 from src.views.role_pages import AdminPage, EngineerCanvasPage, ResearchPage, SoldierPage
-from src.workers import EEGLSLBridgeWorker, EEGWorker, LSLRecorderWorker
+from src.workers import EEGLSLBridgeWorker, EEGWorker
 from src.widgets.scifi_canvas import CYAN, TEXT, Canvas
 
 if TYPE_CHECKING:
@@ -54,7 +55,6 @@ class MainView(
 
     logout_requested = Signal()
     lsl_discovery_completed = Signal(object, str)
-    lsl_collector_discovery_completed = Signal(object, str)
 
     def __init__(
         self,
@@ -84,11 +84,9 @@ class MainView(
         self.research_page = "采集"
         self.acquisition_stage = "setup"
         self.acquisition_tab = "Dashboard"
-        self._openbci_session_name = f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
         self.engineer_page = "系统监控"
         self.soldier_root = "作战地图"
         self.soldier_page = "脑控"
-        self._regions: list[tuple[QRectF, str]] = []
         self._toast = ""
         self._toast_generation = 0
         self._toast_scroll_started = 0.0
@@ -125,7 +123,6 @@ class MainView(
             else Path.cwd() / "data" / "recordings" / "csv_sessions"
         )
         self._raw_csv_recorder = RawEEGCsvRecorder(csv_root)
-        self._lsl_collector_recorder = RawEEGCsvRecorder(csv_root)
         self._csv_replay_paused = False
         self._collector_source_mode = "direct"
         self._collector_selected_device = ""
@@ -133,33 +130,20 @@ class MainView(
         self._lsl_outlet = LSLEEGOutlet(
             source_id="brain-drone-swarm-console-expandable-eeg",
         )
-        self._lsl_collector_stream = None
+        lsl_collector_stream = None
         lsl_factory = getattr(self.eeg_stream, "create_lsl_receiver", None)
         if callable(lsl_factory):
             try:
-                self._lsl_collector_stream = lsl_factory()
+                lsl_collector_stream = lsl_factory()
             except Exception:
-                self._lsl_collector_stream = None
-        self._lsl_collector_worker: LSLRecorderWorker | None = None
-        self._lsl_collector_history = [deque(maxlen=1250) for _ in range(8)]
-        self._lsl_collector_channel_names = tuple(f"CH{index + 1}" for index in range(8))
-        self._lsl_collector_sample_rate = 0.0
-        self._lsl_collector_status = "未连接 LSL EEG 流"
-        self._lsl_collector_events: deque[str] = deque(maxlen=20)
-        self._lsl_collector_waveform_paused = False
-        self._lsl_collector_discovery_in_progress = False
-        self._openbci_source = "CYTON"
-        self._openbci_transport = "Serial"
-        self._openbci_ganglion_transport = "Native BLE"
-        self._openbci_wifi_mode = "Dynamic IP"
-        self._openbci_streamer_mode = "File"
-        self._openbci_session_format = "OpenBCI"
-        self._openbci_session_name = f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
-        self._openbci_playback_path = ""
-        self._openbci_board_type = "Cyton"
-        self._openbci_status_message = "Select your data source and transfer protocol."
-        self._openbci_ip = "192.168.4.1"
-        self._openbci_channel_count = 8
+                lsl_collector_stream = None
+        self.lsl_collector = LSLCollectionController(
+            lsl_collector_stream,
+            RawEEGCsvRecorder(csv_root),
+            self,
+        )
+        self.lsl_collector.changed.connect(self.update)
+        self.lsl_collector.notification_requested.connect(self._notify)
         self._openbci_sample_rate = 250
         self._hardware_channel_settings = [
             {"gain": "x24", "input": "Normal", "bias": "Yes", "srb2": "On", "srb1": "Off"}
@@ -191,12 +175,6 @@ class MainView(
             page.action_requested.connect(self._activate)
         self._build_eeg_worker()
         self.lsl_discovery_completed.connect(self._on_lsl_discovery_completed)
-        self.lsl_collector_discovery_completed.connect(
-            self._on_lsl_collector_discovery_completed
-        )
-        # Kept as a small compatibility surface for integrations/tests.
-        self.user_label = QLabel("", self)
-        self.user_label.hide()
         self.engineer_dashboard: EngineerDashboard | None = None
         if system_monitor is not None and engineer_data_provider is not None:
             self.engineer_dashboard = EngineerDashboard(
@@ -214,7 +192,6 @@ class MainView(
 
     def set_user(self, user: User) -> None:
         self.user = user
-        self.user_label.setText(f"{user.display_name}  ·  {user.role_label}")
         self.research_page = "采集"
         self.acquisition_stage = "setup"
         self.acquisition_tab = "Dashboard"
@@ -513,108 +490,22 @@ class MainView(
             worker.stop()
         self._lsl_outlet.stop()
 
-    def _restart_eeg_pipeline(self) -> None:
-        self._disconnect_eeg_pipeline()
-        self._build_eeg_worker(replace=True)
-        self._start_eeg_pipeline()
-
     def _prepare_openbci_session(self) -> None:
-        """Enter the OpenBCI runtime layout without replaying a configured CSV."""
-        if self._openbci_source == "PLAYBACK":
-            if not self._openbci_playback_path:
-                self._openbci_status_message = "No playback file selected."
-                self._notify("请先选择 OpenBCI / EEG 回放文件")
-                self.update()
+        """Prepare the fixed eight-channel direct-hardware acquisition profile."""
+        if self._csv_playback_snapshot().get("backend") != "hardware":
+            if not self._discover_direct_devices():
                 return
-            selector = getattr(self.eeg_stream, "select_csv", None)
-            if not callable(selector):
-                self._notify("当前 EEG 容器不支持运行时 CSV 回放")
-                return
-            self._disconnect_eeg_pipeline(stop_csv_recording=True)
-            try:
-                selector(self._openbci_playback_path)
-            except Exception as exc:
-                self._notify(f"回放文件加载失败：{exc}")
-                return
-            self._csv_replay_paused = False
-            self._build_eeg_worker(replace=True)
-            self.research_page = "实验"
-            self._openbci_status_message = "Playback file ready."
-            self._notify("回放文件已进入实验页；点击“开始回放”后才会播放")
-            self.update()
-            return
-        if self._openbci_source == "SYNTHETIC":
-            self._openbci_status_message = "Synthetic source disabled in research mode."
-            self._notify("科研版本不生成模拟 EEG；请使用真实 LSL 或实验 CSV")
-            self.update()
-            return
-        if self._openbci_source == "CYTON" and self._openbci_transport == "Serial":
-            if self._csv_playback_snapshot().get("backend") != "hardware":
-                if not self._discover_direct_devices():
-                    return
-            self._eeg_history = [deque(maxlen=1250) for _ in range(8)]
-            self._eeg_sample_rate = 0.0
-            self._eeg_channel_names = tuple(SSVEP_CHANNEL_NAMES)
-            self._eeg_channel_units = ("uV",) * 8
-            self._eeg_health = {}
-            self._latest_recognition = None
-            self.acquisition_stage = "runtime"
-            self.acquisition_tab = "Dashboard"
-            self._eeg_status = "设备已选择 · 点击 Start Data Stream 开始采集"
-            self._openbci_status_message = "Direct Cyton-compatible session ready."
-            self._build_eeg_worker(replace=True)
-            self._notify("ExpandableEEG会话已建立；点击 Start Data Stream 开始8通道采集")
-            self.update()
-            return
-        self._disconnect_eeg_pipeline(stop_csv_recording=True)
-        selector = getattr(self.eeg_stream, "select_lsl", None)
-        if callable(selector):
-            try:
-                selector()
-            except Exception as exc:
-                self._notify(f"切换实时 LSL 失败：{exc}")
-                return
-        elif self._csv_playback_snapshot().get("backend") == "csv":
-            self._notify("当前容器只有 CSV 回放，不能作为 OpenBCI 实时采集源")
-            return
-        self._eeg_history = [deque(maxlen=360) for _ in range(self._openbci_channel_count)]
+        self._eeg_history = [deque(maxlen=1250) for _ in range(8)]
         self._eeg_sample_rate = 0.0
-        self._eeg_channel_names = tuple(
-            f"CH{index + 1}" for index in range(self._openbci_channel_count)
-        )
-        self._eeg_channel_units = tuple("" for _ in range(self._openbci_channel_count))
+        self._eeg_channel_names = tuple(SSVEP_CHANNEL_NAMES)
+        self._eeg_channel_units = ("uV",) * 8
         self._eeg_health = {}
         self._latest_recognition = None
         self.acquisition_stage = "runtime"
         self.acquisition_tab = "Dashboard"
-        self._eeg_status = "Session started · 点击 Start Data Stream"
-        self._openbci_status_message = "Session started!"
+        self._eeg_status = "设备已选择 · 点击 Start Data Stream 开始采集"
         self._build_eeg_worker(replace=True)
-        self._notify("OpenBCI 会话已建立；点击 Start Data Stream 接收实时 LSL")
-
-    def _choose_openbci_playback_file(self) -> None:
-        """Select an OpenBCI/EEG recording without starting replay."""
-        path, _selected_filter = QFileDialog.getOpenFileName(
-            self,
-            "Select OpenBCI Playback File",
-            str(Path.home()),
-            "OpenBCI / EEG files (*.txt *.csv);;All files (*)",
-        )
-        if not path:
-            return
-        self._openbci_playback_path = path
-        self._openbci_status_message = f"Playback file selected: {Path(path).name}"
-        self._notify(f"已选择回放文件：{Path(path).name}；尚未开始播放")
-        self.update()
-
-    def _generate_openbci_session_name(self) -> None:
-        username = self.user.username if self.user is not None else "researcher"
-        self._openbci_session_name = f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
-        self._experiment_session_id = f"{self._openbci_session_name}-{username}"
-        if self._pipeline_worker is not None:
-            subject_id = self.user.uid or username if self.user is not None else username
-            self._pipeline_worker.set_experiment_context(subject_id, self._experiment_session_id)
-        self._openbci_status_message = "Autogenerated Session Name based on current date & time."
+        self._notify("ExpandableEEG会话已建立；点击 Start Data Stream 开始8通道采集")
         self.update()
 
     def _toggle_openbci_data_stream(self) -> None:
@@ -813,143 +704,26 @@ class MainView(
         self.update()
 
     def _discover_lsl_collector_streams(self) -> None:
-        stream = self._lsl_collector_stream
-        discover = getattr(stream, "discover_streams", None)
-        if not callable(discover):
-            self._notify("当前容器没有独立LSL接收器")
-            return
-        if self._lsl_collector_discovery_in_progress:
-            self._notify("正在搜索LSL EEG流，请稍候…")
-            return
-        if self._lsl_collector_worker is not None and self._lsl_collector_worker.isRunning():
-            self._notify("请先停止LSL收集，再切换数据流")
-            return
-        self._lsl_collector_discovery_in_progress = True
-        self._lsl_collector_status = "正在搜索 type=EEG 的LSL流…"
-
-        def run_discovery() -> None:
-            try:
-                self.lsl_collector_discovery_completed.emit(list(discover()), "")
-            except Exception as exc:
-                self.lsl_collector_discovery_completed.emit([], str(exc))
-
-        threading.Thread(target=run_discovery, name="LSL-Collector-Discovery", daemon=True).start()
-        self.update()
-
-    def _on_lsl_collector_discovery_completed(
-        self, descriptors: list[EEGStreamDescriptor], error: str,
-    ) -> None:
-        self._lsl_collector_discovery_in_progress = False
-        if error:
-            self._lsl_collector_status = "LSL搜索失败"
-            self._notify(f"LSL搜索失败：{error}")
-            return
-        if not descriptors:
-            self._lsl_collector_status = "未发现LSL EEG流"
-            self._notify("未发现流：请在‘采集 → Networking’启动LSL输出")
-            return
-        labels = [descriptor.display_name for descriptor in descriptors]
-        selected, accepted = QInputDialog.getItem(
-            self, "选择LSL EEG数据流", "发现的数据流", labels, 0, False,
-        )
-        if not accepted:
-            return
-        descriptor = descriptors[labels.index(selected)]
-        try:
-            self._lsl_collector_stream.select_stream(descriptor)
-        except Exception as exc:
-            self._notify(f"选择LSL流失败：{exc}")
-            return
-        self._lsl_collector_channel_names = descriptor.channel_names or tuple(
-            f"CH{index + 1}" for index in range(descriptor.channel_count)
-        )
-        history_size = max(1, round((descriptor.nominal_sample_rate_hz or 250.0) * 5))
-        self._lsl_collector_history = [
-            deque(maxlen=history_size) for _ in range(descriptor.channel_count)
-        ]
-        self._lsl_collector_status = f"已选择 {descriptor.display_name}"
-        self._lsl_collector_events.appendleft(
-            f"{datetime.now():%H:%M:%S}  已选择 {descriptor.display_name}"
-        )
-        self.update()
+        self.lsl_collector.discover()
 
     def _start_lsl_collection(self) -> None:
-        if self._lsl_collector_stream is None:
-            self._notify("当前容器没有独立LSL接收器")
-            return
-        if self._lsl_collector_worker is not None and self._lsl_collector_worker.isRunning():
-            self._notify("LSL收集已经在运行")
-            return
-        if self._lsl_collector_recorder.is_recording:
-            self._lsl_collector_recorder.stop()
         subject_id = self.user.uid or self.user.username if self.user is not None else ""
-        worker = LSLRecorderWorker(
-            self._lsl_collector_stream,
-            self._lsl_collector_recorder,
+        self.lsl_collector.start(
             self._experiment_session_id,
             subject_id,
-            parent=self,
         )
-        worker.frame_received.connect(self._on_lsl_collector_frame)
-        worker.status_changed.connect(self._on_lsl_collector_status)
-        worker.error_occurred.connect(self._on_lsl_collector_error)
-        worker.recording_stopped.connect(self._on_lsl_collection_stopped)
-        self._lsl_collector_worker = worker
-        self._lsl_collector_waveform_paused = False
-        self._lsl_collector_status = "正在连接LSL EEG流…"
-        worker.start()
-        self.update()
 
     def _stop_lsl_collection(self) -> None:
-        worker = self._lsl_collector_worker
-        if worker is not None and worker.isRunning():
-            worker.stop()
-        elif self._lsl_collector_recorder.is_recording:
-            self._lsl_collector_recorder.stop()
-        self._lsl_collector_status = "LSL收集已停止"
-        self.update()
+        self.lsl_collector.stop()
 
     def _toggle_lsl_collector_waveform(self) -> None:
-        self._lsl_collector_waveform_paused = not self._lsl_collector_waveform_paused
-        self._notify(
-            "已暂停LSL波形，CSV仍持续保存"
-            if self._lsl_collector_waveform_paused
-            else "已恢复LSL波形"
-        )
-        self.update()
+        self.lsl_collector.toggle_waveform()
 
     def _open_lsl_collector_directory(self) -> None:
-        directory = self._lsl_collector_recorder.output_dir
+        directory = self.lsl_collector.recorder.output_dir
         directory.mkdir(parents=True, exist_ok=True)
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory))):
             self._notify(f"无法自动打开目录：{directory}")
-
-    def _on_lsl_collector_frame(self, frame: EEGFrame) -> None:
-        if len(self._lsl_collector_history) != len(frame.samples):
-            self._lsl_collector_history = [deque(maxlen=1250) for _ in frame.samples]
-        if not self._lsl_collector_waveform_paused:
-            for history, values in zip(self._lsl_collector_history, frame.samples):
-                history.extend(float(value) for value in values)
-        self._lsl_collector_channel_names = tuple(frame.channel_names)
-        self._lsl_collector_sample_rate = float(frame.sample_rate_hz)
-        self.update()
-
-    def _on_lsl_collector_status(self, status: str) -> None:
-        self._lsl_collector_status = status
-        self._lsl_collector_events.appendleft(f"{datetime.now():%H:%M:%S}  {status}")
-        self.update()
-
-    def _on_lsl_collector_error(self, error: str) -> None:
-        self._lsl_collector_events.appendleft(f"{datetime.now():%H:%M:%S}  ERROR  {error}")
-        self.update()
-
-    def _on_lsl_collection_stopped(self, path: str, sample_count: int) -> None:
-        message = f"LSL收集结束：{sample_count}个样本"
-        if path:
-            message += f" · {path}"
-        self._lsl_collector_events.appendleft(f"{datetime.now():%H:%M:%S}  {message}")
-        self._lsl_collector_status = message
-        self.update()
 
     def _choose_csv_replay(self) -> None:
         selector = getattr(self.eeg_stream, "select_csv", None)
@@ -1124,8 +898,7 @@ class MainView(
             self._pipeline_worker.set_continuous_recording(False)
         if self._pipeline_worker is not None and self._pipeline_worker.isRunning():
             self._pipeline_worker.stop()
-        if self._lsl_collector_worker is not None and self._lsl_collector_worker.isRunning():
-            self._lsl_collector_worker.stop()
+        self.lsl_collector.stop()
         self._stop_soldier_lsl_bridge()
         self._lsl_outlet.stop()
         self.actions.bci.disable()
@@ -1404,46 +1177,6 @@ class MainView(
         self._role_stack.setGeometry(self.rect())
         super().resizeEvent(event)
 
-    def mousePressEvent(self, event) -> None:  # type: ignore[override]
-        x = event.position().x() * 1280 / max(1, self.width())
-        y = event.position().y() * 720 / max(1, self.height())
-        point = QPointF(x, y)
-        for rect, action in reversed(self._regions):
-            if rect.contains(point):
-                if action in {"manual-stick-height", "manual-stick-direction"}:
-                    self._active_joystick = action
-                    self._update_manual_stick(action, x, y)
-                    self.grabMouse()
-                    return
-                self._activate(action, x, y)
-                return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
-        x = event.position().x() * 1280 / max(1, self.width())
-        y = event.position().y() * 720 / max(1, self.height())
-        if self._active_joystick is not None:
-            self._update_manual_stick(self._active_joystick, x, y)
-            return
-        interactive = any(rect.contains(QPointF(x, y)) for rect, _ in self._regions)
-        self.setCursor(Qt.PointingHandCursor if interactive else Qt.ArrowCursor)
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
-        if self._active_joystick is not None:
-            active = self._active_joystick
-            self._active_joystick = None
-            if active == "manual-stick-height":
-                self._manual_vertical = 0.0
-            else:
-                self._manual_forward = 0.0
-                self._manual_lateral = 0.0
-            self.releaseMouse()
-            self._send_manual_input()
-            self.update()
-            return
-        super().mouseReleaseEvent(event)
-
     def _update_manual_stick(self, stick: str, x: float, y: float) -> None:
         if stick == "manual-stick-height":
             center_y, travel = 386.0, 82.0
@@ -1519,31 +1252,6 @@ class MainView(
         role_stack = getattr(self, "_role_stack", None)
         if role_stack is not None and role_stack.currentWidget() is not None:
             role_stack.currentWidget().update()
-
-    # Compatibility hooks for integrations that rendered a page into an
-    # off-screen Canvas before role pages became independent QWidget objects.
-    def _render_compat(self, page, method_name: str, canvas: Canvas) -> None:
-        page._regions = self._regions
-        getattr(page, method_name)(canvas)
-        self._regions = page._regions
-
-    def _paint_research(self, canvas: Canvas) -> None:
-        self._render_compat(self.research_widget, "_paint_research", canvas)
-
-    def _paint_soldier(self, canvas: Canvas) -> None:
-        self._render_compat(self.soldier_widget, "_paint_soldier", canvas)
-
-    def _soldier_brain(self, canvas: Canvas) -> None:
-        self._render_compat(self.soldier_widget, "_soldier_brain", canvas)
-
-    def _paint_admin(self, canvas: Canvas) -> None:
-        self._render_compat(self.admin_widget, "_paint_admin", canvas)
-
-    def _paint_engineer(self, canvas: Canvas) -> None:
-        self._render_compat(self.engineer_canvas_widget, "_paint_engineer", canvas)
-
-    def _hit(self, x: float, y: float, w: float, h: float, action: str) -> None:
-        self._regions.append((QRectF(x, y, w, h), action))
 
     def _notify(self, message: str) -> None:
         self._toast = message

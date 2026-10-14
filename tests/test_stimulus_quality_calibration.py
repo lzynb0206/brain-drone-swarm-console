@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.bci.preprocessing import assess_signal_quality
 from src.bci.stimulus import measure_frequency
+from src.views.ssvep_rendering import target_rectangles
 from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 
 
@@ -80,7 +81,7 @@ class StimulusWindowModeTest(unittest.TestCase):
             window.close()
 
     def test_targets_are_spatially_separated_and_directionally_arranged(self) -> None:
-        rectangles = SSVEPStimulusWindow._target_rectangles(1920, 1080)
+        rectangles = target_rectangles(1920, 1080)
 
         takeoff, forward, backward, left, right, land = rectangles
         self.assertLess(takeoff.center().x(), forward.center().x())

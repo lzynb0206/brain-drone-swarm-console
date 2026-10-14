@@ -1,4 +1,4 @@
-"""Compatibility facade composing focused workbench application services."""
+"""Application facade composing focused workbench services."""
 
 from __future__ import annotations
 
@@ -55,7 +55,6 @@ class WorkbenchService:
 
         missions = StructuredMissionService(swarm_gateway, self._record, experiment_recorder)
         object.__setattr__(self, "structured_missions", missions)
-        object.__setattr__(self, "single_uav_missions", missions)
 
     def __getattr__(self, name: str):
         if name in self._RESEARCH_FIELDS:

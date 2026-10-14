@@ -18,6 +18,7 @@ from src.bci.config import (
     WINDOW_SECONDS,
 )
 from src.bci.stimulus import StimulusSessionRecorder, StimulusTarget, luminance_at
+from src.views.ssvep_rendering import draw_fixation_cross, target_rectangles
 
 
 class SSVEPStimulusWindow(QWidget):
@@ -235,7 +236,7 @@ class SSVEPStimulusWindow(QWidget):
         if self._running:
             self._frame_times.append(elapsed)
 
-        target_rects = self._target_rectangles(self.width(), self.height())
+        target_rects = target_rectangles(self.width(), self.height())
         for index, (target, rect) in enumerate(zip(self.targets, target_rects)):
             luminance = luminance_at(elapsed, target.frequency_hz) if stimuli_active else 0.08
             if self._running:
@@ -258,11 +259,12 @@ class SSVEPStimulusWindow(QWidget):
                 Qt.AlignCenter,
                 f"{target.frequency_hz:g} Hz",
             )
-            self._draw_fixation_cross(
+            draw_fixation_cross(
                 painter,
                 rect.center(),
                 max(16.0, min(rect.width(), rect.height()) * 0.06),
                 text_color,
+                "#000000",
             )
 
         if self._running and not stimuli_active:
@@ -287,39 +289,6 @@ class SSVEPStimulusWindow(QWidget):
             QRectF(0, 12, self.width(), 42), Qt.AlignCenter,
             instructions,
         )
-
-    @staticmethod
-    def _target_rectangles(width: int, height: int) -> tuple[QRectF, ...]:
-        """Return separated, spatially meaningful rectangles in command order.
-
-        Visual slots are arranged as::
-
-            起飞       前进       降落
-            左移       后退       右移
-
-        The returned tuple remains in COMMANDS order so frequencies and
-        experiment number keys do not change.
-        """
-
-        width_f = max(1.0, float(width))
-        height_f = max(1.0, float(height))
-        block_width = max(150.0, width_f * 0.21)
-        block_height = max(110.0, height_f * 0.25)
-        centers_x = (width_f * 0.17, width_f * 0.50, width_f * 0.83)
-        centers_y = (height_f * 0.30, height_f * 0.73)
-        slots = tuple(
-            QRectF(
-                center_x - block_width / 2.0,
-                center_y - block_height / 2.0,
-                block_width,
-                block_height,
-            )
-            for center_y in centers_y
-            for center_x in centers_x
-        )
-        # COMMANDS = 起飞、前进、后退、左移、右移、降落.
-        slot_by_command_index = (0, 1, 4, 3, 5, 2)
-        return tuple(slots[index] for index in slot_by_command_index)
 
     def _draw_cooldown_overlay(self, painter: QPainter) -> None:
         remaining = self.cooldown_remaining
@@ -440,16 +409,6 @@ class SSVEPStimulusWindow(QWidget):
             if target.label == label:
                 return target.frequency_hz
         return 0.0
-
-    @staticmethod
-    def _draw_fixation_cross(painter: QPainter, center: QPointF, half_length: float, color: QColor) -> None:
-        outer = QColor("#000000") if color.lightness() > 128 else QColor("#ffffff")
-        painter.setPen(QPen(outer, 6))
-        painter.drawLine(QPointF(center.x() - half_length, center.y()), QPointF(center.x() + half_length, center.y()))
-        painter.drawLine(QPointF(center.x(), center.y() - half_length), QPointF(center.x(), center.y() + half_length))
-        painter.setPen(QPen(color, 3))
-        painter.drawLine(QPointF(center.x() - half_length, center.y()), QPointF(center.x() + half_length, center.y()))
-        painter.drawLine(QPointF(center.x(), center.y() - half_length), QPointF(center.x(), center.y() + half_length))
 
     def _save_spectrum_images(self, payload: dict[str, object]) -> list[str]:
         archive_path = Path(str(payload["raw_timing_path"]))

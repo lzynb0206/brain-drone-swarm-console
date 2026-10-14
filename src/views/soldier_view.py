@@ -7,9 +7,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
-from src.widgets.scifi_canvas import (
-    BG, BLUE, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas,
-)
+from src.widgets.scifi_canvas import BLUE, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas
 
 
 class SoldierViewMixin:

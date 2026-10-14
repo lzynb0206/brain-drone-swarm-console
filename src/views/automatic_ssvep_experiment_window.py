@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -17,6 +17,7 @@ from src.services.ssvep_experiment_protocol import (
     ExperimentPhase,
     ProtocolTransition,
 )
+from src.views.ssvep_rendering import draw_fixation_cross, target_rectangles
 
 
 class AutomaticSSVEPExperimentWindow(QWidget):
@@ -305,7 +306,7 @@ class AutomaticSSVEPExperimentWindow(QWidget):
         )
         elapsed = max(0.0, now - self._phase_started_monotonic)
 
-        for target, rect in zip(self.targets, self._target_rectangles(self.width(), self.height())):
+        for target, rect in zip(self.targets, target_rectangles(self.width(), self.height())):
             luminance = luminance_at(elapsed, target.frequency_hz) if active_stimulus else 0.06
             gray = int(round(255 * luminance))
             painter.fillRect(rect, QColor(gray, gray, gray))
@@ -328,7 +329,7 @@ class AutomaticSSVEPExperimentWindow(QWidget):
                 Qt.AlignCenter,
                 f"{target.frequency_hz:g} Hz",
             )
-            self._draw_fixation_cross(painter, rect.center(), 15.0, text_color)
+            draw_fixation_cross(painter, rect.center(), 15.0, text_color, "#050914")
 
         self._draw_header(painter, now, label)
         self._draw_phase_overlay(painter, now, label)
@@ -464,40 +465,6 @@ class AutomaticSSVEPExperimentWindow(QWidget):
         self._timer.stop()
         self.setCursor(Qt.ArrowCursor)
         super().closeEvent(event)
-
-    @staticmethod
-    def _target_rectangles(width: int, height: int) -> tuple[QRectF, ...]:
-        width_f = max(1.0, float(width))
-        height_f = max(1.0, float(height))
-        block_width = max(150.0, width_f * 0.21)
-        block_height = max(110.0, height_f * 0.25)
-        centers_x = (width_f * 0.17, width_f * 0.50, width_f * 0.83)
-        centers_y = (height_f * 0.30, height_f * 0.73)
-        slots = tuple(
-            QRectF(
-                center_x - block_width / 2.0,
-                center_y - block_height / 2.0,
-                block_width,
-                block_height,
-            )
-            for center_y in centers_y for center_x in centers_x
-        )
-        return tuple(slots[index] for index in (0, 1, 4, 3, 5, 2))
-
-    @staticmethod
-    def _draw_fixation_cross(
-        painter: QPainter,
-        center: QPointF,
-        half_length: float,
-        color: QColor,
-    ) -> None:
-        outline = QColor("#050914") if color.lightness() > 128 else QColor("#ffffff")
-        painter.setPen(QPen(outline, 6))
-        painter.drawLine(QPointF(center.x() - half_length, center.y()), QPointF(center.x() + half_length, center.y()))
-        painter.drawLine(QPointF(center.x(), center.y() - half_length), QPointF(center.x(), center.y() + half_length))
-        painter.setPen(QPen(color, 3))
-        painter.drawLine(QPointF(center.x() - half_length, center.y()), QPointF(center.x() + half_length, center.y()))
-        painter.drawLine(QPointF(center.x(), center.y() - half_length), QPointF(center.x(), center.y() + half_length))
 
 
 __all__ = ["AutomaticSSVEPExperimentWindow"]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
 from src.bci.config import (
@@ -142,13 +142,14 @@ class ResearchViewMixin:
     def _research_lsl_collector(self, c: Canvas) -> None:
         """Independent LSL receiver and raw CSV recorder."""
 
+        collector = self.lsl_collector
         c.rect(0, 56, 1280, 664, BG)
         c.text(32, 69, 420, 32, "LSL 脑电收集", 20, TEXT, True)
         c.text(32, 100, 840, 21, "发现并接收 type=EEG 的 LSL 数据流，同时保留原始时间戳并写入 CSV。", 10, MUTED)
 
         c.rect(32, 132, 1216, 104, PANEL, BORDER, 5)
         stream_name = str(
-            getattr(self._lsl_collector_stream, "source_name", "LSL · obci_eeg1")
+            getattr(collector.stream, "source_name", "LSL · obci_eeg1")
         ).replace("LSL · ", "")
         c.text(50, 143, 90, 24, "LSL 数据流", 9, MUTED, True)
         c.rect(50, 170, 486, 36, "#0b1728", BORDER, 3)
@@ -163,12 +164,12 @@ class ResearchViewMixin:
         self._hit(984, 170, 152, 36, "lsl-collector-open-directory")
         c.circle(1160, 188, 5, CYAN)
         c.text(1172, 170, 58, 36, "EEG", 10, TEXT, True)
-        c.text(50, 210, 720, 18, self._lsl_collector_status, 9, CYAN)
+        c.text(50, 210, 720, 18, collector.status, 9, CYAN)
         c.text(790, 210, 438, 18, "默认：obci_eeg1 · EEG · 8 CH", 9, MUTED, False, Qt.AlignRight)
 
-        running = self._lsl_collector_worker is not None and self._lsl_collector_worker.isRunning()
-        stats = self._lsl_collector_recorder.snapshot()
-        health_getter = getattr(self._lsl_collector_stream, "health_snapshot", None)
+        running = collector.running
+        stats = collector.recorder.snapshot()
+        health_getter = getattr(collector.stream, "health_snapshot", None)
         try:
             health = dict(health_getter()) if callable(health_getter) else {}
         except Exception:
@@ -177,7 +178,7 @@ class ResearchViewMixin:
             ("状态", "正在收集" if running else "等待"),
             ("样本数", str(int(stats.get("sample_count", 0) or 0))),
             ("时长", f"{float(stats.get('duration_seconds', 0.0) or 0.0):.1f} s"),
-            ("实际采样率", f"{(self._lsl_collector_sample_rate if running else 0.0):.1f} Hz"),
+            ("实际采样率", f"{(collector.sample_rate if running else 0.0):.1f} Hz"),
         )
         for index, (label, value) in enumerate(metrics):
             x = 32 + index * 304
@@ -188,8 +189,8 @@ class ResearchViewMixin:
         c.text(32, 326, 900, 24, f"数据文件：{stats.get('path') or '开始收集后自动创建 CSV'}", 9, MUTED)
         self._light_button(
             c, 1084, 322, 164, 32,
-            "恢复波形" if self._lsl_collector_waveform_paused else "暂停波形",
-            self._lsl_collector_waveform_paused,
+            "恢复波形" if collector.waveform_paused else "暂停波形",
+            collector.waveform_paused,
             "#2e628f",
         )
         self._hit(1084, 322, 164, 32, "lsl-collector-pause")
@@ -205,9 +206,9 @@ class ResearchViewMixin:
         c.text(886, 376, 344, 28, "运行日志 / 时间戳质量", 12, TEXT, True)
         gaps = int(health.get("gap_count", 0) or 0)
         c.text(886, 410, 160, 20, f"数据缺口：{gaps}", 9, RED if gaps else GREEN, True)
-        c.text(1070, 410, 160, 20, f"通道：{len(self._lsl_collector_channel_names)}", 9, MUTED, False, Qt.AlignRight)
+        c.text(1070, 410, 160, 20, f"通道：{len(collector.channel_names)}", 9, MUTED, False, Qt.AlignRight)
         c.line(886, 438, 1230, 438, BORDER)
-        events = list(self._lsl_collector_events)[:11] or ["等待发现LSL EEG数据流…"]
+        events = list(collector.events)[:11] or ["等待发现LSL EEG数据流…"]
         for index, event in enumerate(events):
             c.text(886, 446 + index * 20, 344, 18, str(event)[:52], 8, TEXT)
         c.text(886, 662, 344, 24, "暂停波形不影响 CSV 持续写入。", 8, YELLOW, False, Qt.AlignCenter)
@@ -215,7 +216,8 @@ class ResearchViewMixin:
     def _draw_lsl_collector_eeg(
         self, c: Canvas, x: float, y: float, w: float, h: float,
     ) -> None:
-        histories = [list(values) for values in self._lsl_collector_history[:16]]
+        collector = self.lsl_collector
+        histories = [list(values) for values in collector.history[:16]]
         if not histories or not any(histories):
             c.text(x, y, w, h, "等待 LSL EEG 数据…", 14, MUTED, False, Qt.AlignCenter)
             return
@@ -226,7 +228,7 @@ class ResearchViewMixin:
         for index, values in enumerate(histories):
             baseline = y + row_height * (index + 0.5)
             c.line(x, baseline, x + w, baseline, "#243452")
-            label = self._lsl_collector_channel_names[index] if index < len(self._lsl_collector_channel_names) else f"CH{index + 1}"
+            label = collector.channel_names[index] if index < len(collector.channel_names) else f"CH{index + 1}"
             c.text(x, baseline - 10, 54, 20, label[:8], 8, MUTED)
             if len(values) < 2:
                 continue
@@ -401,182 +403,6 @@ class ResearchViewMixin:
             c.rect(x, 582, 270, 64, "#101c32", BORDER, 3)
             c.text(x + 16, 590, 86, 20, label, 10, CYAN, True)
             c.text(x + 16, 613, 238, 22, value, 10, TEXT)
-
-    def _acquisition_legacy_setup(self, c: Canvas) -> None:
-        """Port the official OpenBCI GUI v6 control-panel state layout."""
-        navy, dark_blue, bright_blue = "#00172b", "#0b507c", "#078bd1"
-        panel, border, ink = "#c9c9c9", "#1f3445", "#10283d"
-        active, selected, white = "#94acd0", "#a9efa2", "#f7f7f7"
-        c.rect(0, 56, 1280, 664, navy)
-        c.rect(0, 56, 1280, 48, dark_blue, border, 0, 2)
-        c.rect(16, 58, 315, 44, active, border, 0, 2)
-        c.text(16, 58, 315, 44, "System Control Panel", 18, "#ffffff", True, Qt.AlignCenter)
-        c.text(530, 58, 220, 44, "◉ OPENBCI", 22, "#ffffff", True, Qt.AlignCenter)
-        for index, label in enumerate(("Update", "Shop", "Issues", "Help", "…")):
-            widths = (78, 78, 92, 78, 38)
-            x_positions = (826, 908, 990, 1086, 1170)
-            c.rect(x_positions[index], 61, widths[index], 38, dark_blue, border, 0, 2)
-            c.text(x_positions[index], 61, widths[index], 38, label, 15, "#ffffff", True, Qt.AlignCenter)
-        c.rect(0, 104, 1280, 40, bright_blue)
-        c.rect(1174, 108, 90, 32, bright_blue, "#ffffff", 0, 1)
-        c.text(1174, 108, 90, 32, "Settings", 13, "#ffffff", False, Qt.AlignCenter)
-
-        def box(x: float, y: float, w: float, h: float, title: str) -> None:
-            c.rect(x, y, w, h, panel, border, 0, 1)
-            c.text(x + 12, y + 7, w - 24, 27, title, 15, ink, True)
-
-        def button(
-            x: float,
-            y: float,
-            w: float,
-            h: float,
-            label: str,
-            is_active: bool = False,
-            action: str = "",
-            green: bool = False,
-        ) -> None:
-            fill = selected if green else (active if is_active else white)
-            c.rect(x, y, w, h, fill, border, 0, 1)
-            c.text(x, y, w, h, label, 12, ink, False, Qt.AlignCenter)
-            if action:
-                self._hit(x, y, w, h, action)
-
-        def field(x: float, y: float, w: float, h: float, value: str) -> None:
-            c.rect(x, y, w, h, white, border, 0, 1)
-            c.text(x + 7, y, w - 14, h, value, 12, ink)
-
-        def session_box(x: float, y: float, w: float, h: float) -> None:
-            box(x, y, w, h, "SESSION DATA")
-            c.text(x + 12, y + 35, 58, 27, "Name", 12, ink)
-            field(x + 70, y + 35, w - 82, 27, self._openbci_session_name)
-            button(x + 12, y + 68, w - 24, 28, "GENERATE SESSION NAME", action="openbci-generate-session")
-            half = (w - 36) / 2
-            button(x + 12, y + 103, half, 28, "OpenBCI", self._openbci_session_format == "OpenBCI", "openbci-session-format:OpenBCI")
-            button(x + 24 + half, y + 103, half, 28, "BDF+", self._openbci_session_format == "BDF+", "openbci-session-format:BDF+")
-            c.text(x + 12, y + 136, 145, 28, "Max File Duration", 11, ink)
-            field(x + 156, y + 136, w - 168, 28, "60 Minutes   ⌃")
-
-        def streamer_box(x: float, y: float, w: float, h: float) -> None:
-            box(x, y, w, h, "BRAINFLOW STREAMER")
-            half = (w - 36) / 2
-            button(x + 12, y + 39, half, 28, "Network", self._openbci_streamer_mode == "Network", "openbci-streamer-mode:Network")
-            button(x + 24 + half, y + 39, half, 28, "File", self._openbci_streamer_mode == "File", "openbci-streamer-mode:File")
-            if self._openbci_streamer_mode == "Network":
-                c.text(x + 12, y + 72, 28, 28, "IP", 12, ink)
-                field(x + 40, y + 72, 145, 28, "225.1.1.1")
-                c.text(x + 198, y + 72, 40, 28, "Port", 12, ink)
-                field(x + 238, y + 72, w - 250, 28, "6677")
-            else:
-                c.text(x + 12, y + 72, 75, 28, "Location", 12, ink)
-                field(x + 87, y + 72, w - 99, 28, "Default       ⌃")
-
-        def channel_box(x: float, y: float, w: float, counts: tuple[int, ...]) -> None:
-            box(x, y, w, 72, f"CHANNEL COUNT ({self._openbci_channel_count})")
-            gap = 10
-            bw = (w - 24 - gap * (len(counts) - 1)) / len(counts)
-            for index, count in enumerate(counts):
-                bx = x + 12 + index * (bw + gap)
-                button(bx, y + 37, bw, 27, f"{count} CHANNELS", self._openbci_channel_count == count, f"openbci-channel-count:{count}")
-
-        def wifi_box(x: float, y: float, w: float) -> None:
-            box(x, y, w, 200, "WIFI SHIELDS")
-            half = (w - 36) / 2
-            button(x + 12, y + 39, half, 28, "DYNAMIC IP", self._openbci_wifi_mode == "Dynamic IP", "openbci-wifi-mode:Dynamic IP")
-            button(x + 24 + half, y + 39, half, 28, "STATIC IP", self._openbci_wifi_mode == "Static IP", "openbci-wifi-mode:Static IP")
-            c.rect(x + 12, y + 76, w - 24, 70, "#d8d8d8")
-            if self._openbci_wifi_mode == "Static IP":
-                field(x + 22, y + 95, w - 44, 30, self._openbci_ip)
-            button(x + 12, y + 151, w - 49, 28, "START SEARCH", action="openbci-wifi-search")
-            c.circle(x + w - 25, y + 165, 7, "#999999")
-            c.text(x + 12, y + 178, w - 24, 20, "BOARD IP:", 14, ink, True, Qt.AlignCenter)
-
-        def sample_rate_box(x: float, y: float, w: float, rates: tuple[int, ...]) -> None:
-            box(x, y, w, 82, "SAMPLE RATE")
-            gap = 10
-            bw = (w - 24 - gap * (len(rates) - 1)) / len(rates)
-            for index, rate in enumerate(rates):
-                bx = x + 12 + index * (bw + gap)
-                button(bx, y + 39, bw, 28, f"{rate}Hz", self._openbci_sample_rate == rate, f"openbci-sample-rate:{rate}")
-
-        left_x, left_w, middle_x, middle_w, third_x = 16, 315, 331, 315, 646
-        source_rows = (
-            ("CYTON (live)", "CYTON"),
-            ("GANGLION (live)", "GANGLION"),
-            ("PLAYBACK (from file)", "PLAYBACK"),
-            ("SYNTHETIC (algorithmic)", "SYNTHETIC"),
-            ("STREAMING (from external)", "STREAMING"),
-        )
-        box(left_x, 104, left_w, 186, "DATA SOURCE")
-        for index, (label, value) in enumerate(source_rows):
-            button(left_x + 12, 140 + index * 27, left_w - 24, 27, label, False, f"openbci-source:{value}", self._openbci_source == value)
-        c.rect(left_x, 290, left_w, 58, panel, border, 0, 1)
-        button(left_x + 12, 303, left_w - 24, 34, "START SESSION", action="openbci-start-session")
-
-        if self._openbci_source == "CYTON":
-            box(middle_x, 104, middle_w, 88, "PICK TRANSFER PROTOCOL")
-            button(middle_x + 12, 140, middle_w - 24, 27, "Serial (from Dongle)", self._openbci_transport == "Serial", "openbci-transport:Serial")
-            button(middle_x + 12, 170, middle_w - 24, 27, "Wifi (from Wifi Shield)", self._openbci_transport == "WiFi", "openbci-transport:WiFi")
-            if self._openbci_transport == "Serial":
-                box(middle_x, 192, middle_w, 70, "SERIAL CONNECT")
-                button(middle_x + 12, 226, 190, 27, "AUTO-CONNECT", action="openbci-serial-autoconnect", green=True)
-                button(middle_x + 213, 226, 90, 27, "Manual >")
-                channel_box(middle_x, 262, middle_w, (8, 16))
-                session_box(middle_x, 334, middle_w, 170)
-                streamer_box(middle_x, 504, middle_w, 105)
-                box(middle_x, 609, middle_w, 84, "WRITE TO SD CARD?")
-                field(middle_x + 12, 648, middle_w - 24, 28, "Do not write to SD...          ⌃")
-            else:
-                channel_box(middle_x, 192, middle_w, (8, 16))
-                session_box(middle_x, 264, middle_w, 170)
-                streamer_box(middle_x, 434, middle_w, 105)
-                box(middle_x, 539, middle_w, 84, "WRITE TO SD CARD?")
-                field(middle_x + 12, 578, middle_w - 24, 28, "Do not write to SD...          ⌃")
-                wifi_box(third_x, 104, middle_w)
-                sample_rate_box(third_x, 304, middle_w, (250, 500, 1000))
-        elif self._openbci_source == "GANGLION":
-            box(middle_x, 104, middle_w, 124, "PICK TRANSFER PROTOCOL")
-            protocols = (
-                ("Bluetooth (Native)", "Native BLE"),
-                ("Bluetooth (BLED112 Dongle)", "BLED112"),
-                ("Wifi (from Wifi Shield)", "WiFi"),
-            )
-            for index, (label, value) in enumerate(protocols):
-                button(middle_x + 12, 140 + index * 30, middle_w - 24, 27, label, self._openbci_ganglion_transport == value, f"openbci-ganglion-transport:{value}")
-            if self._openbci_ganglion_transport == "WiFi":
-                session_box(middle_x, 228, middle_w, 170)
-                streamer_box(middle_x, 398, middle_w, 105)
-                wifi_box(third_x, 104, middle_w)
-                sample_rate_box(third_x, 304, middle_w, (200, 1600))
-            else:
-                box(middle_x, 228, middle_w, 180, "BLE DEVICES")
-                c.rect(middle_x + 12, 264, middle_w - 24, 94, "#d8d8d8")
-                button(middle_x + 12, 366, middle_w - 55, 28, "SEARCHING...", action="openbci-ble-search")
-                c.circle(middle_x + middle_w - 27, 380, 8, active, border)
-                session_box(middle_x, 408, middle_w, 170)
-                streamer_box(middle_x, 578, middle_w, 105)
-        elif self._openbci_source == "PLAYBACK":
-            box(middle_x, 104, 425, 100, "PLAYBACK FILE")
-            button(middle_x + 300, 113, 113, 26, "Sample Data", True)
-            file_label = self._openbci_playback_path.rsplit("/", 1)[-1] if self._openbci_playback_path else "SELECT OPENBCI PLAYBACK FILE"
-            button(middle_x + 12, 145, 401, 31, file_label, action="openbci-playback-select")
-            box(middle_x, 204, 425, 72, "PLAYBACK HISTORY")
-            field(middle_x + 12, 240, 401, 28, "Select Recent Playback File                  ⌃")
-        elif self._openbci_source == "SYNTHETIC":
-            channel_box(middle_x, 104, middle_w, (4, 8, 16))
-            streamer_box(middle_x, 176, middle_w, 105)
-        else:
-            box(middle_x, 104, middle_w, 120, "STREAMING BOARD CONFIG")
-            c.text(middle_x + 12, 140, 24, 28, "IP", 12, ink)
-            field(middle_x + 36, 140, 102, 28, "")
-            c.text(middle_x + 152, 140, 48, 28, "PORT", 12, ink)
-            field(middle_x + 200, 140, 64, 28, "0")
-            c.text(middle_x + 12, 176, 70, 28, "BOARD", 12, ink)
-            field(middle_x + 82, 176, 221, 28, f"{self._openbci_board_type}                         ⌃")
-
-        status = self._openbci_status_message
-        status_fill = "#fac5cc" if status.startswith("No ") or "disabled" in status else white
-        c.rect(16, 697, 1248, 19, status_fill, "#25b9df", 0, 1)
-        c.text(24, 697, 1232, 19, status, 10, ink)
 
     def _acquisition_dashboard_page(self, c: Canvas) -> None:
         """Compact three-panel runtime overview in the shared dark theme."""

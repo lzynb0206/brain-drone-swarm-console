@@ -207,10 +207,3 @@ class Canvas:
     def logout(self) -> None:
         self.circle(1247, 686, 17, "#101d32", "#263855")
         self.text(1231, 669, 32, 34, "↪", 18, "#6f7e97", False, Qt.AlignCenter)
-
-
-def deterministic_wave(count: int, phase: float, scale: float = 1.0) -> list[float]:
-    return [
-        (math.sin(i * 0.37 + phase) + 0.38 * math.sin(i * 0.91 + phase * 0.7)) * scale
-        for i in range(count)
-    ]

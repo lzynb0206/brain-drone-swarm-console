@@ -10,10 +10,7 @@ from typing import Callable, Sequence
 
 from src.domain import (
     DeviceStatus,
-    FormationAssignment,
     FormationPlan,
-    FormationSlot,
-    Position,
     SwarmCommand,
     SwarmStatus,
     UAVTelemetry,
@@ -22,6 +19,12 @@ from src.services.formation_service import FormationPlanningError, FormationServ
 from src.adapters.real.crazyflie_contracts import CrazyflieBackend, CrazyflieSwarmConfig
 from src.adapters.real.crazyflie_cflib_backend import CflibBackend
 from src.adapters.real.crazyflie_command_queue import CrazyflieCommandQueue
+from src.adapters.real.crazyflie_event_journal import CrazyflieEventJournal
+from src.adapters.real.crazyflie_formation_state import (
+    formation_targets,
+    lighthouse_targets_from_telemetry,
+    rebase_formation_plan,
+)
 from src.adapters.real.crazyflie_safety import CrazyflieSafetyPolicy
 from src.adapters.real.crazyflie_telemetry import CrazyflieTelemetryMapper
 
@@ -75,9 +78,7 @@ class CrazyflieSwarmGateway:
         self._emergency = False
         self._uavs: dict[str, UAVTelemetry] = {}
         self._flow_failure_counts: dict[str, int] = {}
-        self._events: list[tuple[str, str, float]] = []
-        self._event_listeners: list[Callable[[str, str], None]] = []
-        self._command_listeners: list[Callable[[str, str, SwarmCommand], None]] = []
+        self._journal = CrazyflieEventJournal()
 
     @property
     def _command_generation(self) -> int:
@@ -168,14 +169,10 @@ class CrazyflieSwarmGateway:
             self._message = f"已配置 {len(normalized)} 架 Crazyflie，尚未连接"
 
     def add_event_listener(self, listener: Callable[[str, str], None]) -> None:
-        with self._lock:
-            if listener not in self._event_listeners:
-                self._event_listeners.append(listener)
+        self._journal.add_event_listener(listener)
 
     def add_command_listener(self, listener: Callable[[str, str, SwarmCommand], None]) -> None:
-        with self._lock:
-            if listener not in self._command_listeners:
-                self._command_listeners.append(listener)
+        self._journal.add_command_listener(listener)
 
     def arm(self) -> None:
         with self._lock:
@@ -327,8 +324,18 @@ class CrazyflieSwarmGateway:
             raise RuntimeError(self._message) from exc
         with self._lock:
             if not self._emergency:
-                self._rebase_lighthouse_targets_to_telemetry()
-                self._rebase_formation_to_telemetry()
+                self._lighthouse_targets_by_uri.update(
+                    lighthouse_targets_from_telemetry(
+                        self._lighthouse_hold_uris,
+                        self._uavs,
+                    )
+                )
+                self._last_lighthouse_manual_at = time.monotonic()
+                self._formation_plan = rebase_formation_plan(
+                    self._formation_plan,
+                    self._uavs,
+                    self._resolve_uri,
+                )
                 if self._battery_low_latched:
                     voltage = self._last_low_voltage or 0.0
                     self._state = "battery_low"
@@ -419,7 +426,11 @@ class CrazyflieSwarmGateway:
                 if minimum_z < self.config.flow_min_height_m or maximum_z > self.config.flow_max_height_m:
                     dz = 0.0
                 translated_plan = formation_plan.translated(dx, dy, dz)
-                targets = self._formation_targets(translated_plan)
+                targets = formation_targets(
+                    translated_plan,
+                    self._uavs,
+                    self._resolve_uri,
+                )
                 self._formation_plan = translated_plan
             elif lighthouse_mode:
                 now = time.monotonic()
@@ -523,11 +534,7 @@ class CrazyflieSwarmGateway:
             self._record("INFO", "操作员确认无人机已重启，上位机急停锁复位")
 
     def events(self, level: str | None = None) -> list[str]:
-        with self._lock:
-            values = list(self._events)
-        if level:
-            values = [value for value in values if value[0] == level]
-        return [f"{time.strftime('%H:%M:%S', time.localtime(stamp))}  {kind}  {message}" for kind, message, stamp in values]
+        return self._journal.formatted_events(level)
 
     def _run(self) -> None:
         try:
@@ -795,7 +802,12 @@ class CrazyflieSwarmGateway:
             if lighthouse_group:
                 if plan is not None:
                     moved_plan = plan.translated(dx, dy, dz)
-                    absolute_targets = self._formation_targets(moved_plan)
+                    with self._lock:
+                        absolute_targets = formation_targets(
+                            moved_plan,
+                            self._uavs,
+                            self._resolve_uri,
+                        )
                 else:
                     with self._lock:
                         absolute_targets = {
@@ -956,58 +968,6 @@ class CrazyflieSwarmGateway:
                 self._refresh_cached_flight_states()
                 self._state = "connected"
                 self._message = f"起飞未达到目标高度，电机已停止：{exc}"
-
-    def _formation_targets(
-        self, plan: FormationPlan,
-    ) -> dict[str, tuple[float, float, float, float]]:
-        with self._lock:
-            return {
-                self._resolve_uri(item.uav_id): (
-                    item.slot.position.x,
-                    item.slot.position.y,
-                    item.slot.position.z,
-                    self._uavs[self._resolve_uri(item.uav_id)].yaw_deg,
-                )
-                for item in plan.assignments
-            }
-
-    def _rebase_formation_to_telemetry(self) -> None:
-        plan = self._formation_plan
-        if plan is None:
-            return
-        assignments: list[FormationAssignment] = []
-        positions: list[Position] = []
-        for item in plan.assignments:
-            uri = self._resolve_uri(item.uav_id)
-            position = self._uavs[uri].position
-            positions.append(position)
-            assignments.append(FormationAssignment(
-                item.uav_id,
-                FormationSlot(item.slot.slot_id, position),
-                0.0,
-            ))
-        center = Position(
-            sum(position.x for position in positions) / len(positions),
-            sum(position.y for position in positions) / len(positions),
-            sum(position.z for position in positions) / len(positions),
-        )
-        self._formation_plan = FormationPlan(
-            plan.shape, center, plan.spacing_m, tuple(assignments),
-        )
-
-    def _rebase_lighthouse_targets_to_telemetry(self) -> None:
-        """Keep the next stick target continuous after stopping movement."""
-        for uri in self._lighthouse_hold_uris:
-            telemetry = self._uavs.get(uri)
-            if telemetry is None:
-                continue
-            self._lighthouse_targets_by_uri[uri] = (
-                telemetry.position.x,
-                telemetry.position.y,
-                telemetry.position.z,
-                telemetry.yaw_deg,
-            )
-        self._last_lighthouse_manual_at = time.monotonic()
 
     def _discard_pending_commands(self, reason: str) -> None:
         discarded = self._command_queue.drain()
@@ -1282,23 +1242,9 @@ class CrazyflieSwarmGateway:
                 self._message = f"电机停止未确认：{error}；请立即现场处置"
 
     def _record(self, level: str, message: str) -> None:
-        with self._lock:
-            self._events.insert(0, (level.upper(), message, time.time()))
-            del self._events[200:]
-            listeners = tuple(self._event_listeners)
-        for listener in listeners:
-            try:
-                listener(level.upper(), message)
-            except Exception:
-                pass
+        self._journal.record(level, message)
 
     def _notify_command(self, status: str, message: str, command: SwarmCommand) -> None:
-        with self._lock:
-            listeners = tuple(self._command_listeners)
-        for listener in listeners:
-            try:
-                listener(status, message, command)
-            except Exception:
-                pass
+        self._journal.notify_command(status, message, command)
 
 __all__ = ["CflibBackend", "CrazyflieBackend", "CrazyflieSwarmConfig", "CrazyflieSwarmGateway"]
