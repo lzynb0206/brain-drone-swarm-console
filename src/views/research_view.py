@@ -13,7 +13,8 @@ from src.bci.config import (
     WINDOW_SECONDS,
 )
 from src.widgets.scifi_canvas import (
-    BG, BLUE, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas,
+    BG, BLUE, BORDER, CYAN, GREEN, MUTED, PANEL, RED, RESEARCH_NAV_ITEMS, TEXT,
+    YELLOW, Canvas,
 )
 
 
@@ -22,17 +23,14 @@ class ResearchViewMixin:
     def _paint_research(self, c: Canvas) -> None:
         c.fill(BG)
         c.top_nav(self.research_page)
-        nav = [
-            ("采集", 238, 54), ("LSL收集", 294, 78), ("实验", 374, 54),
-            ("范式", 430, 54), ("算法", 486, 54), ("控制", 542, 54),
-            ("映射", 598, 54), ("数据", 654, 54),
-        ]
-        for name, x, width in nav:
+        for name, x, width in RESEARCH_NAV_ITEMS:
+            if name == "帮助":
+                self._hit(x, 0, width, 56, "openbci-guide")
+                continue
             self._hit(x, 0, width, 57, f"research:{name}")
-        self._hit(724, 0, 54, 56, "openbci-guide")
-        self._hit(1020, 8, 36, 38, "logout")
-        self._hit(1068, 8, 36, 38, "workspace-summary")
-        self._hit(1117, 8, 36, 38, "workspace-layout")
+        self._hit(1020, 9, 36, 36, "logout")
+        self._hit(1068, 9, 36, 36, "workspace-summary")
+        self._hit(1117, 9, 36, 36, "workspace-layout")
         self._hit(1166, 10, 89, 34, "marker-add")
         {
             "采集": self._research_acquisition,
@@ -144,29 +142,29 @@ class ResearchViewMixin:
     def _research_lsl_collector(self, c: Canvas) -> None:
         """Independent LSL receiver and raw CSV recorder."""
 
-        bg, panel, border = "#eef1f4", "#ffffff", "#ccd3da"
-        ink, sub, blue = "#26323c", "#697681", "#2e628f"
-        c.rect(0, 56, 1280, 664, bg)
-        c.text(24, 67, 600, 32, "LSL EEG 收集器", 18, ink, True)
-        c.text(24, 96, 920, 21, "接收“采集 → Networking”或其他软件发布的 type=EEG 数据流，并原样保存CSV", 10, sub)
+        c.rect(0, 56, 1280, 664, BG)
+        c.text(32, 69, 420, 32, "LSL 脑电收集", 20, TEXT, True)
+        c.text(32, 100, 840, 21, "发现并接收 type=EEG 的 LSL 数据流，同时保留原始时间戳并写入 CSV。", 10, MUTED)
 
-        c.rect(24, 126, 1232, 104, panel, border, 5)
+        c.rect(32, 132, 1216, 104, PANEL, BORDER, 5)
         stream_name = str(
             getattr(self._lsl_collector_stream, "source_name", "LSL · obci_eeg1")
         ).replace("LSL · ", "")
-        c.text(39, 138, 75, 24, "LSL数据流", 10, ink, True)
-        c.rect(122, 133, 500, 32, "#f7f9fa", border, 2)
-        c.text(134, 133, 476, 32, stream_name, 10, ink)
-        self._light_button(c, 642, 133, 142, 32, "刷新/选择数据流", False, blue)
-        self._light_button(c, 794, 133, 132, 32, "开始收集", False, "#31875a")
-        self._light_button(c, 936, 133, 132, 32, "停止收集", False, "#bd4b4b")
-        self._light_button(c, 1078, 133, 154, 32, "打开数据目录")
-        self._hit(642, 133, 142, 32, "lsl-collector-refresh")
-        self._hit(794, 133, 132, 32, "lsl-collector-start")
-        self._hit(936, 133, 132, 32, "lsl-collector-stop")
-        self._hit(1078, 133, 154, 32, "lsl-collector-open-directory")
-        c.text(39, 178, 1180, 22, self._lsl_collector_status, 9, "#3b6f95")
-        c.text(39, 203, 1180, 18, "默认匹配：Name=obci_eeg1 · Type=EEG · Channel Count=8", 9, sub)
+        c.text(50, 143, 90, 24, "LSL 数据流", 9, MUTED, True)
+        c.rect(50, 170, 486, 36, "#0b1728", BORDER, 3)
+        c.text(64, 170, 458, 36, stream_name, 10, TEXT)
+        self._light_button(c, 552, 170, 140, 36, "刷新 / 选择")
+        self._light_button(c, 704, 170, 128, 36, "开始收集", False, "#31875a")
+        self._light_button(c, 844, 170, 128, 36, "停止收集", False, "#bd4b4b")
+        self._light_button(c, 984, 170, 152, 36, "打开数据目录")
+        self._hit(552, 170, 140, 36, "lsl-collector-refresh")
+        self._hit(704, 170, 128, 36, "lsl-collector-start")
+        self._hit(844, 170, 128, 36, "lsl-collector-stop")
+        self._hit(984, 170, 152, 36, "lsl-collector-open-directory")
+        c.circle(1160, 188, 5, CYAN)
+        c.text(1172, 170, 58, 36, "EEG", 10, TEXT, True)
+        c.text(50, 210, 720, 18, self._lsl_collector_status, 9, CYAN)
+        c.text(790, 210, 438, 18, "默认：obci_eeg1 · EEG · 8 CH", 9, MUTED, False, Qt.AlignRight)
 
         running = self._lsl_collector_worker is not None and self._lsl_collector_worker.isRunning()
         stats = self._lsl_collector_recorder.snapshot()
@@ -182,43 +180,44 @@ class ResearchViewMixin:
             ("实际采样率", f"{(self._lsl_collector_sample_rate if running else 0.0):.1f} Hz"),
         )
         for index, (label, value) in enumerate(metrics):
-            x = 24 + index * 306
-            c.text(x, 238, 294, 20, label, 9, sub)
-            c.rect(x, 260, 294, 48, "#e3e7ea", border, 3)
-            c.text(x, 260, 294, 48, value, 13, ink, True, Qt.AlignCenter)
+            x = 32 + index * 304
+            c.rect(x, 250, 288, 62, "#0b1728", BORDER, 3)
+            c.text(x + 14, 257, 120, 20, label, 9, MUTED)
+            c.text(x + 14, 279, 260, 25, value, 14, TEXT, True)
 
-        c.text(24, 317, 880, 24, f"数据文件：{stats.get('path') or '开始收集后自动创建CSV'}", 9, ink)
+        c.text(32, 326, 900, 24, f"数据文件：{stats.get('path') or '开始收集后自动创建 CSV'}", 9, MUTED)
         self._light_button(
-            c, 1068, 314, 164, 30,
+            c, 1084, 322, 164, 32,
             "恢复波形" if self._lsl_collector_waveform_paused else "暂停波形",
             self._lsl_collector_waveform_paused,
-            blue,
+            "#2e628f",
         )
-        self._hit(1068, 314, 164, 30, "lsl-collector-pause")
+        self._hit(1084, 322, 164, 32, "lsl-collector-pause")
 
-        c.rect(24, 350, 892, 350, panel, border, 4)
-        c.text(38, 354, 470, 27, "最近5秒LSL原始脑电波形（最多显示16通道）", 11, ink, True)
-        c.text(690, 354, 210, 27, "单位 μV · 自动纵向缩放", 9, sub, False, Qt.AlignRight)
-        self._draw_lsl_collector_eeg(c, 37, 386, 866, 297)
-        c.text(37, 677, 866, 18, "-5s                                  时间                                  0s", 8, sub, False, Qt.AlignCenter)
+        c.rect(32, 368, 820, 328, PANEL, BORDER, 4)
+        c.text(50, 376, 470, 28, "最近 5 秒 LSL 原始脑电（最多 16 通道）", 12, TEXT, True)
+        c.text(628, 376, 206, 28, "μV  ·  自动纵向缩放", 9, MUTED, False, Qt.AlignRight)
+        c.line(50, 408, 834, 408, BORDER)
+        self._draw_lsl_collector_eeg(c, 50, 416, 784, 252)
+        c.text(50, 670, 784, 18, "-5s                                  时间                                  0s", 8, MUTED, False, Qt.AlignCenter)
 
-        c.rect(928, 350, 328, 350, panel, border, 4)
-        c.text(942, 354, 300, 27, "运行日志 / 时间戳质量", 11, ink, True)
+        c.rect(868, 368, 380, 328, PANEL, BORDER, 4)
+        c.text(886, 376, 344, 28, "运行日志 / 时间戳质量", 12, TEXT, True)
         gaps = int(health.get("gap_count", 0) or 0)
-        c.text(942, 385, 140, 20, f"数据缺口：{gaps}", 9, "#b44d4d" if gaps else "#31875a", True)
-        c.text(1090, 385, 150, 20, f"通道：{len(self._lsl_collector_channel_names)}", 9, sub, False, Qt.AlignRight)
-        c.line(942, 410, 1242, 410, border)
+        c.text(886, 410, 160, 20, f"数据缺口：{gaps}", 9, RED if gaps else GREEN, True)
+        c.text(1070, 410, 160, 20, f"通道：{len(self._lsl_collector_channel_names)}", 9, MUTED, False, Qt.AlignRight)
+        c.line(886, 438, 1230, 438, BORDER)
         events = list(self._lsl_collector_events)[:11] or ["等待发现LSL EEG数据流…"]
         for index, event in enumerate(events):
-            c.text(942, 419 + index * 24, 300, 22, str(event)[:46], 8, ink)
-        c.text(942, 660, 300, 28, "暂停波形不影响CSV持续写入。", 8, "#8b6b2e", False, Qt.AlignCenter)
+            c.text(886, 446 + index * 20, 344, 18, str(event)[:52], 8, TEXT)
+        c.text(886, 662, 344, 24, "暂停波形不影响 CSV 持续写入。", 8, YELLOW, False, Qt.AlignCenter)
 
     def _draw_lsl_collector_eeg(
         self, c: Canvas, x: float, y: float, w: float, h: float,
     ) -> None:
         histories = [list(values) for values in self._lsl_collector_history[:16]]
         if not histories or not any(histories):
-            c.text(x, y, w, h, "等待 LSL EEG 数据…", 15, "#77838f", False, Qt.AlignCenter)
+            c.text(x, y, w, h, "等待 LSL EEG 数据…", 14, MUTED, False, Qt.AlignCenter)
             return
         palette = ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")
         row_height = h / max(1, len(histories))
@@ -226,9 +225,9 @@ class ResearchViewMixin:
         c.p.setClipRect(QRectF(x, y, w, h))
         for index, values in enumerate(histories):
             baseline = y + row_height * (index + 0.5)
-            c.line(x, baseline, x + w, baseline, "#e3e7ea")
+            c.line(x, baseline, x + w, baseline, "#243452")
             label = self._lsl_collector_channel_names[index] if index < len(self._lsl_collector_channel_names) else f"CH{index + 1}"
-            c.text(x, baseline - 10, 54, 20, label[:8], 8, "#697580")
+            c.text(x, baseline - 10, 54, 20, label[:8], 8, MUTED)
             if len(values) < 2:
                 continue
             data = np.asarray(values, dtype=float)
@@ -245,152 +244,163 @@ class ResearchViewMixin:
         c.p.restore()
 
     def _research_acquisition(self, c: Canvas) -> None:
-        """OpenBCI-style acquisition shell backed by the native serial adapter."""
+        """Render the hardware acquisition workflow in the research theme."""
         if self.acquisition_stage == "setup":
             self._acquisition_setup(c)
             return
+        self._acquisition_runtime_shell(c)
         if self.acquisition_tab == "Dashboard":
             self._acquisition_dashboard_page(c)
             return
-        light_bg, panel, border = "#eef2f5", "#ffffff", "#cbd3dc"
-        ink, sub, blue = "#24313d", "#64717e", "#2f5f89"
-        c.rect(0, 56, 1280, 664, light_bg)
-        backend = self._csv_playback_snapshot().get("backend")
-        source = (
-            self._pipeline_worker.source_name
-            if backend == "hardware" and self._pipeline_worker is not None
-            else self._collector_selected_device or "等待选择硬件"
-        )
-        channel_count = len(self._eeg_channel_names) or len(self._eeg_history)
-        csv_stats = self._raw_csv_recorder.snapshot()
-        transport = self._eeg_health.get("transport")
-        transfer_label = (
-            "macOS Native RFCOMM"
-            if transport == "macos-native-rfcomm"
-            else "Bluetooth COM / Serial"
-        )
-
-        c.rect(16, 72, 320, 632, panel, border, 3)
-        c.rect(16, 72, 320, 42, blue, blue, 3)
-        c.text(32, 72, 288, 42, "OPENBCI SESSION CONTROL", 13, "#ffffff", True)
-        fields = (
-            ("DATA SOURCE", "CYTON / ExpandableEEG"),
-            ("TRANSFER PROTOCOL", transfer_label),
-            ("DEVICE", source.replace("OpenBCI Direct · ", "")),
-            ("CHANNEL COUNT", f"{channel_count or self._openbci_channel_count} CHANNELS"),
-            ("SAMPLE RATE", f"{self._eeg_sample_rate:.1f} Hz" if self._eeg_sample_rate else "WAITING"),
-            ("LSL OUTPUT", "ACTIVE" if self._lsl_outlet.active else "STOPPED"),
-        )
-        for index, (label, value) in enumerate(fields):
-            y = 126 + index * 55
-            c.text(31, y, 274, 17, label, 9, sub, True)
-            c.rect(31, y + 19, 274, 29, "#f8fafb", border, 2)
-            c.text(41, y + 19, 254, 29, value, 11, ink)
-
-        streaming = self._pipeline_worker is not None and self._pipeline_worker.isRunning()
-        self._light_button(c, 31, 462, 126, 34, "SELECT DEVICE", False)
-        self._light_button(c, 166, 462, 139, 34, "STOP STREAM" if streaming else "START STREAM", streaming, "#2d8a57")
-        self._light_button(c, 31, 504, 84, 34, "DISCONNECT", False, "#bd4b4b")
-        self._light_button(
-            c, 124, 504, 181, 34,
-            "STOP CSV RECORD" if self._continuous_recording else "START CSV RECORD",
-            self._continuous_recording,
-            "#c94e4e",
-        )
-        self._hit(31, 462, 126, 34, "openbci-serial-autoconnect")
-        self._hit(166, 462, 139, 34, "openbci-data-stream-toggle")
-        self._hit(31, 504, 84, 34, "eeg-disconnect")
-        self._hit(124, 504, 181, 34, "continuous-record-toggle")
-        self._light_button(c, 31, 546, 274, 32, "采集 / LSL / CSV 接入说明")
-        self._hit(31, 546, 274, 32, "openbci-guide")
-
-        connected = bool(self._eeg_health.get("connected", False)) or self._eeg_status.startswith("已连接")
-        c.circle(41, 603, 6, "#2fa866" if connected else "#c34f4f")
-        c.text(55, 588, 250, 30, self._eeg_status, 11, ink, True)
-        c.text(31, 620, 274, 20, f"Samples  {self._eeg_health.get('total_samples', 0)}", 10, sub)
-        c.text(31, 641, 274, 20, f"CSV  {csv_stats.get('sample_count', 0)} samples", 10, sub)
-        path = str(csv_stats.get("path") or "等待首帧后创建文件")
-        c.text(31, 664, 274, 28, path[-47:], 9, sub)
-
-        c.rect(352, 72, 912, 632, panel, border, 3)
-        tabs = ("Dashboard", "Focus", "LSL", "Packet Loss", "Hardware")
-        for index, tab in enumerate(tabs):
-            x = 362 + index * 174
-            active = self.acquisition_tab == tab
-            c.rect(x, 80, 164, 31, blue if active else "#edf1f4", border, 2)
-            c.text(x, 80, 164, 31, tab, 10, "#ffffff" if active else ink, active, Qt.AlignCenter)
-            self._hit(x, 80, 164, 31, f"acquisition-tab:{tab}")
-        c.line(352, 120, 1264, 120, border)
-
+        c.rect(32, 218, 1216, 478, PANEL, BORDER, 4)
         renderers = {
             "Focus": self._acquisition_focus,
             "LSL": self._acquisition_lsl,
             "Packet Loss": self._acquisition_packet_loss,
             "Hardware": self._acquisition_hardware,
         }
-        renderers[self.acquisition_tab](c, 370, 134, 876, 550)
+        renderers[self.acquisition_tab](c, 52, 234, 1176, 446)
+
+    def _acquisition_runtime_shell(self, c: Canvas) -> None:
+        """Shared, aligned header and tab bar for every live acquisition view."""
+
+        c.rect(0, 56, 1280, 664, BG)
+        streaming = self._pipeline_worker is not None and self._pipeline_worker.isRunning()
+        connected = bool(self._eeg_health.get("connected", False)) or self._eeg_status.startswith("已连接")
+        csv_stats = self._raw_csv_recorder.snapshot()
+        source = (
+            self._pipeline_worker.source_name
+            if self._pipeline_worker is not None and streaming
+            else self._collector_selected_device or "未选择设备"
+        ).replace("OpenBCI Direct · ", "")
+        channel_count = len(self._eeg_channel_names) or len(self._eeg_history) or 8
+        sample_rate = self._eeg_sample_rate or self._openbci_sample_rate
+
+        c.text(32, 69, 310, 31, "实时脑电采集", 20, TEXT, True)
+        c.circle(350, 84, 5, GREEN if connected else RED)
+        c.text(363, 70, 410, 28, self._eeg_status, 10, TEXT if connected else MUTED)
+        self._light_button(c, 820, 70, 112, 32, "返回连接配置")
+        self._light_button(
+            c, 944, 70, 132, 32,
+            "停止数据流" if streaming else "启动数据流",
+            streaming,
+            "#2d8a57",
+        )
+        self._light_button(
+            c, 1088, 70, 160, 32,
+            "停止 CSV 记录" if self._continuous_recording else "开始 CSV 记录",
+            self._continuous_recording,
+            "#bd4b4b",
+        )
+        self._hit(820, 70, 112, 32, "openbci-control-panel")
+        self._hit(944, 70, 132, 32, "openbci-data-stream-toggle")
+        self._hit(1088, 70, 160, 32, "continuous-record-toggle")
+
+        summary = (
+            ("设备", source[-28:], 32, 318),
+            ("通道", f"{channel_count} CH", 362, 138),
+            ("采样率", f"{sample_rate:.0f} Hz", 512, 160),
+            ("LSL 输出", "已开启" if self._lsl_outlet.active else "未开启", 684, 170),
+            ("CSV 样本", str(csv_stats.get("sample_count", 0)), 866, 188),
+            ("数据包", str(self._eeg_health.get("total_samples", 0)), 1066, 182),
+        )
+        for label, value, x, width in summary:
+            c.rect(x, 112, width, 38, "#0c1729", BORDER, 3)
+            c.text(x + 12, 112, width * 0.4, 38, label, 9, MUTED, True)
+            c.text(x + width * 0.38, 112, width * 0.56, 38, value, 10, TEXT, True, Qt.AlignRight | Qt.AlignVCenter)
+
+        tabs = (
+            ("采集总览", "Dashboard"),
+            ("信号质量", "Focus"),
+            ("LSL 输出", "LSL"),
+            ("丢包检测", "Packet Loss"),
+            ("硬件设置", "Hardware"),
+        )
+        tab_width = 1216 / len(tabs)
+        for index, (label, tab) in enumerate(tabs):
+            x = 32 + index * tab_width
+            active = self.acquisition_tab == tab
+            c.rect(x, 164, tab_width, 38, "#14233b" if active else "#0b1425", BORDER)
+            if active:
+                c.line(x + 18, 200, x + tab_width - 18, 200, CYAN, 2)
+            c.text(x, 164, tab_width, 36, label, 11, TEXT if active else MUTED, active, Qt.AlignCenter)
+            self._hit(x, 164, tab_width, 38, f"acquisition-tab:{tab}")
 
     def _acquisition_setup(self, c: Canvas) -> None:
-        """Project-specific direct connection page for the 8-channel board."""
+        """Direct connection page styled like the rest of the research console."""
 
-        navy, dark_blue, bright_blue = "#00172b", "#0b507c", "#078bd1"
-        panel, border, ink = "#c9c9c9", "#1f3445", "#10283d"
-        active, white = "#94acd0", "#f7f7f7"
-        c.rect(0, 56, 1280, 664, navy)
-        c.rect(0, 56, 1280, 48, dark_blue, border, 0, 2)
-        c.rect(16, 58, 315, 44, active, border, 0, 2)
-        c.text(16, 58, 315, 44, "System Control Panel", 18, "#ffffff", True, Qt.AlignCenter)
-        c.text(520, 58, 250, 44, "◉ OPENBCI", 22, "#ffffff", True, Qt.AlignCenter)
-        c.rect(0, 104, 1280, 40, bright_blue)
-        c.text(1040, 106, 214, 34, "ExpandableEEG Direct", 12, "#ffffff", True, Qt.AlignCenter)
+        c.rect(0, 56, 1280, 664, BG)
+        c.text(32, 72, 430, 34, "建立脑电采集会话", 21, TEXT, True)
+        c.text(32, 105, 690, 24, "连接 ExpandableEEG / Cyton 兼容设备，确认参数后进入实时监测。", 11, MUTED)
+        c.rect(1018, 76, 230, 30, "#0c1729", BORDER, 15)
+        c.circle(1038, 91, 5, YELLOW)
+        c.text(1052, 76, 176, 30, "等待设备连接", 10, TEXT, True)
 
-        # Fixed hardware profile: the manual's BT mode is a virtual COM port.
-        c.rect(40, 170, 360, 330, panel, border, 0, 1)
-        c.text(58, 184, 324, 32, "DATA SOURCE", 16, ink, True)
-        c.rect(58, 224, 324, 42, "#a9efa2", border, 0, 1)
-        c.text(58, 224, 324, 42, "EXPANDABLE EEG / CYTON", 13, ink, True, Qt.AlignCenter)
-        c.text(58, 286, 324, 28, "TRANSFER PROTOCOL", 14, ink, True)
-        c.rect(58, 320, 324, 40, active, border, 0, 1)
-        c.text(58, 320, 324, 40, "Bluetooth COM / macOS Native RFCOMM", 11, ink, False, Qt.AlignCenter)
-        c.text(58, 380, 115, 28, "CHANNEL COUNT", 10, ink, True)
-        c.text(232, 380, 115, 28, "SAMPLE RATE", 10, ink, True)
-        c.rect(58, 412, 140, 42, white, border, 0, 1)
-        c.rect(224, 412, 158, 42, white, border, 0, 1)
-        c.text(58, 412, 140, 42, "8 CHANNELS", 12, ink, True, Qt.AlignCenter)
-        c.text(224, 412, 158, 42, "250 Hz", 12, ink, True, Qt.AlignCenter)
+        card_y, card_h = 150, 396
+        cards = ((32, 350), (398, 430), (844, 404))
+        for x, width in cards:
+            c.rect(x, card_y, width, card_h, PANEL, BORDER, 5)
 
-        c.rect(420, 170, 420, 330, panel, border, 0, 1)
-        c.text(438, 184, 384, 32, "SERIAL CONNECT", 16, ink, True)
-        c.text(438, 228, 384, 25, "系统蓝牙配对后将设备映射为 COM / /dev/cu.*", 10, ink)
-        c.rect(438, 266, 384, 46, white, border, 0, 1)
-        port = self._collector_selected_device or "No Serial/COM port selected"
-        c.text(452, 266, 356, 46, port, 11, ink)
-        self._light_button(c, 438, 330, 184, 42, "REFRESH / SELECT", False, "#2f6c99")
-        self._light_button(c, 638, 330, 184, 42, "START SESSION", False, "#31875a")
-        self._hit(438, 330, 184, 42, "openbci-serial-autoconnect")
-        self._hit(638, 330, 184, 42, "openbci-start-session")
-        c.text(438, 394, 384, 52, self._eeg_status, 10, "#335a74", True, Qt.AlignCenter)
-        c.text(438, 454, 384, 28, "不会自动播放CSV，也不会生成模拟EEG", 9, "#6b7379", False, Qt.AlignCenter)
+        c.text(52, 168, 310, 26, "01  采集配置", 15, TEXT, True)
+        c.text(52, 201, 310, 22, "数据源", 9, MUTED, True)
+        c.rect(52, 228, 310, 46, "#13253d", "#31527b", 3)
+        c.circle(72, 251, 6, GREEN)
+        c.text(90, 228, 254, 46, "ExpandableEEG / Cyton", 11, TEXT, True)
+        c.text(52, 294, 310, 22, "传输协议", 9, MUTED, True)
+        c.rect(52, 321, 310, 42, "#0b1728", BORDER, 3)
+        c.text(66, 321, 282, 42, "Bluetooth COM / Native RFCOMM", 10, TEXT)
+        for index, (label, value) in enumerate((("通道数", "8 CH"), ("采样率", "250 Hz"))):
+            x = 52 + index * 160
+            c.rect(x, 388, 150, 66, "#0b1728", BORDER, 3)
+            c.text(x + 12, 396, 126, 19, label, 9, MUTED)
+            c.text(x + 12, 418, 126, 26, value, 15, TEXT, True)
+        c.text(52, 478, 310, 44, "固定使用 8 通道硬件配置，避免会话间参数漂移。", 10, MUTED)
 
-        c.rect(860, 170, 360, 330, panel, border, 0, 1)
-        c.text(878, 184, 324, 32, "SESSION PIPELINE", 16, ink, True)
+        c.text(418, 168, 390, 26, "02  选择并连接设备", 15, TEXT, True)
+        c.text(418, 204, 390, 22, "系统蓝牙配对后，设备会映射为 COM 或 /dev/cu.*", 9, MUTED)
+        port = self._collector_selected_device or "尚未选择串口设备"
+        c.rect(418, 236, 390, 48, "#0b1728", BORDER, 3)
+        c.text(434, 236, 358, 48, port[-48:], 10, TEXT)
+        self._light_button(c, 418, 300, 184, 40, "刷新 / 选择设备")
+        self._light_button(c, 618, 300, 190, 40, "开始采集会话", False, "#2d8a57")
+        self._hit(418, 300, 184, 40, "openbci-serial-autoconnect")
+        self._hit(618, 300, 190, 40, "openbci-start-session")
+        c.rect(418, 362, 390, 94, "#0b1728", BORDER, 3)
+        c.circle(440, 389, 6, YELLOW)
+        c.text(456, 374, 332, 30, self._eeg_status, 10, TEXT, True)
+        c.text(438, 411, 350, 29, "只接入真实硬件，不自动播放 CSV 或生成模拟 EEG。", 9, MUTED)
+        self._light_button(c, 418, 478, 136, 34, "接入说明")
+        self._hit(418, 478, 136, 34, "openbci-guide")
+
+        c.text(864, 168, 364, 26, "03  会话数据链路", 15, TEXT, True)
         steps = (
-            "1  蓝牙COM/串口直连采集板",
-            "2  显示8通道 Time Series",
-            "3  实时计算 FFT / 信号质量",
-            "4  Networking 启动 LSL 输出",
-            "5  LSL收集页接收并保存 CSV",
+            ("连接", "蓝牙串口直连采集板"),
+            ("监测", "8 通道波形与频谱"),
+            ("质检", "信号质量与丢包检测"),
+            ("广播", "按需启动 LSL 输出"),
+            ("保存", "LSL 收集页写入 CSV"),
         )
-        for index, value in enumerate(steps):
-            c.rect(878, 226 + index * 47, 324, 36, white, "#9ca6ad", 0, 1)
-            c.text(892, 226 + index * 47, 296, 36, value, 10, ink)
+        for index, (label, description) in enumerate(steps):
+            y = 211 + index * 58
+            c.circle(884, y + 17, 13, "#183255", "#31527b")
+            c.text(871, y + 4, 26, 26, str(index + 1), 9, CYAN, True, Qt.AlignCenter)
+            c.text(912, y, 58, 22, label, 10, TEXT, True)
+            c.text(970, y, 248, 22, description, 9, MUTED)
+            if index < len(steps) - 1:
+                c.line(884, y + 31, 884, y + 48, "#31527b", 2)
 
-        c.rect(40, 532, 1180, 112, "#f5f6f6", "#6f7c84", 0, 1)
-        c.text(64, 544, 1132, 28, "采集页面负责硬件；LSL收集页面负责网络流与CSV；实验页面负责CSV回放。", 13, ink, True, Qt.AlignCenter)
-        c.text(64, 580, 1132, 42, "开始 Session 后进入与 OpenBCI GUI 相同结构的 Time Series + FFT Plot + Accelerometer 页面。", 11, "#486377", False, Qt.AlignCenter)
-        status = self._openbci_status_message
-        c.rect(16, 697, 1248, 19, white, "#25b9df", 0, 1)
-        c.text(24, 697, 1232, 19, status, 10, ink)
+        c.rect(32, 566, 1216, 112, "#0b1728", BORDER, 5)
+        c.text(56, 580, 240, 28, "清晰的数据职责", 13, TEXT, True)
+        responsibilities = (
+            ("采集", "硬件连接与实时监测"),
+            ("LSL 收集", "网络流接收与 CSV 保存"),
+            ("实验", "CSV 回放与算法验证"),
+        )
+        for index, (label, value) in enumerate(responsibilities):
+            x = 318 + index * 294
+            c.rect(x, 582, 270, 64, "#101c32", BORDER, 3)
+            c.text(x + 16, 590, 86, 20, label, 10, CYAN, True)
+            c.text(x + 16, 613, 238, 22, value, 10, TEXT)
 
     def _acquisition_legacy_setup(self, c: Canvas) -> None:
         """Port the official OpenBCI GUI v6 control-panel state layout."""
@@ -569,67 +579,32 @@ class ResearchViewMixin:
         c.text(24, 697, 1232, 19, status, 10, ink)
 
     def _acquisition_dashboard_page(self, c: Canvas) -> None:
-        """Three-panel runtime layout matching the OpenBCI GUI manual."""
-        bg, blue, border, ink = "#f4f5f5", "#0d6094", "#8f999f", "#263139"
-        c.rect(0, 56, 1280, 664, bg)
-        c.rect(16, 70, 1248, 38, blue, border, 1)
-        c.rect(16, 70, 260, 38, "#164d72", border, 1)
-        c.text(16, 70, 260, 38, "System Control Panel", 13, "#ffffff", True, Qt.AlignCenter)
-        self._hit(16, 70, 260, 38, "openbci-control-panel")
-        c.text(488, 70, 300, 38, "◉ OPENBCI", 17, "#ffffff", True, Qt.AlignCenter)
-        c.text(1052, 70, 196, 38, "Settings     Layout", 11, "#ffffff", True, Qt.AlignCenter)
+        """Compact three-panel runtime overview in the shared dark theme."""
 
-        c.rect(16, 108, 1248, 44, "#1490ce", border, 1)
-        streaming = self._pipeline_worker is not None and self._pipeline_worker.isRunning()
-        c.rect(24, 114, 185, 32, "#e4e6e7", "#66747c", 1)
-        c.text(24, 114, 185, 32, "Stop Data Stream" if streaming else "Start Data Stream", 11, ink, True, Qt.AlignCenter)
-        self._hit(24, 114, 185, 32, "openbci-data-stream-toggle")
-        c.rect(216, 114, 82, 32, "#2d8fd0", "#d4e7f1", 1)
-        c.text(216, 114, 82, 32, "Filters", 11, "#ffffff", True, Qt.AlignCenter)
-        nav_items = (("Dashboard", "Dashboard"), ("Focus", "Focus"), ("Networking", "LSL"),
-                     ("Packet Loss", "Packet Loss"), ("Hardware", "Hardware"))
-        for index, (label, tab) in enumerate(nav_items):
-            x = 316 + index * 126
-            c.rect(x, 114, 118, 32, "#f0f2f3", "#687780", 1)
-            c.text(x, 114, 118, 32, label, 9, ink, False, Qt.AlignCenter)
-            self._hit(x, 114, 118, 32, f"acquisition-tab:{tab}")
-        self._light_button(
-            c, 1050, 114, 198, 32,
-            "STOP CSV RECORD" if self._continuous_recording else "START CSV RECORD",
-            self._continuous_recording,
-            "#bd4b4b",
-        )
-        self._hit(1050, 114, 198, 32, "continuous-record-toggle")
+        c.rect(32, 218, 736, 478, PANEL, BORDER, 4)
+        c.text(50, 226, 230, 30, "8 通道实时波形", 13, TEXT, True)
+        c.text(496, 226, 252, 30, "自动量程  ·  最近 5 秒", 9, MUTED, False, Qt.AlignRight)
+        c.line(50, 260, 750, 260, BORDER)
+        self._draw_light_eeg(c, 50, 270, 700, 388)
+        c.text(50, 664, 700, 20, "-5s                                  时间                                  0s", 8, MUTED, False, Qt.AlignCenter)
 
-        c.rect(16, 158, 610, 526, "#ffffff", border, 1)
-        c.rect(16, 158, 610, 30, "#d5d8da", border, 1)
-        c.text(26, 158, 210, 30, "Time Series", 11, ink, True)
-        c.text(410, 158, 198, 30, "Vert Scale  200 μV   Window 5 sec", 9, ink, False, Qt.AlignRight)
-        c.rect(24, 192, 594, 27, "#eceeef", border, 1)
-        c.text(33, 192, 160, 27, "Channels", 9, ink, True)
-        c.text(210, 192, 180, 27, "Hardware Settings", 9, ink)
-        self._draw_light_eeg(c, 26, 226, 584, 424)
-        c.text(26, 651, 584, 22, "Time (s)      -5        -4        -3        -2        -1        0", 9, "#5d6870", False, Qt.AlignCenter)
+        c.rect(784, 218, 464, 224, PANEL, BORDER, 4)
+        c.text(802, 226, 180, 30, "实时频谱", 13, TEXT, True)
+        c.text(1024, 226, 206, 30, "0–60 Hz  ·  Log 平滑", 9, MUTED, False, Qt.AlignRight)
+        c.line(802, 260, 1230, 260, BORDER)
+        self._acquisition_fft(c, 802, 266, 428, 162)
 
-        c.rect(638, 158, 626, 252, "#ffffff", border, 1)
-        c.rect(638, 158, 626, 30, "#d5d8da", border, 1)
-        c.text(648, 158, 200, 30, "FFT Plot", 11, ink, True)
-        c.text(965, 158, 280, 30, "Max Freq 60 Hz   Max μV 100   Log/Lin", 9, ink, False, Qt.AlignRight)
-        self._acquisition_fft(c, 650, 190, 598, 208)
-
-        c.rect(638, 422, 626, 262, "#ffffff", border, 1)
-        c.rect(638, 422, 626, 30, "#d5d8da", border, 1)
-        c.text(648, 422, 220, 30, "Accelerometer", 11, ink, True)
-        c.text(1080, 422, 164, 30, "Vert Scale Auto   5 sec", 9, ink, False, Qt.AlignRight)
-        self._acquisition_accelerometer(c, 650, 454, 598, 218)
-        c.rect(16, 688, 1248, 24, "#f7f8f8", border, 1)
-        c.text(26, 688, 1228, 24, self._eeg_status, 9, ink)
+        c.rect(784, 456, 464, 240, PANEL, BORDER, 4)
+        c.text(802, 464, 190, 30, "辅助通道 / 加速度", 13, TEXT, True)
+        c.text(1040, 464, 190, 30, "XYZ  ·  最近 5 秒", 9, MUTED, False, Qt.AlignRight)
+        c.line(802, 498, 1230, 498, BORDER)
+        self._acquisition_accelerometer(c, 802, 504, 428, 176)
 
     def _research_replay(self, c: Canvas) -> None:
         """CSV experiment replay is deliberately separate from live acquisition."""
-        light_bg, panel, border = "#eef2f5", "#ffffff", "#cbd3dc"
-        ink, sub, blue = "#24313d", "#64717e", "#2f5f89"
-        c.rect(0, 56, 1280, 664, light_bg)
+        panel, border = PANEL, BORDER
+        ink, sub, blue = TEXT, MUTED, "#3769ef"
+        c.rect(0, 56, 1280, 664, BG)
         snapshot = self._csv_playback_snapshot()
         is_csv = snapshot.get("backend") == "csv"
         c.rect(16, 72, 1248, 96, panel, border, 3)
@@ -702,15 +677,15 @@ class ResearchViewMixin:
             c.text(946, 478, 290, 38, label, 20, "#2d8a57", True)
             c.text(946, 518, 290, 23, f"Score {result.best_score:.3f}  Margin {result.margin:.3f}", 10, sub)
             c.text(946, 545, 290, 38, result.reason, 10, ink)
-        c.rect(946, 606, 298, 69, "#f7f9fa", border, 2)
-        c.text(958, 613, 274, 55, "CSV 回放不会直接启用无人机脑控。\n它用于复盘、算法验证和结果对比。", 10, "#9b6a19")
+        c.rect(946, 606, 298, 69, "#0b1728", border, 2)
+        c.text(958, 613, 274, 55, "CSV 回放不会直接启用无人机脑控。\n它用于复盘、算法验证和结果对比。", 10, YELLOW)
 
     def _light_button(
         self, c: Canvas, x: float, y: float, w: float, h: float, label: str,
         active: bool = False, accent: str = "#2f5f89",
     ) -> None:
-        c.rect(x, y, w, h, accent if active else "#f7f9fa", accent, 2)
-        c.text(x, y, w, h, label, 10, "#ffffff" if active else accent, active, Qt.AlignCenter)
+        c.rect(x, y, w, h, accent if active else "#111c31", accent, 3)
+        c.text(x, y, w, h, label, 10, TEXT if active else QColor(accent).lighter(150), active, Qt.AlignCenter)
 
     def _draw_light_eeg(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
         histories = [list(values) for values in self._eeg_history]
@@ -723,13 +698,13 @@ class ResearchViewMixin:
         c.p.setClipRect(QRectF(x, y, w, h))
         for index, values in enumerate(histories):
             baseline = y + row_height * (index + 0.5)
-            c.line(x + 83, baseline, x + w, baseline, "#e1e5e8")
+            c.line(x + 83, baseline, x + w, baseline, "#243452")
             label = self._eeg_channel_names[index] if index < len(self._eeg_channel_names) else f"CH{index + 1}"
             c.circle(x + 15, baseline, 11, palette[index % len(palette)])
             c.text(x + 4, baseline - 10, 22, 20, str(index + 1), 9, "#ffffff", True, Qt.AlignCenter)
-            c.text(x + 31, baseline - 11, 52, 20, label[:8], 8, "#697580")
+            c.text(x + 31, baseline - 11, 52, 20, label[:8], 8, MUTED)
             if waiting:
-                c.text(x + w - 154, baseline - 11, 146, 20, "Waiting · 0.00 μVrms", 8, "#7b8792", False, Qt.AlignRight)
+                c.text(x + w - 154, baseline - 11, 146, 20, "等待数据 · 0.00 μVrms", 8, MUTED, False, Qt.AlignRight)
             if len(values) < 2:
                 continue
             data = np.asarray(values, dtype=float)
@@ -751,14 +726,12 @@ class ResearchViewMixin:
         self._draw_light_eeg(c, x, y + 38, w, h - 42)
 
     def _acquisition_fft(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
-        c.text(x, y, 350, 28, "FFT Plot", 16, "#24313d", True)
-        c.text(x + w - 310, y, 310, 28, "Max Freq 60 Hz   ·   LogLin Smooth", 10, "#64717e", False, Qt.AlignRight)
-        plot_x, plot_y, plot_w, plot_h = x + 58, y + 48, w - 72, h - 86
-        c.rect(plot_x, plot_y, plot_w, plot_h, "#ffffff", "#cbd3dc")
+        plot_x, plot_y, plot_w, plot_h = x + 42, y + 8, w - 50, h - 42
+        c.rect(plot_x, plot_y, plot_w, plot_h, "#071020", BORDER)
         for index in range(1, 6):
             gx = plot_x + plot_w * index / 6
-            c.line(gx, plot_y, gx, plot_y + plot_h, "#e5e9ec")
-            c.text(gx - 18, plot_y + plot_h + 5, 36, 20, f"{index * 10}", 9, "#75808a", False, Qt.AlignCenter)
+            c.line(gx, plot_y, gx, plot_y + plot_h, "#1c2b45")
+            c.text(gx - 18, plot_y + plot_h + 3, 36, 18, f"{index * 10}", 8, MUTED, False, Qt.AlignCenter)
         histories = [np.asarray(values, dtype=float) for values in self._eeg_history if len(values) >= 32]
         palette = ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")
         for index, values in enumerate(histories[:8]):
@@ -779,25 +752,25 @@ class ResearchViewMixin:
             c.p.setPen(QPen(QColor(palette[index]), 1.2))
             c.p.setBrush(Qt.NoBrush)
             c.p.drawPath(path)
-        c.text(plot_x, plot_y + plot_h + 27, plot_w, 20, "Frequency (Hz)", 10, "#64717e", False, Qt.AlignCenter)
+        c.text(plot_x, plot_y + plot_h + 20, plot_w, 16, "频率 (Hz)", 8, MUTED, False, Qt.AlignCenter)
 
     def _acquisition_focus(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
-        c.text(x, y, w, 30, "Focus / Signal Quality", 16, "#24313d", True)
+        c.text(x, y, w, 30, "信号质量", 16, TEXT, True)
         quality_status = str(self._eeg_quality.get("status", "waiting"))
         usable = int(self._eeg_quality.get("usable_channel_count", 0) or 0)
         count = max(1, len(self._eeg_channel_names))
-        c.text(x, y + 48, w, 42, f"{usable} / {count} usable channels", 27, "#2f5f89", True, Qt.AlignCenter)
-        c.text(x, y + 91, w, 24, f"Quality state: {quality_status}", 11, "#64717e", False, Qt.AlignCenter)
+        c.text(x, y + 43, w, 42, f"{usable} / {count} 个通道可用", 25, CYAN, True, Qt.AlignCenter)
+        c.text(x, y + 84, w, 24, f"质量状态：{quality_status}", 10, MUTED, False, Qt.AlignCenter)
         for index in range(count):
             row_y = y + 145 + index * min(42, 310 / count)
             values = list(self._eeg_history[index]) if index < len(self._eeg_history) else []
             spread = float(np.std(values)) if values else 0.0
             score = min(1.0, spread / (spread + 10.0)) if spread else 0.0
             label = self._eeg_channel_names[index] if index < len(self._eeg_channel_names) else f"CH{index + 1}"
-            c.text(x + 70, row_y, 90, 24, label, 10, "#24313d", True)
-            c.rect(x + 160, row_y + 6, w - 260, 12, "#e2e7ea", None, 6)
+            c.text(x + 70, row_y, 90, 24, label, 10, TEXT, True)
+            c.rect(x + 160, row_y + 6, w - 260, 12, "#1d2c45", None, 6)
             c.rect(x + 160, row_y + 6, (w - 260) * score, 12, "#49a66e", None, 6)
-            c.text(x + w - 90, row_y, 60, 24, f"{spread:.1f}", 10, "#64717e", False, Qt.AlignRight)
+            c.text(x + w - 90, row_y, 60, 24, f"{spread:.1f}", 10, MUTED, False, Qt.AlignRight)
 
     def _acquisition_accelerometer(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
         if h <= 260:
@@ -805,28 +778,28 @@ class ResearchViewMixin:
             for index, (axis, color) in enumerate((('X', '#d84e4e'), ('Y', '#48a15f'), ('Z', '#3c75ba'))):
                 c.text(x + 25, y + 4 + index * 27, 150, 24, f"{axis} = 0.000 g", 11, color, True)
             circle_x, circle_y = x + w - 78, y + 42
-            c.circle(circle_x, circle_y, 32, "#ffffff", "#cbd3dc")
-            c.line(circle_x - 32, circle_y, circle_x + 32, circle_y, "#cbd3dc")
-            c.line(circle_x, circle_y - 32, circle_x, circle_y + 32, "#cbd3dc")
+            c.circle(circle_x, circle_y, 32, "#071020", BORDER)
+            c.line(circle_x - 32, circle_y, circle_x + 32, circle_y, BORDER)
+            c.line(circle_x, circle_y - 32, circle_x, circle_y + 32, BORDER)
             plot_y = y + 88
             plot_h = max(45, h - 102)
-            c.rect(x + 25, plot_y, w - 50, plot_h, "#ffffff", "#cbd3dc")
+            c.rect(x + 25, plot_y, w - 50, plot_h, "#071020", BORDER)
             for index, color in enumerate(("#d84e4e", "#48a15f", "#3c75ba")):
                 baseline = plot_y + plot_h * (index + 1) / 4
                 c.line(x + 34, baseline, x + w - 34, baseline, color, 1)
-            c.text(x + 25, y + h - 16, w - 50, 16, "-5 s                                      Time                                      0 s", 8, "#64717e", False, Qt.AlignCenter)
+            c.text(x + 25, y + h - 16, w - 50, 16, "-5s                         时间                         0s", 8, MUTED, False, Qt.AlignCenter)
             return
-        c.text(x, y, w, 30, "Accelerometer", 16, "#24313d", True)
-        c.rect(x + 40, y + 54, w - 80, h - 130, "#ffffff", "#cbd3dc")
+        c.text(x, y, w, 30, "加速度计", 16, TEXT, True)
+        c.rect(x + 40, y + 54, w - 80, h - 130, "#071020", BORDER)
         for index, (axis, color) in enumerate((("X", "#d84e4e"), ("Y", "#48a15f"), ("Z", "#3c75ba"))):
             baseline = y + 120 + index * 90
-            c.line(x + 70, baseline, x + w - 70, baseline, "#e1e5e8")
+            c.line(x + 70, baseline, x + w - 70, baseline, "#243452")
             c.text(x + 54, baseline - 14, 30, 28, axis, 12, color, True)
-        c.text(x + 60, y + h - 58, w - 120, 34, "ExpandableEEG 主数据为 8 路 EEG；若硬件数据包包含 AUX 加速度通道，将在这里显示 XYZ。", 11, "#8a6c2b", False, Qt.AlignCenter)
+        c.text(x + 60, y + h - 58, w - 120, 34, "ExpandableEEG 主数据为 8 路 EEG；硬件包含 AUX 通道时在这里显示 XYZ。", 10, YELLOW, False, Qt.AlignCenter)
 
     def _acquisition_lsl(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
-        c.text(x, y, w, 30, "Networking · LSL", 16, "#24313d", True)
-        c.text(x, y + 35, w, 24, "ExpandableEEG 直采 → LSL 实时输出 → 导航栏“LSL收集” → CSV", 11, "#2f5f89", True)
+        c.text(x, y, w, 30, "LSL 实时输出", 16, TEXT, True)
+        c.text(x, y + 34, w, 24, "ExpandableEEG 直采  →  LSL 广播  →  “LSL 收集”接收  →  CSV", 10, CYAN, True)
         outlet = self._lsl_outlet.snapshot()
         rows = (
             ("Data Type", "TimeSeriesRaw"),
@@ -837,55 +810,57 @@ class ResearchViewMixin:
             ("Published", f"{int(outlet.get('total_samples', 0) or 0)} samples"),
         )
         for row_index, (label, value) in enumerate(rows):
-            row_y = y + 82 + row_index * 44
-            c.rect(x + 90, row_y, 190, 32, "#eef2f5", "#cbd3dc", 1)
-            c.text(x + 102, row_y, 166, 32, label, 10, "#24313d", True)
-            c.rect(x + 280, row_y, w - 370, 32, "#ffffff", "#cbd3dc", 1)
-            c.text(x + 294, row_y, w - 398, 32, value, 10, "#24313d")
+            row_y = y + 72 + row_index * 38
+            c.rect(x + 110, row_y, 190, 30, "#14233b", BORDER, 2)
+            c.text(x + 122, row_y, 166, 30, label, 9, MUTED, True)
+            c.rect(x + 300, row_y, w - 410, 30, "#0b1728", BORDER, 2)
+            c.text(x + 314, row_y, w - 438, 30, value, 10, TEXT)
         active = bool(outlet.get("active", False))
-        button_text = "STOP LSL STREAM" if active else "START LSL STREAM"
-        self._light_button(c, x + w / 2 - 110, y + 372, 220, 40, button_text, active)
-        self._hit(x + w / 2 - 110, y + 372, 220, 40, "lsl-outlet-toggle")
+        button_text = "停止 LSL 广播" if active else "启动 LSL 广播"
+        self._light_button(c, x + w / 2 - 110, y + 318, 220, 40, button_text, active)
+        self._hit(x + w / 2 - 110, y + 318, 220, 40, "lsl-outlet-toggle")
         status = "正在广播：LSL收集页可以发现并接收该数据流" if active else "尚未广播；硬件采集仍可独立运行"
-        c.text(x + 45, y + 426, w - 90, 28, status, 11, "#2f5f89" if active else "#64717e", True, Qt.AlignCenter)
-        c.text(x + 45, y + 464, w - 90, 44, "这里是 LSL 输出端。停止 LSL 只会停止网络广播，不会停止 ExpandableEEG 硬件采集。", 10, "#64717e", False, Qt.AlignCenter)
+        c.text(x + 45, y + 368, w - 90, 28, status, 10, CYAN if active else MUTED, True, Qt.AlignCenter)
+        c.text(x + 45, y + 400, w - 90, 32, "停止 LSL 只会停止网络广播，不会停止 ExpandableEEG 硬件采集。", 9, MUTED, False, Qt.AlignCenter)
 
     def _acquisition_packet_loss(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
-        c.text(x, y, w, 30, "Packet Loss / Timestamp Health", 16, "#24313d", True)
+        c.text(x, y, w, 30, "丢包与时间戳健康度", 16, TEXT, True)
         health = self._eeg_health
         cards = (
-            ("TOTAL SAMPLES", str(health.get("total_samples", 0))),
-            ("NON-MONOTONIC", str(health.get("non_monotonic_timestamps", 0))),
-            ("GAPS", str(health.get("gap_count", 0))),
-            ("MAX GAP", f"{float(health.get('max_gap_seconds', 0.0) or 0.0):.4f}s"),
+            ("总样本数", str(health.get("total_samples", 0))),
+            ("时间戳乱序", str(health.get("non_monotonic_timestamps", 0))),
+            ("数据缺口", str(health.get("gap_count", 0))),
+            ("最大缺口", f"{float(health.get('max_gap_seconds', 0.0) or 0.0):.4f}s"),
         )
         for index, (label, value) in enumerate(cards):
-            card_x = x + 18 + index * 210
-            c.rect(card_x, y + 58, 190, 94, "#f7f9fa", "#cbd3dc", 3)
-            c.text(card_x, y + 69, 190, 22, label, 9, "#64717e", True, Qt.AlignCenter)
-            c.text(card_x, y + 94, 190, 40, value, 22, "#2f5f89", True, Qt.AlignCenter)
+            card_w = (w - 90) / 4
+            card_x = x + 18 + index * (card_w + 18)
+            c.rect(card_x, y + 55, card_w, 94, "#0b1728", BORDER, 3)
+            c.text(card_x, y + 66, card_w, 22, label, 9, MUTED, True, Qt.AlignCenter)
+            c.text(card_x, y + 92, card_w, 40, value, 22, CYAN, True, Qt.AlignCenter)
         gaps = int(health.get("gap_count", 0) or 0)
         c.circle(x + w / 2, y + 245, 64, "#54ad75" if gaps == 0 else "#d3a13a")
-        c.text(x + w / 2 - 64, y + 210, 128, 70, "PASS" if gaps == 0 else "CHECK", 24, "#ffffff", True, Qt.AlignCenter)
-        c.text(x + 70, y + 345, w - 140, 70, "根据设备逐样本时间戳检测乱序、重复和超出 2 倍采样间隔的数据缺口。\n这些指标会随实验一起记录，用于判断数据是否适合训练和论文分析。", 11, "#64717e", False, Qt.AlignCenter)
+        c.text(x + w / 2 - 64, y + 210, 128, 70, "正常" if gaps == 0 else "检查", 21, "#ffffff", True, Qt.AlignCenter)
+        c.text(x + 70, y + 335, w - 140, 64, "按逐样本时间戳检测乱序、重复和超过 2 倍采样间隔的数据缺口。\n指标随实验记录，可用于判断数据是否适合训练和论文分析。", 10, MUTED, False, Qt.AlignCenter)
 
     def _acquisition_hardware(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
-        c.text(x, y, w, 30, "Hardware Settings · ADS1299", 16, "#24313d", True)
-        headers = ("CH", "PGA Gain", "Input Type", "Bias Include", "SRB2", "SRB1")
+        c.text(x, y, w, 30, "硬件通道设置 · ADS1299", 16, TEXT, True)
+        headers = ("通道", "PGA 增益", "输入类型", "Bias", "SRB2", "SRB1")
         starts = (x + 20, x + 85, x + 205, x + 365, x + 535, x + 665)
         widths = (55, 110, 150, 160, 120, 120)
         for label, left, width in zip(headers, starts, widths):
-            c.text(left, y + 40, width, 28, label, 9, "#64717e", True, Qt.AlignCenter)
+            c.text(left, y + 36, width, 28, label, 9, MUTED, True, Qt.AlignCenter)
         for index, settings in enumerate(self._hardware_channel_settings):
-            row_y = y + 73 + index * 47
+            row_y = y + 66 + index * 37
             c.circle(x + 47, row_y + 16, 13, ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")[index])
             c.text(x + 34, row_y + 3, 26, 26, str(index + 1), 9, "#ffffff", True, Qt.AlignCenter)
             for key, left, width in zip(("gain", "input", "bias", "srb2", "srb1"), starts[1:], widths[1:]):
-                fill = "#e9f5e9" if settings[key] in {"Yes", "On"} else ("#f8e8e8" if settings[key] == "Off" else "#f7f9fa")
-                c.rect(left, row_y, width, 31, fill, "#cbd3dc", 1)
-                c.text(left, row_y, width, 31, settings[key], 9, "#24313d", False, Qt.AlignCenter)
-        c.text(x + 18, y + 468, w - 220, 45, "当前通过 ExpandableEEG 专用串口协议读取设备，已绕过标准 Cyton 握手。\n逐通道 PGA、Bias、SRB 写命令仍需实机验证后开放。", 10, "#9b6a19")
-        self._light_button(c, x + w - 180, y + 468, 160, 38, "SEND（待实机验证）", False, "#9aa3aa")
+                enabled = settings[key] in {"Yes", "On"}
+                fill = "#153228" if enabled else ("#321d25" if settings[key] == "Off" else "#0b1728")
+                c.rect(left, row_y, width, 31, fill, BORDER, 2)
+                c.text(left, row_y, width, 31, settings[key], 9, GREEN if enabled else TEXT, False, Qt.AlignCenter)
+        c.text(x + 18, y + 374, w - 220, 45, "当前使用 ExpandableEEG 专用串口协议；逐通道 PGA、Bias、SRB 写命令需实机验证后开放。", 9, YELLOW)
+        self._light_button(c, x + w - 180, y + 374, 160, 38, "发送（待验证）", False, "#69758a")
 
     def _draw_live_eeg(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
         histories = [list(values) for values in self._eeg_history]
@@ -1032,25 +1007,22 @@ class ResearchViewMixin:
         # 【真实接口接入点】UI-08 / M6.5：滑块和本地应用动作已可操作；正式版
         # ControllerService 还需将 Kp/Ki/Kd 校验后交给实现 BaseController 的
         # PID/MPC 控制器；参数写入 YAML，并保留版本和操作者审计记录。
-        c.rect(16, 72, 64, 648, "#101b30", "#1d2d4b")
-        c.rect(31, 96, 32, 3, BLUE)
-        for y in (124, 172, 220, 268, 316, 364):
-            c.rect(36, y, 24, 24, "#253b60", None, 4)
-        c.text(112, 97, 260, 36, "控制器参数工作台", 15, TEXT, True)
-        c.rect(112, 152, 1120, 69, PANEL, BORDER, 3)
-        c.text(130, 165, 106, 40, "当前控制器:", 14, TEXT)
-        c.button(238, 169, 128, 36, self.actions.controller)
+        c.text(32, 72, 320, 36, "控制器参数工作台", 19, TEXT, True)
+        c.text(32, 101, 640, 22, "统一管理飞行控制器、参数预设与切换策略。", 10, MUTED)
+        c.rect(32, 132, 1216, 72, PANEL, BORDER, 3)
+        c.text(52, 148, 106, 40, "当前控制器", 12, MUTED)
+        c.button(164, 150, 128, 36, self.actions.controller)
         modes = [("● 手动选择", True), ("□ 场景自动匹配", False), ("□ 自适应切换", False), ("□ 双控制器热备", False)]
-        x = 402
+        x = 348
         for label, active in modes:
             c.button(x, 171, 126, 31, label, False, not active)
             x += 133
-        c.rect(112, 246, 1120, 324, PANEL, BORDER, 3)
-        c.text(145, 268, 300, 40, f"{self.actions.controller}参数配置", 17, TEXT, True)
-        for label, y in (("Kp", 346), ("Ki", 402), ("Kd", 458)):
+        c.rect(32, 220, 1216, 296, PANEL, BORDER, 3)
+        c.text(56, 236, 300, 40, f"{self.actions.controller} 参数配置", 16, TEXT, True)
+        for label, y in (("Kp", 310), ("Ki", 370), ("Kd", 430)):
             value = self.actions.controller_values[label]
             end = 203 + 707 * value / 100
-            c.text(145, y - 18, 45, 35, label, 14, TEXT)
+            c.text(145, y - 18, 45, 35, label, 13, TEXT)
             c.line(203, y, 910, y, "#6d6f70", 7)
             c.line(203, y, end, y, "#eeeeee", 7)
             c.circle(end, y, 8, "#f2f2f2")
@@ -1058,33 +1030,35 @@ class ResearchViewMixin:
             self._hit(196, y - 14, 721, 28, f"controller-slider:{label}")
         for i, (label, action) in enumerate((("应用参数", "controller-apply"), ("保存预设", "controller-save"), ("恢复默认", "controller-reset"))):
             x = 486 + i * 137
-            c.button(x, 502, 121, 36, label, i == 0)
-            self._hit(x, 502, 121, 36, action)
-        c.rect(112, 595, 1120, 160, PANEL, BORDER, 3)
-        c.text(137, 606, 200, 42, "控制器库", 16, TEXT, True)
+            c.button(x, 468, 121, 34, label, i == 0)
+            self._hit(x, 468, 121, 34, action)
+        c.rect(32, 532, 1216, 164, PANEL, BORDER, 3)
+        c.text(56, 545, 200, 42, "控制器库", 16, TEXT, True)
         controllers = ("PID", "MPC", "新增", "滑模控制", "鲁棒控制", "自适应控制")
         for i, name in enumerate(controllers):
-            x = 137 + i * 128
+            x = 56 + i * 144
             disabled = name == "新增"
-            c.button(x, 659, 104, 40, name, name == self.actions.controller, disabled, "#69c77a")
+            c.button(x, 622, 120, 42, name, name == self.actions.controller, disabled, "#69c77a")
             if not disabled:
-                self._hit(x, 659, 104, 40, f"controller-select:{name}")
+                self._hit(x, 622, 120, 42, f"controller-select:{name}")
 
     def _research_mapping(self, c: Canvas) -> None:
         # 【真实接口接入点】UI-09 / M4.5：映射表应来自 CommandMappingRepository。
         # 解码 label/频率先经本映射转换为 SwarmCommand，再由安全仲裁器检查
         # 置信度、二次确认、Flow 质量、电量、解锁和急停状态，
         # 最后才调用 swarm_gateway.send_command。
-        panels = [(192, 112, 896, 302), (192, 438, 896, 184), (192, 646, 896, 150)]
+        c.text(32, 72, 320, 36, "识别与动作映射", 19, TEXT, True)
+        c.text(32, 101, 640, 22, "将脑电识别结果转换为经过安全仲裁的飞行动作。", 10, MUTED)
+        panels = [(32, 132, 1216, 276), (32, 424, 1216, 156), (32, 596, 1216, 100)]
         for x, y, w, h in panels:
             c.rect(x, y, w, h, PANEL, BORDER, 3)
-        c.text(217, 128, 430, 42, "SSVEP 识别与安全动作映射", 16, TEXT, True)
+        c.text(56, 143, 430, 42, "SSVEP 识别与安全动作映射", 16, TEXT, True)
         headers = [("SSVEP频率", 434), ("映射动作", 577), ("参数", 684), ("操作", 778)]
         for text, x in headers:
-            c.text(x, 185, 104, 34, text, 13, TEXT, True, Qt.AlignCenter)
-        c.line(433, 216, 847, 216, "#273752")
+            c.text(x, 181, 104, 30, text, 12, TEXT, True, Qt.AlignCenter)
+        c.line(433, 210, 847, 210, "#273752")
         for i, row in enumerate(self.actions.mappings[:6]):
-            y = 214 + i * 27
+            y = 209 + i * 27
             c.text(448, y, 88, 29, row.frequency, 13, TEXT, False, Qt.AlignCenter)
             c.text(564, y, 88, 29, row.action, 13, TEXT, False, Qt.AlignCenter)
             c.text(660, y, 74, 29, row.parameter, 13, TEXT, False, Qt.AlignCenter)
@@ -1093,20 +1067,23 @@ class ResearchViewMixin:
             self._hit(742, y, 52, 29, f"mapping-edit:{i}")
             self._hit(797, y, 47, 29, f"mapping-delete:{i}")
             c.line(433, y + 26, 847, y + 26, "#273752")
-        c.button(576, 380, 128, 28, "添加映射", True)
-        self._hit(576, 380, 128, 28, "mapping-add")
-        c.text(217, 454, 360, 42, "Flow Deck 单机验收", 16, TEXT, True)
+        c.button(576, 371, 128, 28, "添加映射", True)
+        self._hit(576, 371, 128, 28, "mapping-add")
+        c.text(56, 436, 360, 42, "Flow Deck 单机验收", 16, TEXT, True)
         acceptance = (
             ("LED 无桨测试", "led_test"),
             ("保持悬停", "hover"),
             ("受控降落", "land"),
         )
         for index, (name, action) in enumerate(acceptance):
-            button_x = 310 + index * 190
-            c.button(button_x, 510, 170, 42, name)
-            self._hit(button_x, 510, 170, 42, f"swarm-command:{action}")
-        c.text(235, 575, 830, 23, "连接、Flow Deck 测距/光流、解锁和急停检查通过后才会执行", 11, "#596477", False, Qt.AlignCenter)
-        c.text(217, 663, 360, 42, "L3 战术意图 (占位)", 16, TEXT, True)
+            button_x = 310 + index * 220
+            c.button(button_x, 480, 190, 40, name)
+            self._hit(button_x, 480, 190, 40, f"swarm-command:{action}")
+        c.text(200, 538, 880, 23, "连接、Flow Deck 测距/光流、解锁和急停检查通过后才会执行", 10, MUTED, False, Qt.AlignCenter)
+        c.text(56, 606, 360, 32, "L3 战术意图", 15, TEXT, True)
+        c.text(56, 640, 850, 28, "预留更高层战术意图映射；当前版本仅开放经过单机安全验收的动作。", 10, MUTED)
+        c.rect(1064, 620, 150, 34, "#0b1728", BORDER, 17)
+        c.text(1064, 620, 150, 34, "规划中", 10, YELLOW, True, Qt.AlignCenter)
 
     def _research_data(self, c: Canvas) -> None:
         # The left list and counts come from the recorder index, not painted demo sessions.

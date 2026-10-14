@@ -39,7 +39,7 @@ def main() -> int:
     window.main_view.update()
     app.processEvents()
     window.grab().save(str(output_dir / "research-acquisition.png"))
-    for acquisition_tab in ("LSL", "Packet Loss", "Hardware"):
+    for acquisition_tab in ("Focus", "LSL", "Packet Loss", "Hardware"):
         window.main_view.acquisition_tab = acquisition_tab
         window.main_view.update()
         app.processEvents()

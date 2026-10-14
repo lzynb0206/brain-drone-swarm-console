@@ -52,9 +52,16 @@ class SSVEPStimulusWindow(QWidget):
         self._timer.setInterval(0)
         self._timer.timeout.connect(self.update)
         self._timer.start()
+        self._cooldown_timer = QTimer(self)
+        self._cooldown_timer.setSingleShot(True)
+        self._cooldown_timer.timeout.connect(self._finish_cooldown)
         self._running = False
         self._mode = "experiment"
         self._selected_label = "空闲"
+        self._cooldown_until = 0.0
+        self._cooldown_label = ""
+        self._move_distance_m = 0.25
+        self._command_cooldown_seconds = 2.5
         self._started_at_unix = 0.0
         self._frame_times: list[float] = []
         self._luminance: list[list[float]] = [[] for _ in self.targets]
@@ -85,6 +92,44 @@ class SSVEPStimulusWindow(QWidget):
     def running(self) -> bool:
         return self._running
 
+    @property
+    def cooldown_remaining(self) -> float:
+        return max(0.0, self._cooldown_until - time.monotonic())
+
+    @property
+    def stimuli_active(self) -> bool:
+        return self._running and self.cooldown_remaining <= 0.0
+
+    def set_control_profile(
+        self,
+        *,
+        move_distance_m: float,
+        command_cooldown_seconds: float,
+    ) -> None:
+        """Show the same movement and cooldown values used by execution."""
+
+        self._move_distance_m = max(0.0, float(move_distance_m))
+        self._command_cooldown_seconds = max(0.0, float(command_cooldown_seconds))
+        self.update()
+
+    def begin_cooldown(self, seconds: float | None = None, label: str = "") -> None:
+        """Pause every visual target after one command has been admitted."""
+
+        if not self.control_mode or not self._running:
+            return
+        duration = self._command_cooldown_seconds if seconds is None else max(0.0, float(seconds))
+        if duration <= 0.0:
+            return
+        self._cooldown_until = time.monotonic() + duration
+        self._cooldown_label = str(label).strip()
+        self._cooldown_timer.start(max(1, int(round(duration * 1000.0))))
+        self.event_marker.emit("SSVEP_command_cooldown_start", time.time())
+        command = f"（{self._cooldown_label}）" if self._cooldown_label else ""
+        self.status_changed.emit(
+            f"脑控指令已触发{command}：视觉刺激暂停 {duration:.1f}s，请移开视线"
+        )
+        self.update()
+
     def begin_trial(self) -> None:
         if self._running:
             return
@@ -92,6 +137,7 @@ class SSVEPStimulusWindow(QWidget):
         self._luminance = [[] for _ in self.targets]
         self._clock.restart()
         self._started_at_unix = time.time()
+        self._clear_cooldown()
         self._running = True
         frequency = self._frequency_for_label(self._selected_label)
         marker = (
@@ -117,6 +163,7 @@ class SSVEPStimulusWindow(QWidget):
         if not self._running:
             return
         self._running = False
+        self._clear_cooldown()
         finished_at = time.time()
         frequency = self._frequency_for_label(self._selected_label)
         marker = (
@@ -156,24 +203,13 @@ class SSVEPStimulusWindow(QWidget):
         painter.setRenderHint(QPainter.Antialiasing, False)
         painter.fillRect(self.rect(), QColor("#000000"))
         elapsed = self._clock.elapsed() / 1000.0 if self._running else 0.0
+        stimuli_active = self.stimuli_active
         if self._running:
             self._frame_times.append(elapsed)
 
-        margin_x = max(30, self.width() // 18)
-        margin_y = max(70, self.height() // 11)
-        gap_x = max(24, self.width() // 40)
-        gap_y = max(28, self.height() // 22)
-        block_width = (self.width() - 2 * margin_x - 2 * gap_x) / 3.0
-        block_height = (self.height() - 2 * margin_y - gap_y) / 2.0
-        for index, target in enumerate(self.targets):
-            row, column = divmod(index, 3)
-            rect = QRectF(
-                margin_x + column * (block_width + gap_x),
-                margin_y + row * (block_height + gap_y),
-                block_width,
-                block_height,
-            )
-            luminance = luminance_at(elapsed, target.frequency_hz) if self._running else 0.12
+        target_rects = self._target_rectangles(self.width(), self.height())
+        for index, (target, rect) in enumerate(zip(self.targets, target_rects)):
+            luminance = luminance_at(elapsed, target.frequency_hz) if stimuli_active else 0.08
             if self._running:
                 self._luminance[index].append(luminance)
             gray = int(round(255 * luminance))
@@ -182,15 +218,36 @@ class SSVEPStimulusWindow(QWidget):
             painter.drawRect(rect)
             text_color = QColor("#000000") if gray > 150 else QColor("#ffffff")
             painter.setPen(text_color)
-            painter.setFont(QFont("PingFang SC", max(18, int(block_height / 11)), QFont.Bold))
-            painter.drawText(rect, Qt.AlignCenter, f"{index + 1}  {target.label}\n{target.frequency_hz:g} Hz")
-            self._draw_fixation_cross(painter, rect.center(), max(16.0, min(block_width, block_height) * 0.055), text_color)
+            painter.setFont(QFont("PingFang SC", max(18, int(rect.height() / 10)), QFont.Bold))
+            painter.drawText(
+                QRectF(rect.left(), rect.top() + rect.height() * 0.08, rect.width(), rect.height() * 0.24),
+                Qt.AlignCenter,
+                f"{index + 1}  {target.label}",
+            )
+            painter.setFont(QFont("Arial", max(16, int(rect.height() / 12)), QFont.Bold))
+            painter.drawText(
+                QRectF(rect.left(), rect.top() + rect.height() * 0.68, rect.width(), rect.height() * 0.22),
+                Qt.AlignCenter,
+                f"{target.frequency_hz:g} Hz",
+            )
+            self._draw_fixation_cross(
+                painter,
+                rect.center(),
+                max(16.0, min(rect.width(), rect.height()) * 0.06),
+                text_color,
+            )
+
+        if self._running and not stimuli_active:
+            self._draw_cooldown_overlay(painter)
 
         painter.setPen(QColor("#d1d5db"))
         painter.setFont(QFont("PingFang SC", 15))
-        state = "刺激运行中" if self._running else "等待开始"
+        state = "冷却中（刺激已暂停）" if self._running and not stimuli_active else (
+            "刺激运行中" if self._running else "等待开始"
+        )
         instructions = (
-            f"{state} ｜在线脑控 ｜J 开始  K 暂停并关闭脑控授权  B 急停  Esc 退出"
+            f"{state} ｜在线脑控 ｜移动 {self._move_distance_m:.2f}m/次 ｜"
+            f"CD {self._command_cooldown_seconds:.1f}s ｜J 开始  K 暂停  B 急停  Esc 退出"
             if self.control_mode else
             f"{state} ｜真实标签：{self._selected_label} ｜J 开始  K 停止  0 空闲  1-6 切换标签  B 急停  Esc 退出"
         )
@@ -198,6 +255,73 @@ class SSVEPStimulusWindow(QWidget):
             QRectF(0, 12, self.width(), 42), Qt.AlignCenter,
             instructions,
         )
+
+    @staticmethod
+    def _target_rectangles(width: int, height: int) -> tuple[QRectF, ...]:
+        """Return separated, spatially meaningful rectangles in command order.
+
+        Visual slots are arranged as::
+
+            起飞       前进       降落
+            左移       后退       右移
+
+        The returned tuple remains in COMMANDS order so frequencies and
+        experiment number keys do not change.
+        """
+
+        width_f = max(1.0, float(width))
+        height_f = max(1.0, float(height))
+        block_width = max(150.0, width_f * 0.21)
+        block_height = max(110.0, height_f * 0.25)
+        centers_x = (width_f * 0.17, width_f * 0.50, width_f * 0.83)
+        centers_y = (height_f * 0.30, height_f * 0.73)
+        slots = tuple(
+            QRectF(
+                center_x - block_width / 2.0,
+                center_y - block_height / 2.0,
+                block_width,
+                block_height,
+            )
+            for center_y in centers_y
+            for center_x in centers_x
+        )
+        # COMMANDS = 起飞、前进、后退、左移、右移、降落.
+        slot_by_command_index = (0, 1, 4, 3, 5, 2)
+        return tuple(slots[index] for index in slot_by_command_index)
+
+    def _draw_cooldown_overlay(self, painter: QPainter) -> None:
+        remaining = self.cooldown_remaining
+        banner = QRectF(
+            self.width() * 0.30,
+            self.height() * 0.455,
+            self.width() * 0.40,
+            self.height() * 0.105,
+        )
+        painter.fillRect(banner, QColor(8, 15, 28, 245))
+        painter.setPen(QPen(QColor("#ffb020"), 3))
+        painter.drawRect(banner)
+        painter.setFont(QFont("PingFang SC", max(22, int(self.height() * 0.030)), QFont.Bold))
+        command = f" · 已执行 {self._cooldown_label}" if self._cooldown_label else ""
+        painter.drawText(
+            banner,
+            Qt.AlignCenter,
+            f"冷却中 {remaining:.1f}s{command}\n全部刺激已停止 · 请移开视线",
+        )
+
+    def _finish_cooldown(self) -> None:
+        if self._cooldown_until <= 0.0:
+            return
+        self._cooldown_until = 0.0
+        self._cooldown_label = ""
+        self.event_marker.emit("SSVEP_command_cooldown_end", time.time())
+        if self._running:
+            self.status_changed.emit("冷却结束：视觉刺激恢复，可以注视下一条指令")
+        self.update()
+
+    def _clear_cooldown(self) -> None:
+        self._cooldown_timer.stop()
+        self._cooldown_until = 0.0
+        self._cooldown_label = ""
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
         key = event.key()

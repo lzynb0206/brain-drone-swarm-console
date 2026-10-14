@@ -17,11 +17,15 @@ class BCIExecutionService:
         mappings: Sequence[MappingEntry],
         command_sender: Callable[[str], str],
         record: Callable[[str], str],
+        command_cooldown_seconds: float = 2.5,
     ) -> None:
+        if float(command_cooldown_seconds) < 0.0:
+            raise ValueError("command_cooldown_seconds cannot be negative")
         self.gateway = gateway
         self.mappings = mappings
         self._command_sender = command_sender
         self._record = record
+        self.command_cooldown_seconds = float(command_cooldown_seconds)
         self.enabled = False
         self.session_active = False
         self._session_ready_at = 0.0
@@ -37,8 +41,15 @@ class BCIExecutionService:
         self._session_ready_at = 0.0
         self._pending_label = ""
         self._pending_count = 0
+        self._last_command_time = 0.0
         self._requires_release = False
         self._release_notice_sent = False
+
+    @property
+    def last_command_time(self) -> float:
+        """Monotonic timestamp of the latest command admitted for execution."""
+
+        return self._last_command_time
 
     @staticmethod
     def _is_live_eeg_source(source: str) -> bool:
@@ -177,7 +188,7 @@ class BCIExecutionService:
             if self._pending_count < 2:
                 return self._record(f"脑控候选待二次确认：{mapped_label}")
         now = time.monotonic()
-        if now - self._last_command_time < 2.5:
+        if now - self._last_command_time < self.command_cooldown_seconds:
             return None
         self._pending_count = 0
         self._last_command_time = now

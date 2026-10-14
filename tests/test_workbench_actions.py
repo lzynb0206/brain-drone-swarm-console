@@ -18,7 +18,7 @@ from src.bci.config import COMMANDS
 from src.domain import Role, User
 from src.services import ExperimentRecorder, WorkbenchService
 from src.views.main_view import MainView
-from src.widgets.scifi_canvas import Canvas
+from src.widgets.scifi_canvas import Canvas, RESEARCH_NAV_ITEMS
 
 
 class WorkbenchServiceTest(unittest.TestCase):
@@ -245,6 +245,27 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.view._activate("acquisition-tab:LSL")
         self.assertEqual("采集", self.view.research_page)
         self.assertEqual("LSL", self.view.acquisition_tab)
+
+    def test_research_navigation_uses_one_contiguous_layout_grid(self) -> None:
+        for current, following in zip(RESEARCH_NAV_ITEMS, RESEARCH_NAV_ITEMS[1:]):
+            self.assertEqual(current[1] + current[2], following[1])
+
+    def test_acquisition_setup_keeps_primary_actions_available(self) -> None:
+        self.view.acquisition_stage = "setup"
+        image = QImage(1280, 720, QImage.Format_ARGB32)
+        painter = QPainter(image)
+        try:
+            self.view._render_compat(
+                self.view.research_widget,
+                "_research_acquisition",
+                Canvas(painter, 1280, 720),
+            )
+        finally:
+            painter.end()
+        actions = {action for _rect, action in self.view._regions}
+        self.assertIn("openbci-serial-autoconnect", actions)
+        self.assertIn("openbci-start-session", actions)
+        self.assertIn("openbci-guide", actions)
 
     def test_lsl_collector_is_a_distinct_research_navigation_page(self) -> None:
         self.view._activate("research:LSL收集")

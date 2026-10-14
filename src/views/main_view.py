@@ -1169,6 +1169,7 @@ class MainView(
             return
 
         source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
+        previous_command_time = self.actions.bci.last_command_time
         command_message = self.actions.handle_intent(
             result.label,
             result.accepted,
@@ -1178,6 +1179,14 @@ class MainView(
         )
         if command_message:
             self._eeg_events.appendleft(command_message)
+        if (
+            self.actions.bci.last_command_time > previous_command_time
+            and self._stimulus_window is not None
+        ):
+            self._stimulus_window.begin_cooldown(
+                self.actions.bci.command_cooldown_seconds,
+                result.label,
+            )
         self.update()
 
     def _activate_selected_decoder(self) -> str:

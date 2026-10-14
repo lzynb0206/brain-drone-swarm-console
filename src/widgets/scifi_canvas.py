@@ -23,6 +23,22 @@ YELLOW = QColor("#f0ce54")
 RED = QColor("#f14e50")
 
 
+# Keep drawing and hit testing on the same grid.  The research header used to
+# duplicate these values in two modules, which made the clickable regions drift
+# away from the labels whenever one side was adjusted.
+RESEARCH_NAV_ITEMS = (
+    ("采集", 238, 58),
+    ("LSL收集", 296, 80),
+    ("实验", 376, 58),
+    ("范式", 434, 58),
+    ("算法", 492, 58),
+    ("控制", 550, 58),
+    ("映射", 608, 58),
+    ("数据", 666, 58),
+    ("帮助", 724, 58),
+)
+
+
 class Canvas:
     """Draw in the reference application's 1280 × 720 coordinate space."""
 
@@ -123,21 +139,16 @@ class Canvas:
             self.p.drawLine(QPointF(25, 20 + offset), QPointF(35, 25 + offset))
             self.p.drawLine(QPointF(35, 25 + offset), QPointF(46, 19 + offset))
         self.text(56, 10, 170, 36, "脑控无人机蜂群作战系统", 13, TEXT, True)
-        items = [
-            ("采集", 238, 54), ("LSL收集", 294, 78), ("实验", 374, 54),
-            ("范式", 430, 54), ("算法", 486, 54), ("控制", 542, 54),
-            ("映射", 598, 54), ("数据", 654, 54), ("帮助", 724, 54),
-        ]
-        for name, x, width in items:
+        for name, x, width in RESEARCH_NAV_ITEMS:
             if name == active:
-                self.rect(x, 0, width, 56, "#111c31", "#78ddec", 2)
-                self.line(x, 53, x + width, 53, RED, 2)
-            self.text(x, 0, width, 54, name, 12, TEXT if name == active else MUTED,
+                self.rect(x, 0, width, 55, "#111c31")
+                self.line(x, 54, x + width, 54, CYAN, 2)
+            self.text(x, 1, width, 53, name, 12, TEXT if name == active else MUTED,
                       name == active, Qt.AlignCenter)
         self.circle(1038, 27, 17, "#ef4d3e")
-        self.text(1023, 10, 30, 33, "⏻", 17, TEXT, False, Qt.AlignCenter)
+        self.text(1023, 10, 30, 34, "⏻", 17, TEXT, False, Qt.AlignCenter)
         self.circle(1086, 27, 17, "#15233e")
-        self.text(1071, 10, 30, 33, "$", 15, TEXT, False, Qt.AlignCenter)
+        self.text(1071, 10, 30, 34, "$", 15, TEXT, False, Qt.AlignCenter)
         self.button(1118, 10, 34, 34, "▥")
         self.button(1166, 10, 89, 34, "添加标签")
 

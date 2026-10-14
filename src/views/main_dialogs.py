@@ -84,6 +84,11 @@ class MainDialogsMixin:
             self._stimulus_window.trial_stopped.connect(
                 self._on_ssvep_window_stopped
             )
+        config = getattr(self.swarm_gateway, "config", None)
+        self._stimulus_window.set_control_profile(
+            move_distance_m=float(getattr(config, "move_distance_m", 0.25)),
+            command_cooldown_seconds=self.actions.bci.command_cooldown_seconds,
+        )
         self._stimulus_window.set_mode(mode)
         self._stimulus_window.showFullScreen()
         self._stimulus_window.raise_()

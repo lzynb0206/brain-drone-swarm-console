@@ -77,5 +77,31 @@ class StimulusWindowModeTest(unittest.TestCase):
             window._timer.stop()
             window.close()
 
+    def test_targets_are_spatially_separated_and_directionally_arranged(self) -> None:
+        rectangles = SSVEPStimulusWindow._target_rectangles(1920, 1080)
+
+        takeoff, forward, backward, left, right, land = rectangles
+        self.assertLess(takeoff.center().x(), forward.center().x())
+        self.assertLess(forward.center().x(), land.center().x())
+        self.assertLess(left.center().x(), backward.center().x())
+        self.assertLess(backward.center().x(), right.center().x())
+        self.assertLess(forward.center().y(), backward.center().y())
+        self.assertGreater(forward.left() - takeoff.right(), 0.10 * 1920)
+        self.assertGreater(backward.top() - forward.bottom(), 0.15 * 1080)
+
+    def test_control_cooldown_pauses_all_stimuli(self) -> None:
+        window = SSVEPStimulusWindow(mode="control")
+        try:
+            window.begin_trial()
+            window.begin_cooldown(2.5, "前进")
+
+            self.assertFalse(window.stimuli_active)
+            self.assertGreater(window.cooldown_remaining, 2.0)
+        finally:
+            window._running = False
+            window._timer.stop()
+            window._cooldown_timer.stop()
+            window.close()
+
 if __name__ == "__main__":
     unittest.main()
