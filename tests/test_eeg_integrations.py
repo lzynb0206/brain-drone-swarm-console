@@ -186,6 +186,48 @@ class FBCCADecoderTest(unittest.TestCase):
             self.assertTrue(result.accepted, result)
             self.assertEqual(expected_label, result.prediction)
 
+    def test_idle_calibration_is_session_local_and_mildly_capped(self) -> None:
+        decoder = FBCCADecoder(min_score=0.06, min_margin=0.01)
+
+        decoder.begin_idle_calibration()
+        decoder.observe_idle(0.45, 0.20)
+        decoder.observe_idle(0.50, 0.25)
+        decoder.observe_idle(0.55, 0.30)
+
+        self.assertAlmostEqual(0.12, decoder.safety_service.min_confidence)
+        self.assertAlmostEqual(0.03, decoder.safety_service.min_margin)
+        self.assertIn("当前操作者", decoder.idle_calibration_summary())
+
+        decoder.begin_idle_calibration()
+        self.assertAlmostEqual(0.06, decoder.safety_service.min_confidence)
+        self.assertAlmostEqual(0.01, decoder.safety_service.min_margin)
+
+
+class EEGWorkerOnlineResetTest(unittest.TestCase):
+    def test_reset_online_decoding_clears_rolling_window_and_decoder_state(self) -> None:
+        class Decoder:
+            def __init__(self) -> None:
+                self.reset_count = 0
+
+            def reset(self) -> None:
+                self.reset_count += 1
+
+        class Stream:
+            source_name = "LSL · test"
+
+        with tempfile.TemporaryDirectory() as directory:
+            decoder = Decoder()
+            worker = EEGWorker(Stream(), decoder, ExperimentRecorder(directory))
+            worker.reset_online_decoding("冷却结束")
+            buffer, timestamps, pending = worker._apply_online_decode_reset(
+                np.ones((8, 500)), np.arange(500) / 250.0, 125,
+            )
+
+        self.assertIsNone(buffer)
+        self.assertEqual(0, timestamps.size)
+        self.assertEqual(0, pending)
+        self.assertEqual(1, decoder.reset_count)
+
 
 class ExperimentRecorderTest(unittest.TestCase):
     def test_logs_every_decision_and_saves_only_labeled_raw_trial(self) -> None:

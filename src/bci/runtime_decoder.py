@@ -69,3 +69,25 @@ class RuntimeIntentDecoder:
         reset = getattr(decoder, "reset", None)
         if callable(reset):
             reset()
+
+    def begin_idle_calibration(self) -> None:
+        with self._lock:
+            decoder = self._decoders[self._active_name]
+        callback = getattr(decoder, "begin_idle_calibration", None)
+        if callable(callback):
+            callback()
+
+    def observe_idle(self, result) -> None:
+        with self._lock:
+            decoder = self._decoders[self._active_name]
+        callback = getattr(decoder, "observe_idle", None)
+        if callable(callback):
+            callback(result.confidence, result.margin)
+
+    def idle_calibration_summary(self) -> str:
+        with self._lock:
+            decoder = self._decoders[self._active_name]
+        callback = getattr(decoder, "idle_calibration_summary", None)
+        if callable(callback):
+            return str(callback())
+        return "当前解码器不需要空闲阈值校准"

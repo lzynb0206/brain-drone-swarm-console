@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import threading
 import time
@@ -40,6 +41,7 @@ from src.widgets.scifi_canvas import CYAN, TEXT, Canvas
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QDialog, QDoubleSpinBox, QPlainTextEdit
 
+    from src.views.automatic_ssvep_experiment_window import AutomaticSSVEPExperimentWindow
     from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 
 
@@ -93,6 +95,7 @@ class MainView(
         self._eeg_history = [deque(maxlen=360) for _ in range(8)]
         self._eeg_sample_rate = 0.0
         self._eeg_channel_names: tuple[str, ...] = tuple(SSVEP_CHANNEL_NAMES)
+        self._eeg_original_channel_names: tuple[str, ...] = ()
         self._eeg_channel_units: tuple[str, ...] = tuple("" for _ in range(8))
         self._eeg_quality: dict[str, object] = {}
         self._eeg_health: dict[str, object] = {}
@@ -110,6 +113,7 @@ class MainView(
         self._last_eeg_frame_monotonic = 0.0
         self._stimulus_window: SSVEPStimulusWindow | None = None
         self._stimulus_worker: EEGWorker | None = None
+        self._automatic_experiment_window: AutomaticSSVEPExperimentWindow | None = None
         self._uri_dialog: QDialog | None = None
         self._uri_editor: QPlainTextEdit | None = None
         self._height_dialog: QDialog | None = None
@@ -1105,6 +1109,12 @@ class MainView(
         self._notify(f"已选择实时流：{descriptor.display_name}")
 
     def deactivate(self) -> None:
+        if self._automatic_experiment_window is not None:
+            window = self._automatic_experiment_window
+            self._automatic_experiment_window = None
+            if window.running and self._pipeline_worker is not None:
+                self._pipeline_worker.cancel_experiment_trial("dashboard_deactivated")
+            window.abort_immediately("dashboard_deactivated")
         if self._stimulus_window is not None:
             self._stimulus_window.close()
         if self._raw_csv_recorder.is_recording:
@@ -1134,6 +1144,7 @@ class MainView(
                 history.extend(float(value) for value in values)
         self._eeg_sample_rate = frame.sample_rate_hz
         self._eeg_channel_names = tuple(frame.channel_names)
+        self._eeg_original_channel_names = tuple(frame.original_channel_names)
         self._eeg_channel_units = tuple(frame.channel_units)
         self._complete_soldier_bci_chain(frame)
         if self._lsl_outlet.active and not self._soldier_bci_outlet_started_here:
@@ -1163,6 +1174,21 @@ class MainView(
             f"{datetime.now():%H:%M:%S}  {decoder_name} {label}  "
             f"分数 {result.best_score:.3f}  差值 {result.margin:.3f}"
         )
+        if (
+            self._stimulus_window is not None
+            and self._stimulus_window.control_mode
+            and self._stimulus_window.running
+            and not self._stimulus_window.stimuli_active
+        ):
+            # Dark intervals are either the explicit initial idle calibration
+            # or command cooldown.  They may update the FBCCA baseline but can
+            # never dispatch a flight command.
+            if self._stimulus_window.calibrating_idle:
+                observe_idle = getattr(self.intent_decoder, "observe_idle", None)
+                if callable(observe_idle):
+                    observe_idle(result)
+            self.update()
+            return
         if self.actions.is_single_uav_mission(result):
             self._handle_single_uav_mission(result)
             self.update()
@@ -1276,10 +1302,35 @@ class MainView(
 
     def _on_eeg_error(self, message: str) -> None:
         self._eeg_events.appendleft(f"{datetime.now():%H:%M:%S}  ERROR  {message}")
+        if (
+            self._automatic_experiment_window is not None
+            and self._automatic_experiment_window.running
+        ):
+            self._automatic_experiment_window.notify_trial_save_error(message)
         self.update()
 
     def _on_labeled_trial_saved(self, label: str, path: str) -> None:
+        if self._automatic_experiment_window is not None:
+            self._automatic_experiment_window.notify_trial_saved(
+                label, path, self._saved_trial_quality_status(path),
+            )
         self._notify(f"真实标签“{label}”和原始 EEG 已保存：{path}")
+
+    def _saved_trial_quality_status(self, path: str) -> str:
+        """Read the recorder's quality verdict for automatic retry decisions."""
+
+        if not path or self.experiment_recorder is None:
+            return "unknown"
+        trial_path = Path(path)
+        if not trial_path.is_absolute():
+            trial_path = self.experiment_recorder.root / trial_path
+        try:
+            with np.load(trial_path, allow_pickle=False) as payload:
+                raw = str(np.asarray(payload["signal_quality"]).item())
+            quality = json.loads(raw)
+            return str(quality.get("status", "unknown")) if isinstance(quality, dict) else "unknown"
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return "unknown"
 
     def _on_continuous_chunk_saved(self, path: str) -> None:
         self._eeg_events.appendleft(f"{datetime.now():%H:%M:%S}  连续 EEG 已保存：{path}")
@@ -1288,6 +1339,10 @@ class MainView(
     def _on_eeg_worker_finished(self, worker: EEGWorker) -> None:
         if self._pipeline_worker is not worker:
             return
+        if self._automatic_experiment_window is not None and self._automatic_experiment_window.running:
+            self._automatic_experiment_window.notify_trial_save_error(
+                "实时 EEG 采集线程已停止"
+            )
         if self._raw_csv_recorder.is_recording:
             path = self._raw_csv_recorder.stop()
             self._eeg_events.appendleft(

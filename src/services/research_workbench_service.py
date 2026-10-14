@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ
+from src.services.ssvep_experiment_protocol import AutomaticExperimentConfig
 
 
 @dataclass
@@ -38,6 +39,7 @@ class ResearchWorkbenchService:
         self.selected_session = 2
         self.log_filter = "INFO"
         self.marker_count = 0
+        self.automatic_experiment_config = AutomaticExperimentConfig()
 
     def apply_paradigm(self) -> str:
         if self.paradigm_type != "SSVEP":

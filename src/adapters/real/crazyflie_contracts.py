@@ -48,7 +48,7 @@ class CrazyflieSwarmConfig:
     uris: tuple[str, ...]
     control_enabled: bool = False
     default_height_m: float = 0.4
-    move_distance_m: float = 0.25
+    move_distance_m: float = 0.05
     move_speed_mps: float = 0.15
     minimum_battery_voltage: float = 3.2
     battery_low_confirm_s: float = 1.0
@@ -74,7 +74,7 @@ class CrazyflieSwarmConfig:
             control_enabled=os.getenv("BDS_HARDWARE_CONTROL_ENABLED", "false").strip().lower()
             in {"1", "true", "yes"},
             default_height_m=float(os.getenv("BDS_SWARM_TAKEOFF_HEIGHT", "0.4")),
-            move_distance_m=float(os.getenv("BDS_SWARM_MOVE_DISTANCE", "0.25")),
+            move_distance_m=float(os.getenv("BDS_SWARM_MOVE_DISTANCE", "0.05")),
             move_speed_mps=float(os.getenv("BDS_SWARM_MOVE_SPEED", "0.15")),
             minimum_battery_voltage=float(os.getenv("BDS_SWARM_MIN_VBAT", "3.2")),
             battery_low_confirm_s=float(os.getenv("BDS_SWARM_LOW_VOLTAGE_CONFIRM_S", "1.0")),

@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Iterable, Sequence
 
 import numpy as np
 
-from src.bci.config import COMMANDS, SSVEP_CHANNELS_1BASED, TARGET_FREQUENCIES_HZ
+from src.bci.config import (
+    COMMANDS,
+    FBCCA_AUTO_MAX_MARGIN,
+    FBCCA_AUTO_MAX_SCORE,
+    SSVEP_CHANNELS_1BASED,
+    TARGET_FREQUENCIES_HZ,
+)
 from src.bci.preprocessing import filter_bank, prepare_ssvep_channels
 from src.domain import IntentResult
 from src.services.intent_safety_service import IntentSafetyService
@@ -59,6 +66,11 @@ class FBCCADecoder:
                 kwargs["min_margin"] = min_margin
             safety_service = IntentSafetyService(**kwargs)
         self.safety_service = safety_service
+        self._threshold_lock = threading.RLock()
+        self._base_min_score = float(self.safety_service.min_confidence)
+        self._base_min_margin = float(self.safety_service.min_margin)
+        self._idle_scores: list[float] = []
+        self._idle_margins: list[float] = []
 
     def decode(self, samples, sample_rate_hz: float) -> IntentResult:
         fs = float(sample_rate_hz)
@@ -76,7 +88,8 @@ class FBCCADecoder:
         best_index = int(order[0])
         confidence = float(raw_scores[best_index])
         margin = confidence - float(raw_scores[int(order[1])])
-        decision = self.safety_service.evaluate(confidence, margin)
+        with self._threshold_lock:
+            decision = self.safety_service.evaluate(confidence, margin)
         return IntentResult(
             timestamp=time.time(),
             label=self.labels[best_index],
@@ -90,6 +103,63 @@ class FBCCADecoder:
             sample_count=int(data.shape[1]),
             used_channels_1based=used_channels,
             signal_quality=quality,
+        )
+
+    def reset(self) -> None:
+        """FBCCA is stateless between windows; keep session calibration intact."""
+
+    def begin_idle_calibration(self) -> None:
+        """Start a fresh, non-blocking idle calibration for this control session."""
+
+        with self._threshold_lock:
+            self._idle_scores.clear()
+            self._idle_margins.clear()
+            self.safety_service.min_confidence = self._base_min_score
+            self.safety_service.min_margin = self._base_min_margin
+
+    def observe_idle(self, confidence: float, margin: float) -> None:
+        """Adapt rejection thresholds from an explicitly dark/idle interval.
+
+        Only the upper quartile is used and both thresholds have modest caps.
+        Calibration therefore reduces obvious false positives without turning a
+        noisy three-second baseline into an impossible command threshold.
+        """
+
+        score = float(confidence)
+        gap = max(0.0, float(margin))
+        if not np.isfinite(score) or not np.isfinite(gap):
+            return
+        with self._threshold_lock:
+            self._idle_scores.append(score)
+            self._idle_margins.append(gap)
+            # Two windows are enough for a best-effort update.  If fewer arrive,
+            # the original permissive defaults remain active.
+            if len(self._idle_scores) < 2:
+                return
+            score_q75 = float(np.percentile(self._idle_scores, 75.0))
+            margin_q75 = float(np.percentile(self._idle_margins, 75.0))
+            self.safety_service.min_confidence = min(
+                max(self._base_min_score, score_q75 + 0.005),
+                max(self._base_min_score, FBCCA_AUTO_MAX_SCORE),
+            )
+            self.safety_service.min_margin = min(
+                max(self._base_min_margin, margin_q75 + 0.003),
+                max(self._base_min_margin, FBCCA_AUTO_MAX_MARGIN),
+            )
+
+    def idle_calibration_summary(self) -> str:
+        with self._threshold_lock:
+            count = len(self._idle_scores)
+            score = float(self.safety_service.min_confidence)
+            margin = float(self.safety_service.min_margin)
+        if count < 2:
+            return (
+                "FBCCA 空闲校准样本不足，继续使用宽松默认阈值："
+                f"分数 {score:.3f}、差值 {margin:.3f}"
+            )
+        return (
+            f"FBCCA 已按当前操作者的 {count} 个空闲窗口轻量校准："
+            f"分数阈值 {score:.3f}、差值阈值 {margin:.3f}"
         )
 
     def _reference_signals(self, sample_rate_hz: float, sample_count: int) -> list[np.ndarray]:

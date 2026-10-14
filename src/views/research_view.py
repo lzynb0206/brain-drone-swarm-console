@@ -954,6 +954,39 @@ class ResearchViewMixin:
             c.text(848, 515, 190, 38, "FBCCA 已停用", 12, GREEN, True, Qt.AlignCenter)
             self._hit(656, 515, 180, 38, "paradigm-start")
 
+        if self.actions.paradigm_type == "SSVEP":
+            config = self.actions.automatic_experiment_config
+            c.rect(48, 588, 1184, 105, "#0b1728", BORDER, 4)
+            c.text(66, 596, 276, 28, "自动随机带标签采集", 14, TEXT, True)
+            c.text(66, 625, 276, 23, "空闲 + 六动作 · 分块平衡随机", 9, CYAN, True)
+            c.text(
+                66, 650, 276, 24,
+                "实时 EEG 就绪后开始；标签来自试验计划",
+                8, MUTED,
+            )
+            metrics = (
+                ("每类", f"{config.repetitions_per_label} 次"),
+                ("总数", f"{config.trial_count}"),
+                ("提示", f"{config.cue_seconds:g}s"),
+                ("刺激", f"{config.stimulus_seconds:g}s"),
+                ("丢弃", f"{config.discard_seconds:g}s"),
+                ("休息", f"{config.rest_seconds:g}s"),
+            )
+            for index, (label, value) in enumerate(metrics):
+                x = 358 + index * 89
+                c.text(x, 601, 78, 18, label, 8, MUTED, True, Qt.AlignCenter)
+                c.rect(x, 623, 78, 34, "#111c31", BORDER, 2)
+                c.text(x, 623, 78, 34, value, 10, TEXT, True, Qt.AlignCenter)
+            c.text(
+                358, 663, 523, 18,
+                f"随机种子 {config.random_seed} · 可分析 {config.analysis_seconds:g}s/试次",
+                8, MUTED, False, Qt.AlignCenter,
+            )
+            self._light_button(c, 902, 610, 142, 54, "配置自动实验", False, "#477af0")
+            self._light_button(c, 1058, 610, 150, 54, "开始自动采集", True, "#2d8a57")
+            self._hit(902, 610, 142, 54, "automatic-experiment-config")
+            self._hit(1058, 610, 150, 54, "automatic-experiment-start")
+
     def _research_algorithm(self, c: Canvas) -> None:
         c.rect(48, 104, 1184, 69, PANEL, BORDER, 3)
         c.text(66, 116, 92, 40, "当前算法:", 14, TEXT)

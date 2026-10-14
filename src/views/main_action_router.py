@@ -54,6 +54,10 @@ class MainActionRouterMixin:
                 self._open_ssvep_stimulus()
             else:
                 self._notify("MI 采集模式已启用：请用右上角“添加标签”记录下一段 4 秒运动想象 EEG")
+        elif action == "automatic-experiment-config":
+            self._configure_automatic_ssvep_experiment()
+        elif action == "automatic-experiment-start":
+            self._start_automatic_ssvep_experiment()
         elif action == "soldier-ssvep-control":
             self._open_ssvep_control()
         elif action == "lsl-refresh":

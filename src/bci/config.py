@@ -17,7 +17,8 @@ MI_TRUE_LABELS = ("静息", "想象左手", "想象右手", "想象双脚")
 LABEL_TO_FREQUENCY = dict(zip(COMMANDS, TARGET_FREQUENCIES_HZ))
 
 # 第三篇论文所用的枕区/顶枕区八通道顺序。硬件、LSL metadata、训练 metadata
-# 必须保持相同顺序，代码不会尝试从无标签的 CH1..CH8 猜测电极位置。
+# 必须保持相同顺序。通用 CH1..CH8 只能按固定接线位置映射，原标签会保留，
+# 正式自动实验开始前还必须由操作者确认真实电极位置。
 SSVEP_CHANNEL_NAMES = ("O1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "P4")
 SSVEP_CHANNELS_1BASED = tuple(range(1, len(SSVEP_CHANNEL_NAMES) + 1))
 
@@ -54,6 +55,14 @@ DECISION_STEP_SECONDS = float(os.getenv("BDS_EEG_DECISION_STEP_SECONDS", "0.25")
 
 FBCCA_MIN_SCORE = float(os.getenv("BDS_FBCCA_MIN_SCORE", "0.06"))
 FBCCA_MIN_MARGIN = float(os.getenv("BDS_FBCCA_MIN_MARGIN", "0.01"))
+# Online control performs one short eyes-open idle calibration for the current
+# operator/session.  The learned thresholds are deliberately capped so a noisy
+# calibration cannot make the controls impossible to trigger.
+FBCCA_IDLE_CALIBRATION_SECONDS = float(
+    os.getenv("BDS_FBCCA_IDLE_CALIBRATION_SECONDS", "3.0")
+)
+FBCCA_AUTO_MAX_SCORE = float(os.getenv("BDS_FBCCA_AUTO_MAX_SCORE", "0.12"))
+FBCCA_AUTO_MAX_MARGIN = float(os.getenv("BDS_FBCCA_AUTO_MAX_MARGIN", "0.03"))
 
 # Normal startup waits for the live LSL stream.  CSV is an explicit experiment
 # mode and must never start looping merely because a bundled sample exists.

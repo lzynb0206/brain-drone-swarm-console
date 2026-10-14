@@ -106,6 +106,17 @@ class BCIExecutionService:
         self._release_notice_sent = False
         return self._record("SSVEP 在线驾驶已启动：等待新的完整 EEG 窗口后接受飞行指令")
 
+    def begin_fresh_window_wait(self, window_seconds: float) -> None:
+        """Release the previous command and ignore decisions until a fresh window exists."""
+
+        if not self.enabled or not self.session_active:
+            return
+        self._pending_label = ""
+        self._pending_count = 0
+        self._requires_release = False
+        self._release_notice_sent = False
+        self._session_ready_at = time.monotonic() + max(0.0, float(window_seconds))
+
     def handle(
         self,
         label: str,

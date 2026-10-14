@@ -44,12 +44,14 @@ def read_records(index_path: Path, labels: tuple[str, ...]) -> list[dict[str, st
     if not index_path.is_file():
         raise FileNotFoundError(f"试次索引不存在：{index_path}")
     data_root = index_path.parent.parent
+    rejected_trial_ids = _rejected_trial_ids(index_path.parent / "event_markers.jsonl")
     records: list[dict[str, str]] = []
     with index_path.open("r", newline="", encoding="utf-8-sig") as handle:
         for row in csv.DictReader(handle):
             label = str(row.get("true_label", "")).strip()
             relative = str(row.get("path", "")).strip()
-            if label not in labels or not relative:
+            trial_id = str(row.get("trial_id", "")).strip()
+            if label not in labels or not relative or trial_id in rejected_trial_ids:
                 continue
             path = Path(relative)
             path = path if path.is_absolute() else data_root / path
@@ -65,6 +67,101 @@ def read_records(index_path: Path, labels: tuple[str, ...]) -> list[dict[str, st
     return records
 
 
+def _rejected_trial_ids(marker_path: Path) -> set[str]:
+    """Return trials explicitly rejected by quality control or the operator."""
+
+    if not marker_path.is_file():
+        return set()
+    rejected: set[str] = set()
+    with marker_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            name = str(payload.get("name", "")).lower()
+            metadata = payload.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if "rejected" not in name and "rejection_reason" not in metadata:
+                continue
+            trial_id = str(payload.get("trial_id") or metadata.get("trial_id") or "").strip()
+            if trial_id:
+                rejected.add(trial_id)
+    return rejected
+
+
+def _analysis_aligned_eeg(
+    eeg,
+    fs: float,
+    trial_context: dict[str, object],
+    target_fs: float,
+    target_samples: int,
+    sample_timestamps=None,
+    analysis_lsl_time: float | None = None,
+):
+    """Crop from the recorded post-onset analysis point before resampling.
+
+    Per-sample LSL timing is authoritative when available.  The configured
+    offset remains a compatibility fallback for captures made without source
+    timestamps; legacy trials with neither marker keep the old tail-crop path.
+    """
+
+    data = np.asarray(eeg)
+    duration = float(target_samples) / float(target_fs)
+    start: int | None = None
+    timing_description = ""
+    timestamps = np.asarray(
+        [] if sample_timestamps is None else sample_timestamps,
+        dtype=np.float64,
+    ).reshape(-1)
+    if (
+        analysis_lsl_time is not None
+        and np.isfinite(float(analysis_lsl_time))
+        and timestamps.size == data.shape[1]
+        and np.isfinite(timestamps).all()
+        and np.all(np.diff(timestamps) > 0.0)
+    ):
+        start = int(np.searchsorted(timestamps, float(analysis_lsl_time), side="left"))
+        timing_description = f"analysis_lsl_time={float(analysis_lsl_time):.9f}"
+    elif "analysis_start_offset_seconds" in trial_context:
+        offset = max(
+            0.0,
+            float(trial_context.get("analysis_start_offset_seconds", 0.0) or 0.0),
+        )
+        start = round(offset * float(fs))
+        timing_description = f"analysis_start_offset_seconds={offset:g}s"
+    if start is None:
+        return data
+    stop = start + round(duration * float(fs))
+    if start < 0 or stop > data.shape[1]:
+        raise ValueError(
+            f"按 {timing_description} 裁剪后窗口不足："
+            f"需要到第 {stop} 点，实际 {data.shape[1]} 点"
+        )
+    if timestamps.size == data.shape[1]:
+        selected_timestamps = timestamps[start:stop]
+        expected_period = 1.0 / float(fs)
+        intervals = np.diff(selected_timestamps)
+        physical_duration = (
+            float(selected_timestamps[-1] - selected_timestamps[0]) + expected_period
+        )
+        if (
+            intervals.size
+            and (
+                float(intervals.max()) > expected_period * 1.75
+                or abs(physical_duration - duration) > max(0.02, expected_period * 3.0)
+            )
+        ):
+            raise ValueError(
+                "分析窗口存在采样时间戳缺口，不能把非连续数据冒充完整"
+                f"{duration:g}秒窗口"
+            )
+    return data[:, start:stop]
+
+
 def load_arrays(
     records: list[dict[str, str]],
     labels: tuple[str, ...],
@@ -77,12 +174,35 @@ def load_arrays(
         try:
             with np.load(record["absolute_path"], allow_pickle=False) as archive:
                 eeg, fs = archive["eeg"], float(archive["fs"])
+                context: dict[str, object] = {}
+                sample_timestamps = (
+                    np.asarray(archive["sample_timestamps"], dtype=np.float64)
+                    if "sample_timestamps" in archive else None
+                )
+                analysis_lsl_time = None
+                if "analysis_lsl_time" in archive:
+                    values = np.asarray(archive["analysis_lsl_time"]).reshape(-1)
+                    if values.size == 1:
+                        analysis_lsl_time = float(values[0])
+                if "trial_context" in archive:
+                    decoded = json.loads(str(np.asarray(archive["trial_context"]).item()))
+                    if isinstance(decoded, dict):
+                        context = decoded
                 if "channel_names" in archive:
                     names = tuple(str(value) for value in archive["channel_names"].tolist())
                     if names != tuple(SSVEP_CHANNEL_NAMES):
                         raise ValueError(
                             f"通道顺序必须为 {SSVEP_CHANNEL_NAMES}，实际为 {names}"
                         )
+            eeg = _analysis_aligned_eeg(
+                eeg,
+                fs,
+                context,
+                sample_rate,
+                sample_count,
+                sample_timestamps=sample_timestamps,
+                analysis_lsl_time=analysis_lsl_time,
+            )
             processed = preprocess_transformer_trial(
                 eeg,
                 fs,
@@ -327,4 +447,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

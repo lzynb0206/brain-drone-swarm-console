@@ -56,6 +56,8 @@ class StimulusWindowModeTest(unittest.TestCase):
             self.assertEqual("", started[0][0])
             self.assertEqual(0.0, started[0][1])
             self.assertEqual([True], control_started)
+            self.assertTrue(window.calibrating_idle)
+            self.assertFalse(window.stimuli_active)
         finally:
             window._running = False
             window._timer.stop()
@@ -97,6 +99,25 @@ class StimulusWindowModeTest(unittest.TestCase):
 
             self.assertFalse(window.stimuli_active)
             self.assertGreater(window.cooldown_remaining, 2.0)
+        finally:
+            window._running = False
+            window._timer.stop()
+            window._cooldown_timer.stop()
+            window.close()
+
+    def test_cooldown_end_requests_a_fresh_full_decoding_window(self) -> None:
+        window = SSVEPStimulusWindow(mode="control")
+        requested = []
+        window.fresh_window_requested.connect(lambda *args: requested.append(args))
+        try:
+            window.begin_trial()
+            window._finish_cooldown()
+
+            self.assertEqual(1, len(requested))
+            self.assertAlmostEqual(2.0, requested[0][0])
+            self.assertEqual("空闲校准", requested[0][1])
+            self.assertGreater(window.fresh_window_remaining, 1.5)
+            self.assertTrue(window.stimuli_active)
         finally:
             window._running = False
             window._timer.stop()

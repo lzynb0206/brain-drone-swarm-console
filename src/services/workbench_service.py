@@ -22,7 +22,7 @@ class WorkbenchService:
         "paradigm_frequency", "paradigm_type", "stimulus_size", "duty_cycle",
         "algorithm", "algorithm_mode", "loaded_algorithms", "default_algorithm",
         "controller", "controller_values", "mappings", "data_tab",
-        "selected_session", "log_filter", "marker_count",
+        "selected_session", "log_filter", "marker_count", "automatic_experiment_config",
     })
     _ADMIN_FIELDS = frozenset({
         "storage_percent", "last_backup", "user_roles", "self_test_run", "layout_mode",

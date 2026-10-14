@@ -10,7 +10,13 @@ from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QKeyEvent, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
-from src.bci.config import COMMANDS, STIMULUS_RECORDING_ROOT, TARGET_FREQUENCIES_HZ
+from src.bci.config import (
+    COMMANDS,
+    FBCCA_IDLE_CALIBRATION_SECONDS,
+    STIMULUS_RECORDING_ROOT,
+    TARGET_FREQUENCIES_HZ,
+    WINDOW_SECONDS,
+)
 from src.bci.stimulus import StimulusSessionRecorder, StimulusTarget, luminance_at
 
 
@@ -30,6 +36,7 @@ class SSVEPStimulusWindow(QWidget):
     emergency_requested = Signal()
     control_started = Signal()
     control_stopped = Signal()
+    fresh_window_requested = Signal(float, str)
 
     def __init__(
         self,
@@ -60,8 +67,9 @@ class SSVEPStimulusWindow(QWidget):
         self._selected_label = "空闲"
         self._cooldown_until = 0.0
         self._cooldown_label = ""
-        self._move_distance_m = 0.25
+        self._move_distance_m = 0.05
         self._command_cooldown_seconds = 2.5
+        self._fresh_window_until = 0.0
         self._started_at_unix = 0.0
         self._frame_times: list[float] = []
         self._luminance: list[list[float]] = [[] for _ in self.targets]
@@ -100,6 +108,14 @@ class SSVEPStimulusWindow(QWidget):
     def stimuli_active(self) -> bool:
         return self._running and self.cooldown_remaining <= 0.0
 
+    @property
+    def calibrating_idle(self) -> bool:
+        return self._running and self._cooldown_label == "空闲校准" and self.cooldown_remaining > 0.0
+
+    @property
+    def fresh_window_remaining(self) -> float:
+        return max(0.0, self._fresh_window_until - time.monotonic())
+
     def set_control_profile(
         self,
         *,
@@ -123,11 +139,21 @@ class SSVEPStimulusWindow(QWidget):
         self._cooldown_until = time.monotonic() + duration
         self._cooldown_label = str(label).strip()
         self._cooldown_timer.start(max(1, int(round(duration * 1000.0))))
-        self.event_marker.emit("SSVEP_command_cooldown_start", time.time())
-        command = f"（{self._cooldown_label}）" if self._cooldown_label else ""
-        self.status_changed.emit(
-            f"脑控指令已触发{command}：视觉刺激暂停 {duration:.1f}s，请移开视线"
+        marker = (
+            "SSVEP_idle_calibration_start"
+            if self._cooldown_label == "空闲校准"
+            else "SSVEP_command_cooldown_start"
         )
+        self.event_marker.emit(marker, time.time())
+        command = f"（{self._cooldown_label}）" if self._cooldown_label else ""
+        if self._cooldown_label == "空闲校准":
+            self.status_changed.emit(
+                f"正在进行 {duration:.1f}s 空闲校准：全部刺激保持关闭，请自然看向屏幕中央"
+            )
+        else:
+            self.status_changed.emit(
+                f"脑控指令已触发{command}：视觉刺激暂停 {duration:.1f}s，请移开视线"
+            )
         self.update()
 
     def begin_trial(self) -> None:
@@ -157,6 +183,8 @@ class SSVEPStimulusWindow(QWidget):
             f"刺激已开始：{self._selected_label}（{frequency:g}Hz）"
         )
         self.status_changed.emit(message)
+        if self.control_mode:
+            self.begin_cooldown(FBCCA_IDLE_CALIBRATION_SECONDS, "空闲校准")
         self.update()
 
     def end_trial(self) -> None:
@@ -239,10 +267,14 @@ class SSVEPStimulusWindow(QWidget):
 
         if self._running and not stimuli_active:
             self._draw_cooldown_overlay(painter)
+        elif self._running and self.fresh_window_remaining > 0.0:
+            self._draw_fresh_window_overlay(painter)
 
         painter.setPen(QColor("#d1d5db"))
         painter.setFont(QFont("PingFang SC", 15))
-        state = "冷却中（刺激已暂停）" if self._running and not stimuli_active else (
+        state = "空闲校准中" if self.calibrating_idle else (
+            "冷却中（刺激已暂停）" if self._running and not stimuli_active else
+            "正在建立新的完整窗口" if self.fresh_window_remaining > 0.0 else
             "刺激运行中" if self._running else "等待开始"
         )
         instructions = (
@@ -301,27 +333,60 @@ class SSVEPStimulusWindow(QWidget):
         painter.setPen(QPen(QColor("#ffb020"), 3))
         painter.drawRect(banner)
         painter.setFont(QFont("PingFang SC", max(22, int(self.height() * 0.030)), QFont.Bold))
-        command = f" · 已执行 {self._cooldown_label}" if self._cooldown_label else ""
+        if self._cooldown_label == "空闲校准":
+            message = f"空闲校准 {remaining:.1f}s\n刺激已关闭 · 自然看向屏幕中央"
+        else:
+            command = f" · 已执行 {self._cooldown_label}" if self._cooldown_label else ""
+            message = f"冷却中 {remaining:.1f}s{command}\n全部刺激已停止 · 请移开视线"
         painter.drawText(
             banner,
             Qt.AlignCenter,
-            f"冷却中 {remaining:.1f}s{command}\n全部刺激已停止 · 请移开视线",
+            message,
+        )
+
+    def _draw_fresh_window_overlay(self, painter: QPainter) -> None:
+        remaining = self.fresh_window_remaining
+        banner = QRectF(
+            self.width() * 0.34,
+            self.height() * 0.455,
+            self.width() * 0.32,
+            self.height() * 0.105,
+        )
+        painter.fillRect(banner, QColor(8, 15, 28, 230))
+        painter.setPen(QPen(QColor("#00e5ff"), 3))
+        painter.drawRect(banner)
+        painter.setFont(QFont("PingFang SC", max(20, int(self.height() * 0.027)), QFont.Bold))
+        painter.drawText(
+            banner,
+            Qt.AlignCenter,
+            f"正在建立新窗口 {remaining:.1f}s\n请持续注视目标 · 暂不执行指令",
         )
 
     def _finish_cooldown(self) -> None:
         if self._cooldown_until <= 0.0:
             return
+        finished_label = self._cooldown_label
         self._cooldown_until = 0.0
         self._cooldown_label = ""
-        self.event_marker.emit("SSVEP_command_cooldown_end", time.time())
+        marker = (
+            "SSVEP_idle_calibration_end"
+            if finished_label == "空闲校准"
+            else "SSVEP_command_cooldown_end"
+        )
+        self.event_marker.emit(marker, time.time())
         if self._running:
-            self.status_changed.emit("冷却结束：视觉刺激恢复，可以注视下一条指令")
+            self._fresh_window_until = time.monotonic() + WINDOW_SECONDS
+            self.fresh_window_requested.emit(WINDOW_SECONDS, finished_label)
+            self.status_changed.emit(
+                f"视觉刺激已恢复：请注视目标，先采集完整 {WINDOW_SECONDS:g}s 新窗口"
+            )
         self.update()
 
     def _clear_cooldown(self) -> None:
         self._cooldown_timer.stop()
         self._cooldown_until = 0.0
         self._cooldown_label = ""
+        self._fresh_window_until = 0.0
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
         key = event.key()

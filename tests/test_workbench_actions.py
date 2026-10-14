@@ -176,6 +176,21 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertEqual(command_count + 1, len(self.gateway.command_log))
         self.assertEqual("forward", self.gateway.command_log[-1].action)
 
+    def test_fresh_window_wait_blocks_old_cooldown_evidence_without_locking_control(self) -> None:
+        self.gateway.disarm()
+        self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
+        self.service.bci.start_session("LSL · obci_eeg1", warmup_seconds=0.0)
+        self.service.bci.begin_fresh_window_wait(2.0)
+
+        self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
+        self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
+        self.assertEqual([], self.gateway.command_log)
+
+        self.service.bci._session_ready_at -= 3.0
+        self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
+        self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
+        self.assertEqual("takeoff", self.gateway.command_log[-1].action)
+
     def test_authorization_alone_never_executes_without_fullscreen_session(self) -> None:
         self.gateway.disarm()
         self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
