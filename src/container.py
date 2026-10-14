@@ -11,11 +11,11 @@ from dataclasses import dataclass
 
 from src.adapters.http import HttpAuthGateway
 from src.adapters.real import (
-    BrainFlowCytonEEGStream,
     CrazyflieSwarmConfig,
     CrazyflieSwarmGateway,
     CsvEEGStream,
     DisabledSwarmGateway,
+    ExpandableEEGSerialStream,
     LSLEEGStream,
     RealSystemMonitor,
     RuntimeEngineerDataProvider,
@@ -100,7 +100,11 @@ def create_default_container() -> ApplicationContainer:
         timeout_seconds=LSL_RESOLVE_TIMEOUT_SECONDS,
         frame_size=FRAME_SIZE,
     )
-    hardware_stream = BrainFlowCytonEEGStream(frame_size=FRAME_SIZE)
+    # The vendor Bluetooth firmware is packet-compatible with Cyton but does
+    # not implement BrainFlow's full Cyton welcome/configuration handshake.
+    # Use the native adapter so a valid SPP link is not rejected before EEG
+    # packets have a chance to arrive.
+    hardware_stream = ExpandableEEGSerialStream(frame_size=FRAME_SIZE)
     if EEG_BACKEND == "lsl":
         eeg_stream: EEGStream = SelectableEEGStream(
             lsl_stream,

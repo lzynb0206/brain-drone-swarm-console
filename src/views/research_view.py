@@ -245,7 +245,7 @@ class ResearchViewMixin:
         c.p.restore()
 
     def _research_acquisition(self, c: Canvas) -> None:
-        """OpenBCI-style live acquisition shell backed by direct BrainFlow hardware."""
+        """OpenBCI-style acquisition shell backed by the native serial adapter."""
         if self.acquisition_stage == "setup":
             self._acquisition_setup(c)
             return
@@ -263,13 +263,19 @@ class ResearchViewMixin:
         )
         channel_count = len(self._eeg_channel_names) or len(self._eeg_history)
         csv_stats = self._raw_csv_recorder.snapshot()
+        transport = self._eeg_health.get("transport")
+        transfer_label = (
+            "macOS Native RFCOMM"
+            if transport == "macos-native-rfcomm"
+            else "Bluetooth COM / Serial"
+        )
 
         c.rect(16, 72, 320, 632, panel, border, 3)
         c.rect(16, 72, 320, 42, blue, blue, 3)
         c.text(32, 72, 288, 42, "OPENBCI SESSION CONTROL", 13, "#ffffff", True)
         fields = (
             ("DATA SOURCE", "CYTON / ExpandableEEG"),
-            ("TRANSFER PROTOCOL", "Bluetooth COM / Serial"),
+            ("TRANSFER PROTOCOL", transfer_label),
             ("DEVICE", source.replace("OpenBCI Direct · ", "")),
             ("CHANNEL COUNT", f"{channel_count or self._openbci_channel_count} CHANNELS"),
             ("SAMPLE RATE", f"{self._eeg_sample_rate:.1f} Hz" if self._eeg_sample_rate else "WAITING"),
@@ -345,7 +351,7 @@ class ResearchViewMixin:
         c.text(58, 224, 324, 42, "EXPANDABLE EEG / CYTON", 13, ink, True, Qt.AlignCenter)
         c.text(58, 286, 324, 28, "TRANSFER PROTOCOL", 14, ink, True)
         c.rect(58, 320, 324, 40, active, border, 0, 1)
-        c.text(58, 320, 324, 40, "Bluetooth Virtual COM / Serial", 12, ink, False, Qt.AlignCenter)
+        c.text(58, 320, 324, 40, "Bluetooth COM / macOS Native RFCOMM", 11, ink, False, Qt.AlignCenter)
         c.text(58, 380, 115, 28, "CHANNEL COUNT", 10, ink, True)
         c.text(232, 380, 115, 28, "SAMPLE RATE", 10, ink, True)
         c.rect(58, 412, 140, 42, white, border, 0, 1)
@@ -878,7 +884,7 @@ class ResearchViewMixin:
                 fill = "#e9f5e9" if settings[key] in {"Yes", "On"} else ("#f8e8e8" if settings[key] == "Off" else "#f7f9fa")
                 c.rect(left, row_y, width, 31, fill, "#cbd3dc", 1)
                 c.text(left, row_y, width, 31, settings[key], 9, "#24313d", False, Qt.AlignCenter)
-        c.text(x + 18, y + 468, w - 220, 45, "当前通过 BrainFlow/串口直连读取设备。逐通道 PGA、Bias、SRB 等写命令\n仍需实机验证后开放；此版本不会伪造“发送成功”。", 10, "#9b6a19")
+        c.text(x + 18, y + 468, w - 220, 45, "当前通过 ExpandableEEG 专用串口协议读取设备，已绕过标准 Cyton 握手。\n逐通道 PGA、Bias、SRB 写命令仍需实机验证后开放。", 10, "#9b6a19")
         self._light_button(c, x + w - 180, y + 468, 160, 38, "SEND（待实机验证）", False, "#9aa3aa")
 
     def _draw_live_eeg(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:

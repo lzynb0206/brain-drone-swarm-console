@@ -54,6 +54,8 @@ class MainActionRouterMixin:
                 self._open_ssvep_stimulus()
             else:
                 self._notify("MI 采集模式已启用：请用右上角“添加标签”记录下一段 4 秒运动想象 EEG")
+        elif action == "soldier-ssvep-control":
+            self._open_ssvep_control()
         elif action == "lsl-refresh":
             self._discover_lsl_streams()
         elif action.startswith("collector-source:"):
@@ -265,11 +267,10 @@ class MainActionRouterMixin:
             self._center_joysticks(send=True)
             self._request_motor_stop()
         elif action == "bci-control-toggle":
-            source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
-            self._notify(self.actions.set_bci_control_enabled(not self.actions.bci_control_enabled, source))
+            self._toggle_soldier_bci_chain()
         elif action == "swarm-emergency-stop":
             self._center_joysticks(send=False)
-            self._notify(self.actions.emergency_stop())
+            self._handle_ssvep_emergency()
         elif action == "swarm-emergency-reset":
             self._notify(self.actions.reset_emergency_after_reboot())
         elif action == "soldier-export":

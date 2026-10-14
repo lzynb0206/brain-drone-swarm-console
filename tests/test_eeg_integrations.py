@@ -4,12 +4,17 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
 from src.adapters.real import (
     BrainFlowCytonEEGStream,
     CsvEEGStream,
+    ExpandableEEGConfigurator,
+    ExpandableEEGDeviceInfo,
+    ExpandableEEGPacketParser,
+    ExpandableEEGSerialStream,
     LSLEEGStream,
     SelectableEEGStream,
     SerialDeviceDescriptor,
@@ -282,6 +287,28 @@ class LSLEEGStreamTest(unittest.TestCase):
         self.assertEqual(250.0, frame.sample_rate_hz)
         self.assertEqual((10.0, 10.004), frame.sample_timestamps)
 
+    def test_can_require_the_exact_internal_lsl_producer(self) -> None:
+        resolutions = []
+
+        def resolver(prop, value, **_kwargs):
+            resolutions.append((prop, value))
+            return [_FakeInfo()]
+
+        stream = LSLEEGStream(
+            expected_channel_count=2,
+            resolver=resolver,
+            inlet_factory=_FakeInlet,
+        )
+        stream.require_source_id("brain-drone-swarm-console-expandable-eeg")
+
+        stream.connect()
+        stream.disconnect()
+
+        self.assertEqual(
+            [("source_id", "brain-drone-swarm-console-expandable-eeg")],
+            resolutions,
+        )
+
     def test_discovers_selects_and_reports_timestamp_health(self) -> None:
         resolver = lambda *_args, **_kwargs: [_FakeInfo()]
         stream = LSLEEGStream(
@@ -423,6 +450,239 @@ class BrainFlowCytonEEGStreamTest(unittest.TestCase):
 
         self.assertEqual("hardware", snapshot["backend"])
         self.assertEqual("/dev/cu.ExpandableEEG", snapshot["serial_port"])
+
+
+class ExpandableEEGSerialStreamTest(unittest.TestCase):
+    @staticmethod
+    def _packet(sample_index: int, counts: tuple[int, ...], footer: int = 0xC0) -> bytes:
+        payload = bytearray((0xA0, sample_index & 0xFF))
+        for value in counts:
+            payload.extend((value & 0xFFFFFF).to_bytes(3, "big"))
+        payload.extend(b"\x00\x01\xff\xfe\x00\x03")
+        payload.append(footer)
+        return bytes(payload)
+
+    class Serial:
+        def __init__(self, packets: bytes):
+            self._packets = packets
+            self._rx = bytearray()
+            self.writes: list[bytes] = []
+            self.closed = False
+
+        @property
+        def in_waiting(self):
+            return len(self._rx)
+
+        def write(self, payload: bytes):
+            self.writes.append(payload)
+            if payload == b"b" and not self._rx:
+                self._rx.extend(self._packets)
+            return len(payload)
+
+        def read(self, count: int):
+            result = bytes(self._rx[:count])
+            del self._rx[:count]
+            return result
+
+        def reset_input_buffer(self):
+            self._rx.clear()
+
+        def flush(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+    def test_parser_resynchronizes_and_decodes_signed_24_bit_eeg(self) -> None:
+        parser = ExpandableEEGPacketParser()
+        counts = (1, -1, 0x7FFFFF, -0x800000, 10, -10, 256, -256)
+        payload = b"noise" + self._packet(17, counts)
+        packets = parser.feed(payload[:19]) + parser.feed(payload[19:])
+
+        self.assertEqual(1, len(packets))
+        self.assertEqual(17, packets[0].sample_index)
+        self.assertEqual(counts, packets[0].eeg_counts)
+        self.assertAlmostEqual(
+            ExpandableEEGPacketParser.EEG_UV_PER_COUNT,
+            packets[0].eeg_uv[0],
+        )
+        self.assertEqual((1, -2, 3), packets[0].aux_counts)
+        self.assertEqual(5, parser.discarded_bytes)
+
+    def test_native_stream_skips_brainflow_handshake_and_builds_eeg_frame(self) -> None:
+        raw = b"".join(
+            self._packet(index, tuple(index + channel for channel in range(8)))
+            for index in (1, 2, 4)
+        )
+        serial_link = self.Serial(raw)
+        stream = ExpandableEEGSerialStream(
+            frame_size=3,
+            serial_factory=lambda **_kwargs: serial_link,
+            settle_seconds=0,
+            startup_timeout_seconds=0.1,
+            reset_delay_seconds=0,
+            handshake_delay_seconds=0,
+            configure_delay_seconds=0,
+            stream_start_delay_seconds=0,
+            frame_timeout_seconds=0.1,
+        )
+        stream.configure_serial_port("/dev/cu.ExpandableEEGBT")
+        stream.connect()
+        frame = stream.read_frame()
+        health = stream.health_snapshot()
+        stream.disconnect()
+
+        self.assertEqual([b"v", b"d", b"c", b"b", b"s"], serial_link.writes)
+        self.assertEqual(3, len(frame.sample_timestamps))
+        self.assertAlmostEqual(
+            ExpandableEEGPacketParser.EEG_UV_PER_COUNT,
+            frame.samples[0][0],
+        )
+        self.assertEqual(1, health["gap_count"])
+        self.assertEqual(3, health["valid_packets"])
+        self.assertEqual("expandable-native", health["driver"])
+        self.assertTrue(serial_link.closed)
+
+    def test_native_stream_reports_silent_serial_link_and_closes_it(self) -> None:
+        serial_link = self.Serial(b"")
+        stream = ExpandableEEGSerialStream(
+            serial_factory=lambda **_kwargs: serial_link,
+            settle_seconds=0,
+            startup_timeout_seconds=0.05,
+            reset_delay_seconds=0,
+            handshake_delay_seconds=0,
+            configure_delay_seconds=0,
+            stream_start_delay_seconds=0,
+        )
+        stream.configure_serial_port("COM8")
+
+        with self.assertRaisesRegex(TimeoutError, "未返回任何字节"):
+            stream.connect()
+
+        self.assertFalse(stream.connected)
+        self.assertTrue(serial_link.closed)
+        self.assertEqual(
+            [b"v", b"d", b"c", b"b", b"s", b"~", b"v", b"d", b"c", b"b", b"s"],
+            serial_link.writes,
+        )
+
+    def test_device_discovery_prefers_macos_callout_endpoint(self) -> None:
+        devices = (
+            SerialDeviceDescriptor("/dev/tty.ExpandableEEGBT"),
+            SerialDeviceDescriptor("/dev/cu.ExpandableEEGBT"),
+            SerialDeviceDescriptor("/dev/cu.Bluetooth-Incoming-Port"),
+        )
+        stream = ExpandableEEGSerialStream(port_lister=lambda: list(devices))
+
+        self.assertEqual(
+            ["/dev/cu.ExpandableEEGBT"],
+            [device.port for device in stream.discover_devices()],
+        )
+
+    @patch("src.adapters.real.expandable_eeg_serial_stream.sys.platform", "darwin")
+    def test_macos_expandable_device_uses_native_rfcomm_bridge(self) -> None:
+        raw = self._packet(1, tuple(range(8)))
+        serial_link = self.Serial(raw)
+        factory_calls: list[dict[str, object]] = []
+
+        def rfcomm_factory(**kwargs):
+            factory_calls.append(kwargs)
+            return serial_link
+
+        stream = ExpandableEEGSerialStream(
+            frame_size=1,
+            rfcomm_factory=rfcomm_factory,
+            settle_seconds=0,
+            startup_timeout_seconds=0.1,
+            reset_delay_seconds=0,
+            handshake_delay_seconds=0,
+            configure_delay_seconds=0,
+            stream_start_delay_seconds=0,
+            frame_timeout_seconds=0.1,
+        )
+        stream.configure_serial_port("/dev/cu.ExpandableEEGBT")
+        stream.connect()
+        health = stream.health_snapshot()
+        stream.disconnect()
+
+        self.assertEqual("macos-native-rfcomm", health["transport"])
+        self.assertEqual("ExpandableEEGBT", factory_calls[0]["device_name"])
+        self.assertEqual(1, factory_calls[0]["channel"])
+
+
+class ExpandableEEGConfiguratorTest(unittest.TestCase):
+    class Serial:
+        def __init__(self, response: bytes):
+            self.response = response
+            self.rx = bytearray()
+            self.writes: list[bytes] = []
+            self.closed = False
+
+        @property
+        def in_waiting(self):
+            return len(self.rx)
+
+        def write(self, payload: bytes):
+            self.writes.append(payload)
+            if payload == b"connect\n":
+                self.rx.extend(self.response)
+            return len(payload)
+
+        def read(self, count: int):
+            payload = bytes(self.rx[:count])
+            del self.rx[:count]
+            return payload
+
+        def reset_input_buffer(self):
+            self.rx.clear()
+
+        def flush(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+    def test_parses_vendor_mode_reply(self) -> None:
+        info = ExpandableEEGDeviceInfo.parse(
+            b"eeg-2-8-'LabNet'-192.168.1.42\r\n",
+        )
+
+        self.assertEqual("WiFi Client", info.mode_name)
+        self.assertEqual(8, info.channel_count)
+        self.assertEqual("LabNet", info.network_name)
+        self.assertEqual("192.168.1.42", info.ip_address)
+
+    def test_probes_and_configures_bluetooth_with_vendor_protocol(self) -> None:
+        serial_link = self.Serial(b"eeg-1-8\n")
+        configurator = ExpandableEEGConfigurator(
+            serial_factory=lambda **_kwargs: serial_link,
+            settle_seconds=0,
+            response_timeout_seconds=0.1,
+        )
+
+        previous = configurator.configure_bluetooth(
+            "/dev/cu.usbmodem-test", "ExpandableEEGBT",
+        )
+
+        self.assertEqual(1, previous.mode)
+        self.assertEqual(
+            [b"connect\n", b"3|ExpandableEEGBT\n"],
+            serial_link.writes,
+        )
+        self.assertTrue(serial_link.closed)
+
+    def test_silent_configuration_port_has_actionable_error(self) -> None:
+        serial_link = self.Serial(b"")
+        configurator = ExpandableEEGConfigurator(
+            serial_factory=lambda **_kwargs: serial_link,
+            settle_seconds=0,
+            response_timeout_seconds=0.02,
+        )
+
+        with self.assertRaisesRegex(TimeoutError, "USB配置端口"):
+            configurator.probe("COM8")
+
+        self.assertTrue(serial_link.closed)
 
 
 if __name__ == "__main__":

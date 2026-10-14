@@ -165,6 +165,33 @@ class SoldierViewMixin:
                  disabled=single_aircraft, accent=GREEN)
         c.button(930, 252, 145, 32, "三角编队", state == "formation_hold",
                  disabled=single_aircraft, accent=GREEN)
+        eeg_live = self._soldier_live_chain_ready()
+        ssvep_ready = (
+            eeg_live and connected and self.actions.bci_control_enabled and not emergency
+        )
+        ssvep_startable = connected and bool(gateway_status and gateway_status.control_enabled) and not emergency
+        ssvep_starting = self._soldier_bci_start_pending
+        ssvep_label = (
+            "进入SSVEP驾驶" if ssvep_ready else
+            "正在启动实时链路…" if ssvep_starting else
+            "启动SSVEP驾驶"
+        )
+        c.button(
+            930, 304, 145, 42,
+            ssvep_label,
+            ssvep_ready,
+            disabled=not ssvep_startable or ssvep_starting,
+            accent=CYAN,
+        )
+        if ssvep_startable and not ssvep_starting:
+            self._hit(930, 304, 145, 42, "soldier-ssvep-control")
+        readiness = (
+            "实时采集、LSL、FBCCA与实机均已就绪" if ssvep_ready else
+            "正在连接采集盒并等待首帧EEG" if ssvep_starting else
+            "点击后自动启动采集、LSL与FBCCA" if ssvep_startable else
+            "请先连接实机并确认未处于急停状态"
+        )
+        c.text(910, 351, 185, 40, readiness, 9, CYAN if ssvep_ready else MUTED, False, Qt.AlignCenter)
         if lighthouse_switch_enabled:
             self._hit(930, 170, 145, 32, "swarm-lighthouse-hold")
         if multi_aircraft:
@@ -196,8 +223,13 @@ class SoldierViewMixin:
         self._hit(45, 215, 96, 35, "swarm-command:land")
         c.button(151, 215, 96, 35, "停止电机", False, accent=RED)
         self._hit(151, 215, 96, 35, "swarm-motor-stop")
+        bci_chain_label = (
+            "脑控链路：启动中" if self._soldier_bci_start_pending else
+            "脑控授权：开" if self.actions.bci_control_enabled else
+            "脑控授权：关"
+        )
         c.button(45, 260, 202, 37,
-                 "脑控执行：开" if self.actions.bci_control_enabled else "脑控执行：关",
+                 bci_chain_label,
                  self.actions.bci_control_enabled, accent=RED)
         self._hit(45, 260, 202, 37, "bci-control-toggle")
         c.button(45, 307, 96, 32, "配置 URI", False, accent=CYAN)
@@ -250,13 +282,40 @@ class SoldierViewMixin:
         if flow_mode and manual_enabled:
             self._hit(direction_cx - stick_r, direction_cy - stick_r, stick_r * 2, stick_r * 2,
                       "manual-stick-direction")
-        confidence = self._latest_recognition.confidence if self._latest_recognition is not None else 0.0
-        result_label = self._latest_recognition.label if self._latest_recognition is not None else "等待 EEG"
+        confidence = (
+            self._latest_recognition.confidence
+            if eeg_live and self._latest_recognition is not None else 0.0
+        )
+        if not eeg_live:
+            result_label = "等待启动实时 EEG"
+        elif self._latest_recognition is None:
+            result_label = "等待实时 EEG"
+        elif self._latest_recognition.accepted:
+            result_label = f"{self._latest_recognition.label}（已接受）"
+        else:
+            result_label = f"候选{self._latest_recognition.label}（已拒绝）"
         decoder_name = str(getattr(self.intent_decoder, "active_name", "EEG解码"))
+        source_name = (
+            self._pipeline_worker.source_name
+            if self._pipeline_worker is not None
+            else str(getattr(self.eeg_stream, "source_name", "未配置"))
+        )
+        if self._soldier_bci_start_pending:
+            source_text = "实时链路：正在连接 ExpandableEEG…"
+        elif self._soldier_bci_chain_active:
+            source_text = "实时链路：ExpandableEEG → LSL · obci_eeg1 → FBCCA"
+        elif source_name.strip().lower().startswith("csv"):
+            source_text = f"数据源：{source_name}（回放不能控制实机）"
+        elif source_name.strip().lower().startswith(("lsl", "openbci direct", "expandableeeg native")):
+            source_text = f"实时数据源：{source_name}"
+        else:
+            source_text = f"数据源：{source_name}"
+        c.text(456, 574, 440, 25, source_text, 10, CYAN if eeg_live else MUTED)
         c.text(456, 603, 280, 30, f"{decoder_name}：{result_label}", 13, MUTED)
         c.line(448, 653, 448 + 350 * max(0.0, min(1.0, confidence)), 653, "#63a9e9", 7)
         c.line(448 + 350 * max(0.0, min(1.0, confidence)), 653, 798, 653, "#35425a", 6)
-        c.text(806, 628, 100, 51, f"置信度\n{confidence * 100:.1f}%", 14, TEXT, True)
+        score_name = "FBCCA分数" if "FBCCA" in decoder_name else "置信度"
+        c.text(806, 628, 100, 51, f"{score_name}\n{confidence * 100:.1f}%", 14, TEXT, True)
         c.circle(1148, 608, 64, "#a52d32" if emergency else "#ee8284", RED, 4)
         c.circle(1148, 608, 73, QColor(239, 78, 80, 28))
         emergency_label = "确认已重启\n复位并断开" if emergency else "紧急停止"

@@ -15,7 +15,12 @@ from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetricsF, QPainter
 from PySide6.QtWidgets import QFileDialog, QLabel, QMessageBox, QInputDialog, QStackedWidget, QWidget
 from src.bci.preprocessing import assess_signal_quality
-from src.bci.config import SSVEP_CHANNEL_NAMES, WINDOW_SECONDS, DECISION_STEP_SECONDS
+from src.bci.config import (
+    DECISION_STEP_SECONDS,
+    SOLDIER_EEG_PORT,
+    SSVEP_CHANNEL_NAMES,
+    WINDOW_SECONDS,
+)
 from src.domain import EEGFrame, EEGStreamDescriptor, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services import (
@@ -29,7 +34,7 @@ from src.views.engineer_dashboard import EngineerDashboard
 from src.views.main_action_router import MainActionRouterMixin
 from src.views.main_dialogs import MainDialogsMixin
 from src.views.role_pages import AdminPage, EngineerCanvasPage, ResearchPage, SoldierPage
-from src.workers import EEGWorker, LSLRecorderWorker
+from src.workers import EEGLSLBridgeWorker, EEGWorker, LSLRecorderWorker
 from src.widgets.scifi_canvas import CYAN, TEXT, Canvas
 
 if TYPE_CHECKING:
@@ -97,7 +102,14 @@ class MainView(
         self._experiment_session_id = ""
         self._eeg_events: deque[str] = deque(maxlen=12)
         self._pipeline_worker: EEGWorker | None = None
+        self._soldier_bridge_worker: EEGLSLBridgeWorker | None = None
+        self._soldier_bci_start_pending = False
+        self._soldier_bci_open_when_ready = False
+        self._soldier_bci_chain_active = False
+        self._soldier_bci_outlet_started_here = False
+        self._last_eeg_frame_monotonic = 0.0
         self._stimulus_window: SSVEPStimulusWindow | None = None
+        self._stimulus_worker: EEGWorker | None = None
         self._uri_dialog: QDialog | None = None
         self._uri_editor: QPlainTextEdit | None = None
         self._height_dialog: QDialog | None = None
@@ -114,7 +126,9 @@ class MainView(
         self._collector_source_mode = "direct"
         self._collector_selected_device = ""
         self._collector_waveform_paused = False
-        self._lsl_outlet = LSLEEGOutlet()
+        self._lsl_outlet = LSLEEGOutlet(
+            source_id="brain-drone-swarm-console-expandable-eeg",
+        )
         self._lsl_collector_stream = None
         lsl_factory = getattr(self.eeg_stream, "create_lsl_receiver", None)
         if callable(lsl_factory):
@@ -216,7 +230,11 @@ class MainView(
                     user.uid or user.username, self._experiment_session_id,
                 )
             if user.role == Role.SOLDIER:
-                self._start_eeg_pipeline()
+                # Soldier mode owns a one-click live chain.  Do not silently
+                # start an LSL consumer and leave the operator guessing which
+                # research-page process is expected to publish its input.
+                self._disconnect_eeg_pipeline(stop_csv_recording=True)
+                self._eeg_status = "等待启动 SSVEP 实时采集链路"
             else:
                 self._disconnect_eeg_pipeline(stop_csv_recording=True)
                 self._eeg_status = "等待配置实时采集会话"
@@ -232,6 +250,208 @@ class MainView(
         if self._pipeline_worker is not None and not self._pipeline_worker.isRunning():
             self._eeg_status = "正在连接数据源…"
             self._pipeline_worker.start()
+
+    def _soldier_live_chain_ready(self) -> bool:
+        """Return true only while fresh hardware EEG is reaching the UI."""
+
+        worker_running = bool(
+            self._pipeline_worker is not None and self._pipeline_worker.isRunning()
+        )
+        fresh = (
+            self._last_eeg_frame_monotonic > 0.0
+            and time.monotonic() - self._last_eeg_frame_monotonic <= 2.0
+        )
+        return bool(
+            self._soldier_bci_chain_active
+            and worker_running
+            and fresh
+            and self._lsl_outlet.active
+        )
+
+    def _start_soldier_bci_chain(self, *, open_control_when_ready: bool) -> bool:
+        """Start hardware acquisition, LSL output and FBCCA for soldier mode."""
+
+        if self._soldier_bci_start_pending:
+            self._soldier_bci_open_when_ready |= bool(open_control_when_ready)
+            self._notify("SSVEP实时链路正在启动，请等待首帧脑电确认…")
+            return True
+        if self._soldier_live_chain_ready():
+            source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
+            if not self.actions.bci_control_enabled:
+                self._notify(self.actions.set_bci_control_enabled(True, source))
+            if open_control_when_ready and self.actions.bci_control_enabled:
+                self._show_ssvep_window("control")
+            return True
+
+        gateway_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
+        if gateway_status is None or not gateway_status.connected:
+            self._notify("SSVEP启动失败：请先连接实机")
+            return False
+        if not gateway_status.control_enabled:
+            self._notify("SSVEP启动失败：实机当前为只读遥测模式")
+            return False
+        if gateway_status.emergency:
+            self._notify("SSVEP启动失败：系统处于急停锁定状态")
+            return False
+
+        discover = getattr(self.eeg_stream, "discover_hardware_devices", None)
+        bridge_configurer = getattr(self.eeg_stream, "configure_hardware_bridge", None)
+        lsl_selector = getattr(self.eeg_stream, "select_lsl", None)
+        if not (
+            callable(discover)
+            and callable(bridge_configurer)
+            and callable(lsl_selector)
+        ):
+            self._notify("SSVEP启动失败：当前程序未配置 ExpandableEEG 直接采集后端")
+            return False
+
+        # Stop a stale LSL/CSV consumer before handing the one stable stream
+        # object to the direct Bluetooth adapter.
+        self.actions.set_bci_control_enabled(False, "")
+        self._disconnect_eeg_pipeline(stop_csv_recording=True)
+        self._latest_recognition = None
+        self._eeg_history = [deque(maxlen=1250) for _ in range(8)]
+        self._eeg_channel_names = tuple(SSVEP_CHANNEL_NAMES)
+        self._eeg_channel_units = ("uV",) * 8
+        self._eeg_sample_rate = 0.0
+        self._eeg_quality = {}
+        self._eeg_health = {}
+        self._last_eeg_frame_monotonic = 0.0
+
+        try:
+            devices = list(discover())
+            if not devices:
+                raise RuntimeError("未发现已配对的 ExpandableEEG 蓝牙/串口设备")
+            preferred = str(SOLDIER_EEG_PORT or self._collector_selected_device).strip().lower()
+            selected = next(
+                (item for item in devices if preferred and str(item.port).lower() == preferred),
+                None,
+            )
+            if selected is None:
+                matches = [
+                    item for item in devices
+                    if "expandableeeg" in " ".join((
+                        str(getattr(item, "port", "")),
+                        str(getattr(item, "description", "")),
+                        str(getattr(item, "hardware_id", "")),
+                    )).lower()
+                ]
+                selected = matches[0] if len(matches) == 1 else None
+            if selected is None and len(devices) == 1:
+                selected = devices[0]
+            if selected is None:
+                ports = "、".join(str(item.port) for item in devices)
+                raise RuntimeError(
+                    f"发现多个串口（{ports}），请设置 BDS_SOLDIER_EEG_PORT 指定采集盒"
+                )
+            hardware_stream = bridge_configurer(selected)
+            lsl_selector(self._lsl_outlet.source_id)
+        except Exception as exc:
+            self._eeg_status = "SSVEP实时链路启动失败"
+            self._notify(f"SSVEP启动失败：{exc}")
+            return False
+
+        self._collector_source_mode = "direct"
+        self._collector_selected_device = str(selected.port)
+        self._soldier_bci_start_pending = True
+        self._soldier_bci_open_when_ready = bool(open_control_when_ready)
+        self._soldier_bci_chain_active = False
+        self._soldier_bci_outlet_started_here = False
+        self._eeg_status = f"正在连接 {selected.port} 并等待首帧脑电…"
+        bridge = EEGLSLBridgeWorker(hardware_stream, self._lsl_outlet, parent=self)
+        bridge.status_changed.connect(self._on_soldier_bridge_status)
+        bridge.error_occurred.connect(self._on_soldier_bridge_error)
+        bridge.finished.connect(
+            lambda active_worker=bridge: self._on_soldier_bridge_finished(active_worker)
+        )
+        self._soldier_bridge_worker = bridge
+        self._build_eeg_worker(replace=True)
+        bridge.start()
+        self._start_eeg_pipeline()
+        self._notify("正在一键启动：蓝牙采集 → LSL obci_eeg1 → FBCCA…")
+        self.update()
+        return True
+
+    def _complete_soldier_bci_chain(self, frame: EEGFrame) -> None:
+        """Authorize control only after a real hardware frame is published."""
+
+        if not self._soldier_bci_start_pending:
+            return
+        if not self._lsl_outlet.active:
+            self._soldier_bci_start_pending = False
+            self._soldier_bci_open_when_ready = False
+            self._soldier_bci_chain_active = False
+            self._notify("SSVEP启动失败：收到EEG数据时LSL发布器已停止")
+            return
+        self._soldier_bci_outlet_started_here = True
+
+        source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
+        message = self.actions.set_bci_control_enabled(True, source)
+        if not self.actions.bci_control_enabled:
+            self._soldier_bci_start_pending = False
+            self._soldier_bci_open_when_ready = False
+            self._soldier_bci_chain_active = False
+            self._lsl_outlet.stop()
+            self._notify(message)
+            return
+
+        open_window = self._soldier_bci_open_when_ready
+        self._soldier_bci_start_pending = False
+        self._soldier_bci_open_when_ready = False
+        self._soldier_bci_chain_active = True
+        self._eeg_status = "实时链路已就绪 · ExpandableEEG → LSL → FBCCA"
+        self._notify("SSVEP链路已就绪：实时8通道EEG、LSL和FBCCA均已启动")
+        if open_window:
+            QTimer.singleShot(0, lambda: self._show_ssvep_window("control"))
+
+    def _on_soldier_bridge_status(self, status: str) -> None:
+        self._eeg_status = status
+        self._eeg_events.appendleft(f"{datetime.now():%H:%M:%S}  {status}")
+        self.update()
+
+    def _on_soldier_bridge_error(self, message: str) -> None:
+        self._eeg_events.appendleft(
+            f"{datetime.now():%H:%M:%S}  ERROR  蓝牙→LSL：{message}"
+        )
+        self._notify(f"SSVEP实时链路失败：{message}")
+
+    def _on_soldier_bridge_finished(self, worker: EEGLSLBridgeWorker) -> None:
+        if self._soldier_bridge_worker is not worker:
+            return
+        self._soldier_bridge_worker = None
+        if self._soldier_bci_start_pending or self._soldier_bci_chain_active:
+            self.actions.bci.disable()
+            self._soldier_bci_start_pending = False
+            self._soldier_bci_open_when_ready = False
+            self._soldier_bci_chain_active = False
+            self._soldier_bci_outlet_started_here = False
+            self._last_eeg_frame_monotonic = 0.0
+            self._disconnect_eeg_pipeline(stop_csv_recording=True)
+            self._eeg_status = "蓝牙采集或LSL输出已断开，脑控授权已关闭"
+            self._notify(self._eeg_status)
+        self.update()
+
+    def _stop_soldier_bci_chain(self, message: str = "SSVEP实时链路已停止") -> None:
+        source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
+        self.actions.set_bci_control_enabled(False, source)
+        self._soldier_bci_start_pending = False
+        self._soldier_bci_open_when_ready = False
+        self._soldier_bci_chain_active = False
+        self._soldier_bci_outlet_started_here = False
+        self._last_eeg_frame_monotonic = 0.0
+        self._disconnect_eeg_pipeline(stop_csv_recording=True)
+        self._eeg_status = message
+        self._notify(message)
+
+    def _toggle_soldier_bci_chain(self) -> None:
+        if (
+            self._soldier_bci_start_pending
+            or self._soldier_bci_chain_active
+            or self.actions.bci_control_enabled
+        ):
+            self._stop_soldier_bci_chain("脑控授权、实时采集和LSL输出均已关闭")
+            return
+        self._start_soldier_bci_chain(open_control_when_ready=False)
 
     def _build_eeg_worker(self, replace: bool = False) -> None:
         if replace and self._pipeline_worker is not None:
@@ -267,7 +487,6 @@ class MainView(
         self._pipeline_worker = worker
 
     def _disconnect_eeg_pipeline(self, stop_csv_recording: bool = True) -> None:
-        self._lsl_outlet.stop()
         if stop_csv_recording and self._raw_csv_recorder.is_recording:
             self._raw_csv_recorder.stop()
         self._continuous_recording = self._raw_csv_recorder.is_recording
@@ -276,9 +495,19 @@ class MainView(
                 self._pipeline_worker.set_continuous_recording(False)
             if self._pipeline_worker.isRunning():
                 self._pipeline_worker.stop()
+        # Close the LSL consumer before stopping its publisher so a normal
+        # user stop is not reported as a broken/reconnecting stream.
+        self._stop_soldier_lsl_bridge()
+        self._lsl_outlet.stop()
         self._eeg_status = "已由用户断开"
         self._eeg_events.appendleft(f"{datetime.now():%H:%M:%S}  已由用户断开 EEG 数据源")
         self.update()
+
+    def _stop_soldier_lsl_bridge(self) -> None:
+        worker, self._soldier_bridge_worker = self._soldier_bridge_worker, None
+        if worker is not None and worker.isRunning():
+            worker.stop()
+        self._lsl_outlet.stop()
 
     def _restart_eeg_pipeline(self) -> None:
         self._disconnect_eeg_pipeline()
@@ -887,9 +1116,17 @@ class MainView(
             self._pipeline_worker.stop()
         if self._lsl_collector_worker is not None and self._lsl_collector_worker.isRunning():
             self._lsl_collector_worker.stop()
+        self._stop_soldier_lsl_bridge()
         self._lsl_outlet.stop()
+        self.actions.bci.disable()
+        self._soldier_bci_start_pending = False
+        self._soldier_bci_open_when_ready = False
+        self._soldier_bci_chain_active = False
+        self._soldier_bci_outlet_started_here = False
+        self._last_eeg_frame_monotonic = 0.0
 
     def _on_eeg_frame(self, frame: EEGFrame) -> None:
+        self._last_eeg_frame_monotonic = time.monotonic()
         if len(self._eeg_history) != len(frame.samples):
             self._eeg_history = [deque(maxlen=1250) for _ in frame.samples]
         if not self._collector_waveform_paused:
@@ -898,7 +1135,8 @@ class MainView(
         self._eeg_sample_rate = frame.sample_rate_hz
         self._eeg_channel_names = tuple(frame.channel_names)
         self._eeg_channel_units = tuple(frame.channel_units)
-        if self._lsl_outlet.active:
+        self._complete_soldier_bci_chain(frame)
+        if self._lsl_outlet.active and not self._soldier_bci_outlet_started_here:
             try:
                 self._lsl_outlet.push_frame(frame)
             except Exception as exc:
@@ -1047,6 +1285,15 @@ class MainView(
                 f"{datetime.now():%H:%M:%S}  采集线程结束，CSV已安全关闭：{path or '无数据'}"
             )
         self._continuous_recording = False
+        if self._soldier_bci_start_pending or self._soldier_bci_chain_active:
+            self.actions.bci.disable()
+            self._soldier_bci_start_pending = False
+            self._soldier_bci_open_when_ready = False
+            self._soldier_bci_chain_active = False
+            self._soldier_bci_outlet_started_here = False
+            self._last_eeg_frame_monotonic = 0.0
+            self._stop_soldier_lsl_bridge()
+            self._eeg_status = "实时EEG链路已断开，脑控授权已自动关闭"
         self.update()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
@@ -1169,7 +1416,8 @@ class MainView(
         # This works while the application has focus on both macOS and Windows.
         # A macOS system-wide key hook would require an explicit Accessibility grant.
         if event.key() == Qt.Key_B and not event.isAutoRepeat():
-            self._notify(self.actions.emergency_stop())
+            self._center_joysticks(send=False)
+            self._handle_ssvep_emergency()
             return
         super().keyPressEvent(event)
 
@@ -1190,6 +1438,15 @@ class MainView(
                 )
             except Exception:
                 pass
+        if (
+            self._soldier_bci_chain_active
+            and self._last_eeg_frame_monotonic > 0.0
+            and time.monotonic() - self._last_eeg_frame_monotonic > 2.0
+        ):
+            self._stop_soldier_bci_chain(
+                "实时EEG超过2秒无数据：采集、LSL和脑控授权已自动关闭"
+            )
+            return
         self.update()
 
     def update(self, *args) -> None:  # type: ignore[override]

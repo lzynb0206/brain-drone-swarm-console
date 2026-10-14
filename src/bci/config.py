@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # 六频单机控制配置。刺激界面、FBCCA 参考信号和标签映射只读取这一份配置。
 SSVEP_PROFILE_NAME = "单机 Flow 六频"
-COMMANDS = ("起飞", "前进", "后退", "左转", "右转", "降落")
+COMMANDS = ("起飞", "前进", "后退", "左移", "右移", "降落")
 TARGET_FREQUENCIES_HZ = (11.0, 13.75, 15.0, 16.5, 18.33, 20.625)
 TRUE_LABELS = ("空闲",) + COMMANDS
 MI_TRUE_LABELS = ("静息", "想象左手", "想象右手", "想象双脚")
@@ -55,13 +55,18 @@ DECISION_STEP_SECONDS = float(os.getenv("BDS_EEG_DECISION_STEP_SECONDS", "0.25")
 FBCCA_MIN_SCORE = float(os.getenv("BDS_FBCCA_MIN_SCORE", "0.06"))
 FBCCA_MIN_MARGIN = float(os.getenv("BDS_FBCCA_MIN_MARGIN", "0.01"))
 
-EEG_BACKEND = os.getenv("BDS_EEG_BACKEND", "csv").strip().lower()
+# Normal startup waits for the live LSL stream.  CSV is an explicit experiment
+# mode and must never start looping merely because a bundled sample exists.
+EEG_BACKEND = os.getenv("BDS_EEG_BACKEND", "lsl").strip().lower()
 EEG_CSV_PATH = Path(
     os.getenv("BDS_EEG_CSV_PATH", str(PROJECT_ROOT / "data" / "samples" / "start-1.csv"))
 ).expanduser()
 LSL_STREAM_NAME = os.getenv("BDS_LSL_STREAM_NAME", "obci_eeg1")
 LSL_STREAM_TYPE = os.getenv("BDS_LSL_STREAM_TYPE", "EEG")
 LSL_RESOLVE_TIMEOUT_SECONDS = float(os.getenv("BDS_LSL_TIMEOUT", "3"))
+# Optional exact port for the soldier one-click SSVEP workflow.  When empty,
+# the UI auto-selects a unique ExpandableEEG Bluetooth/serial descriptor.
+SOLDIER_EEG_PORT = os.getenv("BDS_SOLDIER_EEG_PORT", "").strip()
 
 DATA_ROOT = Path(
     os.getenv("BDS_EEG_DATA_ROOT", str(PROJECT_ROOT / "data"))

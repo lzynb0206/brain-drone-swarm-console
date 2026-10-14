@@ -47,6 +47,7 @@ class LSLEEGStream:
         self._original_channel_names: tuple[str, ...] = ()
         self._channel_units: tuple[str, ...] = ()
         self._source_id = ""
+        self._required_source_id = ""
         self._uid = ""
         self.sample_rate_hz = 0.0
         self.nominal_sample_rate_hz = 0.0
@@ -94,24 +95,43 @@ class LSLEEGStream:
             raise RuntimeError("请先断开当前 EEG 流，再切换 LSL 数据源")
         key = descriptor.uid or self._stream_key(descriptor.name, descriptor.source_id)
         self._selected_info = self._known_streams.get(key)
+        self._required_source_id = descriptor.source_id
         self.stream_name = descriptor.name
         self.stream_type = descriptor.stream_type or "EEG"
         self.expected_channel_count = descriptor.channel_count or self.expected_channel_count
         self.source_name = f"LSL · {descriptor.name}"
+
+    def require_source_id(self, source_id: str = "") -> None:
+        """Restrict the next connection to one exact LSL producer."""
+
+        if self.connected:
+            raise RuntimeError("请先断开当前 EEG 流，再修改 LSL source_id 过滤器")
+        self._required_source_id = str(source_id).strip()
+        self._selected_info = None
 
     def connect(self) -> None:
         resolver, inlet_factory = self._runtime()
         streams: Iterable[Any]
         if self._selected_info is not None:
             streams = [self._selected_info]
+        elif self._required_source_id:
+            streams = resolver(
+                "source_id", self._required_source_id,
+                minimum=1, timeout=self.timeout_seconds,
+            )
         else:
             streams = resolver("name", self.stream_name, minimum=1, timeout=self.timeout_seconds)
             if not streams:
                 streams = resolver("type", self.stream_type, minimum=1, timeout=self.timeout_seconds)
         streams = list(streams)
         if not streams:
+            source_requirement = (
+                f", source_id={self._required_source_id!r}"
+                if self._required_source_id else ""
+            )
             raise RuntimeError(
                 f"未发现 LSL 流：name={self.stream_name!r}, type={self.stream_type!r}"
+                f"{source_requirement}"
             )
         self._inlet = inlet_factory(streams[0], max_buflen=8, recover=True)
         info = self._inlet.info()

@@ -26,11 +26,14 @@ class MainDialogsMixin:
             self,
             "采集 → LSL收集 → CSV实验",
             "1. 先在系统蓝牙设置中配对 ExpandableEEG，确认生成 COM 或 /dev/cu.* 串口。\n"
-            "2. 在“采集”页刷新并选择设备，启动 Session 和 Data Stream，确认8通道真实波形。\n"
+            "2. 关闭其他占用该串口的 OpenBCI GUI，再在“采集”页选择设备并启动数据流。\n"
             "3. 检查采样率、通道数和电极标签；MI 建议重点核对 C3/Cz/C4。\n"
             "4. 需要实时转发时，在采集页 Networking 启动 LSL Stream。\n"
             "5. 在“LSL收集”页刷新并选择流，开始接收、显示并保存 CSV。\n"
             "6. 在“实验”页导入 CSV 做回放和算法复盘。\n\n"
+            "macOS 检测到 ExpandableEEGBT 时会自动绕过失效的 /dev/cu 伪串口，"
+            "直连 ESP32SPP 的 RFCOMM channel 1。若仍提示0字节，再用Type-C数据线和 "
+            "scripts/expandable_eeg_config.py 确认设备处于Bluetooth模式。\n\n"
             "说明：LSL 负责实时传输 EEG 和时间戳；FBCCA 只用于 SSVEP。"
             "MI 模式当前只采集和标注，不生成飞行指令。",
         )
@@ -52,26 +55,72 @@ class MainDialogsMixin:
         self._notify(self.actions.stop_swarm_motors())
 
     def _open_ssvep_stimulus(self) -> None:
+        self._show_ssvep_window("experiment")
+
+    def _open_ssvep_control(self) -> None:
+        if not self._soldier_live_chain_ready() or not self.actions.bci_control_enabled:
+            self._start_soldier_bci_chain(open_control_when_ready=True)
+            return
+        self._show_ssvep_window("control")
+
+    def _show_ssvep_window(self, mode: str) -> None:
         if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
             self._notify("请先确保 EEG 数据源已经连接")
             return
+        if self._stimulus_window is not None and self._stimulus_worker is not self._pipeline_worker:
+            self._stimulus_window.close()
+            self._stimulus_window.deleteLater()
+            self._stimulus_window = None
+            self._stimulus_worker = None
         if self._stimulus_window is None:
             self._stimulus_window = SSVEPStimulusWindow(parent=self)
+            self._stimulus_worker = self._pipeline_worker
             self._stimulus_window.status_changed.connect(self._on_eeg_status)
             self._stimulus_window.trial_started.connect(self._pipeline_worker.capture_stimulus_trial)
             self._stimulus_window.event_marker.connect(self._pipeline_worker.record_stimulus_marker)
-            self._stimulus_window.emergency_requested.connect(
-                lambda: self._notify(self.actions.emergency_stop())
-            )
+            self._stimulus_window.emergency_requested.connect(self._handle_ssvep_emergency)
+            self._stimulus_window.control_started.connect(self._on_ssvep_control_started)
+            self._stimulus_window.control_stopped.connect(self._on_ssvep_control_stopped)
             self._stimulus_window.trial_stopped.connect(
-                lambda label, path: self._notify(
-                    f"刺激试次已结束：{label}" + (f"，测频记录：{path}" if path else "")
-                )
+                self._on_ssvep_window_stopped
             )
+        self._stimulus_window.set_mode(mode)
         self._stimulus_window.showFullScreen()
         self._stimulus_window.raise_()
         self._stimulus_window.activateWindow()
         self._stimulus_window.setFocus(Qt.OtherFocusReason)
+
+    def _on_ssvep_window_stopped(self, label: str, path: str) -> None:
+        prefix = "SSVEP 在线驾驶已结束" if label == "在线控制" else f"刺激试次已结束：{label}"
+        self._notify(prefix + (f"，测频记录：{path}" if path else ""))
+
+    def _on_ssvep_control_started(self) -> None:
+        source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
+        self._notify(self.actions.start_bci_control_session(source))
+
+    def _on_ssvep_control_stopped(self) -> None:
+        if not (
+            self.actions.bci_control_enabled
+            or self._soldier_bci_start_pending
+            or self._soldier_bci_chain_active
+        ):
+            return
+        self._stop_soldier_bci_chain(
+            "SSVEP在线驾驶已暂停：采集、LSL和脑控授权均已关闭"
+        )
+
+    def _handle_ssvep_emergency(self) -> None:
+        """Keep the hardware emergency path independent of EEG teardown."""
+
+        if (
+            self.actions.bci_control_enabled
+            or self._soldier_bci_start_pending
+            or self._soldier_bci_chain_active
+        ):
+            self._stop_soldier_bci_chain(
+                "SSVEP链路已关闭，正在执行无人机紧急停止"
+            )
+        self._notify(self.actions.emergency_stop())
 
     def _configure_swarm_uris_dialog(self) -> None:
         if self._uri_dialog is not None:

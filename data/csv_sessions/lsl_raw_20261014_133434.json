@@ -1,0 +1,41 @@
+{
+  "format": "openbci-lsl-raw-csv-v1",
+  "csv_file": "lsl_raw_20261014_133434.csv",
+  "started_at": "2026-10-14T13:34:34.850+08:00",
+  "stopped_at": "2026-10-14T13:38:58.892+08:00",
+  "session_id": "session-20261014-133110-research",
+  "subject_id": "research",
+  "source": "LSL · obci_eeg1",
+  "channel_names": [
+    "O1",
+    "Oz",
+    "O2",
+    "PO3",
+    "POz",
+    "PO4",
+    "P3",
+    "P4"
+  ],
+  "original_channel_names": [
+    "O1",
+    "Oz",
+    "O2",
+    "PO3",
+    "POz",
+    "PO4",
+    "P3",
+    "P4"
+  ],
+  "channel_units": [
+    "uV",
+    "uV",
+    "uV",
+    "uV",
+    "uV",
+    "uV",
+    "uV",
+    "uV"
+  ],
+  "sample_rate_hz": 250.0,
+  "sample_count": 13184
+}

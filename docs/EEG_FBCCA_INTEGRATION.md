@@ -3,7 +3,7 @@
 ## 当前数据链
 
 ```text
-ExpandableEEG蓝牙虚拟COM/串口 → BrainFlow Cyton驱动（直接采集，推荐）
+ExpandableEEG蓝牙虚拟COM/串口 → 原生0xA0/0xCx数据包驱动（直接采集，推荐）
 或 OpenBCI GUI → LSL EEG（兼容模式）
 或 start-1.csv / 已保存的 lsl_raw_*.csv
         ↓ EEGStream
@@ -16,8 +16,9 @@ ExpandableEEG蓝牙虚拟COM/串口 → BrainFlow Cyton驱动（直接采集，�
 SwarmGateway 二次确认 → 串行硬件命令
 ```
 
-解码结果默认不会调用 `SwarmGateway`。只有实时硬件或 LSL、实机已连接并解锁、
-操作员显式开启“脑控执行”、同一意图连续确认两次且冷却通过时，才提交命令。
+解码结果默认不会调用 `SwarmGateway`。只有实时硬件或 LSL、实机已连接、
+操作员显式完成脑控授权并按 `J` 启动在线刺激、同一意图连续确认且冷却通过时，才提交命令。
+地面授权不会启动电机；“起飞”意图本身负责解锁并启动 Flow Hover。
 CSV 回放被代码硬性禁止驱动实机。没有模型权重时，系统继续运行真实 FBCCA，不生成假的深度模型结果。
 
 这里的职责必须分清：OpenBCI 是采集硬件及其配套软件，EEG 是采集到的脑电数据，
@@ -27,9 +28,16 @@ LSL 是把 EEG 和时间戳实时送进本软件的传输通道，FBCCA 是只�
 ## 科研人员界面的三段式工作流
 
 说明书表明 ExpandableEEG 的蓝牙模式会先由操作系统映射为 COM/串口，然后按
-`Cyton → Serial → 对应COM口` 读取；它不是 Ganglion 的原生 BLE 协议。软件因此使用
-BrainFlow `CYTON_BOARD` 驱动直接读取该串口，固定为8个 EEG 通道和250 Hz，不需要再启动
-OpenBCI GUI，也不需要先转成 LSL。
+`Cyton → Serial → 对应COM口` 读取；它不是 Ganglion 的原生 BLE 协议。根据实验室成功
+日志和当前设备实测，固件会回复 `v`/`$$$` 欢迎信息，正确启动序列为
+`v → d → c → b`。软件直接解析33字节 `0xA0 ... 0xCx` 数据包，固定为8个 EEG
+通道和250 Hz，不需要启动 OpenBCI GUI，也不需要先转成 LSL。
+
+当前这台 macOS 会创建 `/dev/cu.ExpandableEEGBT`，但该伪串口打开后不一定建立底层
+ACL/RFCOMM 连接，表现为端口可打开、CTS/DSR/CD为真却始终收到0字节。项目在 macOS
+检测到该设备名时会自动编译并启用原生 IOBluetooth RFCOMM bridge，直连
+`ESP32SPP channel 1`；Windows 仍使用传出 COM 口。两条传输路径之后共用同一个包解析、
+质量监测、LSL和算法链路。
 
 进入科研人员界面后的推荐流程：
 
@@ -39,6 +47,33 @@ OpenBCI GUI，也不需要先转成 LSL。
 4. 需要把数据交给本软件的独立接收器或其他实验工具时，在 `Networking` 点击 `START LSL STREAM`。
 5. 切换到导航栏“LSL收集”，刷新并选择 `type=EEG` 的流，点击“开始收集”；该页实时显示波形并自动保存完整 CSV。
 6. 采集结束后进入导航栏“实验”，导入刚保存的 CSV 做回放、复盘和离线算法验证。
+
+蓝牙“已配对”不等于正在输出数据。macOS 只有程序打开 SPP 串口期间才会显示“已连接”，
+程序关闭后自动变回“未连接”属于正常现象。采集时必须关闭其他正在使用相同串口的
+OpenBCI GUI/旧项目进程；原生驱动会申请独占锁并在冲突时明确报错。
+
+## Type-C 配置与零字节诊断
+
+商家配置程序的协议已经移植到 `scripts/expandable_eeg_config.py`。Type-C 数据口正常
+枚举为 USB 串口后，可以先只读探测：
+
+```bash
+python scripts/expandable_eeg_config.py --port /dev/cu.usbmodemXXXX
+```
+
+设备应回复 `eeg-模式-通道数`。需要切回蓝牙模式时执行：
+
+```bash
+python scripts/expandable_eeg_config.py \
+  --port /dev/cu.usbmodemXXXX \
+  --set-bt ExpandableEEGBT
+```
+
+配置发送后设备会重启。如果 `/dev/cu.*` 和系统 USB 列表都没有新增端口，说明当前
+Type-C 连接只在供电；应更换确认支持数据传输的线或 USB 口。此时软件无法跨过物理层
+替设备切换模式。若 Windows 蓝牙 SPP 能打开但 `b` 后仍收到0字节，应核对是否选择了
+`ESP32SPP` 的传出 COM 口。macOS 不应再以 `/dev/cu.*` 打开成功作为连接依据；项目会
+直接建立 RFCOMM channel 1，并以收到 `v` 欢迎信息和 `0xA0...0xCx` 数据包作为成功标准。
 
 因此，LSL不是脑电，也不是采集设备；它是实时搬运 EEG 样本和时间戳的通道。采集页关闭 LSL
 输出不会停止硬件采集，LSL收集页暂停波形也不会停止 CSV 写入。
@@ -76,15 +111,7 @@ OpenBCI GUI，也不需要先转成 LSL。
 拖动进度和 `0.5x / 1x / 2x` 回放，并将波形继续送入
 现有质量检测和解码链路。CSV 回放被安全层禁止驱动真实无人机。
 
-默认文件仍可通过环境变量配置：
-
-将数据放到 `data/samples/start-1.csv`，直接运行：
-
-```bash
-python main.py
-```
-
-也可指定其他文件：
+正常启动不会自动播放 `start-1.csv`。如需通过启动参数显式进入 CSV 实验回放：
 
 ```bash
 BDS_EEG_BACKEND=csv \
@@ -98,7 +125,7 @@ python main.py
 默认流名 `obci_eeg1`、类型 `EEG` 的数据流，再运行：
 
 ```bash
-BDS_EEG_BACKEND=lsl python main.py
+python main.py
 ```
 
 若实验室的流名不同：
@@ -138,6 +165,15 @@ MI 分类器在获得足够的受试者内数据、独立验证和误触发评�
 每个试次结束后，程序会把原始帧时间、六路亮度、刷新率、实测频率和频谱
 `.npz/.png` 保存到 `data/stimulus_logs/`。原生 PySide6 实现替代旧工程里的
 PsychoPy/Pygame 双份界面，避免维护三套不同的频率配置。
+
+士兵登录后不需要进入科研界面。点击“启动 SSVEP 驾驶”后，程序自动选择已配对的
+ExpandableEEG，启动蓝牙采集线程并发布 `name=obci_eeg1, type=EEG`；独立解码线程
+从该 LSL 流收到首帧后才开放脑控授权并进入全屏刺激。在线驾驶模式不会接受数字键
+真实标签，也不会生成伪训练试次；`K`、`Esc`、`B` 或关闭窗口会停止闪烁，并关闭
+采集、LSL 输出和脑控授权。地面授权本身不启动电机，
+授权后、按 `J` 启动闪烁之前也不会接受飞行指令；系统会等待新的完整 EEG 窗口，
+只有通过安全门控的“起飞”意图才会启动 Flow Hover。每次动作后必须先移开视线，
+由一次拒识/空闲结果释放动作锁，持续注视不会重复提交同一飞行指令。
 
 ## 信号质量
 

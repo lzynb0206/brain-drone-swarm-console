@@ -235,9 +235,18 @@ class EEGWorker(QThread):
             marker_timestamp,
             subject_id,
             session_id,
-            {"true_label": label, "frequency_hz": frequency_hz, "discarded_samples": discarded},
+            {
+                "true_label": label,
+                "frequency_hz": frequency_hz,
+                "discarded_samples": discarded,
+                "mode": "experiment" if label else "control",
+            },
         )
-        self.status_changed.emit(f"刺激同步采集：{label}，已清空 {discarded} 个历史样本")
+        if label:
+            message = f"刺激同步采集：{label}，已清空 {discarded} 个历史样本"
+        else:
+            message = f"在线脑控已同步，已清空 {discarded} 个历史样本并重置解码器"
+        self.status_changed.emit(message)
         return None, 0
 
     def _collect_continuous(

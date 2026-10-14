@@ -4,7 +4,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QImage, QPainter
@@ -90,10 +91,23 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertIn("只有实时 LSL", message)
         self.assertFalse(self.service.bci_control_enabled)
 
+    def test_expandable_native_source_can_enable_hardware_bci_control(self) -> None:
+        self.gateway.disarm()
+
+        message = self.service.set_bci_control_enabled(
+            True,
+            "ExpandableEEG Native · /dev/cu.ExpandableEEGBT",
+        )
+
+        self.assertIn("保持地面静止", message)
+        self.assertTrue(self.service.bci_control_enabled)
+        self.assertFalse(self.gateway.status().airborne)
+
     def test_decoder_verified_intent_is_not_double_gated_by_execution_service(self) -> None:
         self.gateway.connect()
         self.gateway.arm()
         self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
+        self.service.bci.start_session("LSL · obci_eeg1", warmup_seconds=0.0)
         before = len(self.gateway.command_log)
 
         self.service.handle_intent(
@@ -110,6 +124,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.gateway.connect()
         self.gateway.arm()
         self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
+        self.service.bci.start_session("LSL · obci_eeg1", warmup_seconds=0.0)
         before = len(self.gateway.command_log)
 
         first = self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
@@ -119,6 +134,58 @@ class WorkbenchServiceTest(unittest.TestCase):
 
         self.assertEqual(before + 1, len(self.gateway.command_log))
         self.assertEqual("takeoff", self.gateway.command_log[-1].action)
+
+    def test_grounded_bci_authorization_does_not_take_off_until_intent_arrives(self) -> None:
+        self.gateway.disarm()
+
+        message = self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
+
+        self.assertIn("保持地面静止", message)
+        self.assertFalse(self.gateway.status().airborne)
+        self.assertEqual([], self.gateway.command_log)
+
+        self.service.bci.start_session("LSL · obci_eeg1", warmup_seconds=0.0)
+        self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
+        self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
+
+        self.assertTrue(self.gateway.status().airborne)
+        self.assertEqual("takeoff", self.gateway.command_log[-1].action)
+
+    def test_sustained_fixation_cannot_repeat_command_until_idle_release(self) -> None:
+        self.gateway.disarm()
+        self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
+        self.service.bci.start_session("LSL · obci_eeg1", warmup_seconds=0.0)
+        self.service.handle_intent(
+            "起飞", True, "LSL · obci_eeg1", safety_verified=True,
+        )
+        command_count = len(self.gateway.command_log)
+
+        message = self.service.handle_intent(
+            "前进", True, "LSL · obci_eeg1", safety_verified=True,
+        )
+
+        self.assertIn("移开视线", message)
+        self.assertEqual(command_count, len(self.gateway.command_log))
+
+        self.service.handle_intent("空闲", False, "LSL · obci_eeg1")
+        self.service.bci._last_command_time -= 3.0
+        self.service.handle_intent(
+            "前进", True, "LSL · obci_eeg1", safety_verified=True,
+        )
+
+        self.assertEqual(command_count + 1, len(self.gateway.command_log))
+        self.assertEqual("forward", self.gateway.command_log[-1].action)
+
+    def test_authorization_alone_never_executes_without_fullscreen_session(self) -> None:
+        self.gateway.disarm()
+        self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
+
+        self.service.handle_intent(
+            "起飞", True, "LSL · obci_eeg1", safety_verified=True,
+        )
+
+        self.assertEqual([], self.gateway.command_log)
+        self.assertFalse(self.service.bci.session_active)
 
     def test_command_audit_correlates_submission_and_completion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -236,6 +303,15 @@ class MainViewActionRoutingTest(unittest.TestCase):
         with patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.Yes):
             self.view._activate("swarm-motor-stop")
         self.assertEqual("motor_stop", self.gateway.command_log[-1].action)
+
+    def test_emergency_stop_closes_active_soldier_eeg_chain(self) -> None:
+        self.view._soldier_bci_chain_active = True
+
+        with patch.object(self.view, "_stop_soldier_bci_chain") as stop_chain:
+            self.view._activate("swarm-emergency-stop")
+
+        stop_chain.assert_called_once()
+        self.assertTrue(self.gateway.status().emergency)
 
     def test_lighthouse_and_formation_controls_route_to_swarm_commands(self) -> None:
         self.view._activate("swarm-lighthouse-hold")
@@ -356,6 +432,93 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertNotIn("swarm-lighthouse-hold", actions)
         self.assertIn("swarm-form-line", actions)
         self.assertIn("swarm-form-triangle", actions)
+
+    def test_soldier_ssvep_entry_appears_when_live_control_is_authorized(self) -> None:
+        worker = MagicMock()
+        worker.isRunning.return_value = True
+        worker.source_name = "LSL · obci_eeg1"
+        self.view._pipeline_worker = worker
+        self.view.actions.bci.enabled = True
+        image = QImage(1280, 720, QImage.Format_ARGB32)
+        painter = QPainter(image)
+        try:
+            self.view._regions = []
+            self.view._soldier_brain(Canvas(painter, 1280, 720))
+        finally:
+            painter.end()
+
+        actions = [action for _rect, action in self.view._regions]
+        self.assertIn("soldier-ssvep-control", actions)
+
+    def test_soldier_ssvep_action_opens_operational_window(self) -> None:
+        with patch.object(self.view, "_open_ssvep_control") as opener:
+            self.view._activate("soldier-ssvep-control")
+
+        opener.assert_called_once_with()
+
+    def test_soldier_one_click_configures_hardware_bridge_and_lsl_decoder(self) -> None:
+        eeg_stream = MagicMock()
+        device = SimpleNamespace(
+            port="/dev/cu.ExpandableEEGBT",
+            description="ExpandableEEG",
+            hardware_id="ESP32SPP",
+        )
+        hardware_stream = MagicMock()
+        eeg_stream.discover_hardware_devices.return_value = [device]
+        eeg_stream.configure_hardware_bridge.return_value = hardware_stream
+        self.view.eeg_stream = eeg_stream
+
+        with (
+            patch.object(self.view, "_disconnect_eeg_pipeline") as disconnect,
+            patch.object(self.view, "_build_eeg_worker") as build_worker,
+            patch.object(self.view, "_start_eeg_pipeline") as start_pipeline,
+            patch("src.views.main_view.EEGLSLBridgeWorker") as bridge_class,
+        ):
+            bridge = bridge_class.return_value
+            started = self.view._start_soldier_bci_chain(open_control_when_ready=True)
+
+        self.assertTrue(started)
+        disconnect.assert_called_once_with(stop_csv_recording=True)
+        eeg_stream.configure_hardware_bridge.assert_called_once_with(device)
+        eeg_stream.select_lsl.assert_called_once_with(self.view._lsl_outlet.source_id)
+        bridge_class.assert_called_once_with(
+            hardware_stream, self.view._lsl_outlet, parent=self.view,
+        )
+        bridge.start.assert_called_once_with()
+        build_worker.assert_called_once_with(replace=True)
+        start_pipeline.assert_called_once_with()
+        self.assertTrue(self.view._soldier_bci_start_pending)
+        self.assertTrue(self.view._soldier_bci_open_when_ready)
+        self.assertFalse(self.view.actions.bci_control_enabled)
+
+    def test_soldier_chain_authorizes_only_after_lsl_frame_arrives(self) -> None:
+        worker = MagicMock()
+        worker.source_name = "LSL · obci_eeg1"
+        worker.isRunning.return_value = True
+        self.view._pipeline_worker = worker
+        self.view._lsl_outlet = MagicMock()
+        self.view._lsl_outlet.active = True
+        self.view._soldier_bci_start_pending = True
+
+        self.view._complete_soldier_bci_chain(MagicMock())
+
+        self.assertTrue(self.view.actions.bci_control_enabled)
+        self.assertTrue(self.view._soldier_bci_chain_active)
+        self.assertFalse(self.view._soldier_bci_start_pending)
+
+    def test_soldier_chain_never_authorizes_when_lsl_publisher_is_down(self) -> None:
+        worker = MagicMock()
+        worker.source_name = "LSL · obci_eeg1"
+        self.view._pipeline_worker = worker
+        self.view._lsl_outlet = MagicMock()
+        self.view._lsl_outlet.active = False
+        self.view._soldier_bci_start_pending = True
+
+        self.view._complete_soldier_bci_chain(MagicMock())
+
+        self.assertFalse(self.view.actions.bci_control_enabled)
+        self.assertFalse(self.view._soldier_bci_chain_active)
+        self.assertFalse(self.view._soldier_bci_start_pending)
 
     def test_cancelling_inspection_confirmation_sends_no_command(self) -> None:
         with patch.object(

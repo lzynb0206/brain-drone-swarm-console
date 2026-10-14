@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-本仓库处于**真实接口逐步联调阶段**。账号系统连接 Spring Boot/PostgreSQL；科研界面可通过 BrainFlow 直接连接 ExpandableEEG/OpenBCI，也可读取 LSL 或回放真实 CSV，并保存实验记录；Crazyflie + Flow Deck 软件适配层和安全命令队列已经加入，但仍需完成现场实机验收。
+本仓库处于**真实接口逐步联调阶段**。账号系统连接 Spring Boot/PostgreSQL；科研界面可通过原生串口协议直接连接 ExpandableEEG，也可读取 LSL 或回放真实 CSV，并保存实验记录；Crazyflie + Flow Deck 软件适配层和安全命令队列已经加入，但仍需完成现场实机验收。
 
 已经可运行的内容：
 
@@ -16,8 +16,9 @@
 - 多架 Crazyflie 连接、Flow 起飞、Lighthouse 绝对位置保持、三机自动编队、整体移动、受控降落、停止移动和锁存急停。
 - Flow Deck V1/V2 与 AI Deck 参数检测；AI Deck 摄像头数据尚未接入。
 - 飞行安全门控：实时遥测、3.2V 低电压提示、Flow 下视距离/光流质量和串行命令队列。
-- 脑控执行默认关闭；只允许实时硬件或 LSL 数据源，且同一意图连续确认两次并经过冷却后提交。
-- 科研导航按真实数据链拆成三个连续页面：`采集`用 BrainFlow 直连 ExpandableEEG 的蓝牙虚拟 COM/串口（固定8通道、250 Hz），显示 Time Series、FFT、Accelerometer/质量状态，并可从 Networking 开启 LSL 输出；`LSL收集`独立接收 EEG 流、显示波形/时间戳质量并保存 CSV；`实验`专门回放 CSV。
+- 士兵脑控页提供一键“启动 SSVEP 驾驶”：自动连接 ExpandableEEG、发布 `obci_eeg1`、由独立 LSL 接收线程运行 FBCCA，并在收到首帧后才开放脑控授权；不需要进入科研页面。地面授权不会启动电机，只有识别到“起飞”才进入现有 Flow Hover 起飞与悬停链路。
+- 脑控执行默认关闭；只允许实时硬件或 LSL 数据源，且同一意图连续确认两次、经过冷却并在每次动作后检测到注视释放才可再次提交。
+- 科研导航按真实数据链拆成三个连续页面：`采集`用 ExpandableEEG 原生数据包协议直连蓝牙虚拟 COM/串口（固定8通道、250 Hz）；macOS 自动绕过失效的伪串口并直连 RFCOMM channel 1，Windows 使用传出 COM 口；`LSL收集`独立接收 EEG 流、显示波形/时间戳质量并保存 CSV；`实验`专门回放 CSV。
 - `采集`页采用 OpenBCI GUI 的 System Control Panel 与 Time Series + FFT + Accelerometer 结构，但只保留本项目实际使用的 Cyton 兼容配置，避免实验人员误选 Ganglion、Synthetic 或 Playback。
 - “实验”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
 - `start-1.csv` 与 LSL采集上位机 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
@@ -37,12 +38,12 @@
 - 足量、平衡且由实验人员确认的六频加空闲训练数据；训练程序已实现，但仓库不附带可冒充有效模型的权重。
 - 生产级 RBAC、审计、服务端身份授权和真实设备安全仲裁。
 
-本地 `data/samples/start-1.csv` 只作为“实验”页的待回放文件；科研人员登录后不会自动播放，更不会出现在实时“采集”页。文件不存在时会明确报告数据源不可用，不再生成 Mock EEG。蜂群后端默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
+正常启动默认等待实时 `LSL · obci_eeg1`，不会自动播放任何 CSV。本地 `data/samples/start-1.csv` 只作为“实验”页主动导入后的回放文件；CSV 回放不会出现在实时“采集”链路，也不能驱动实机。蜂群后端默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
 
 ## 技术架构
 
 ```text
-ExpandableEEG/Cyton（BrainFlow直连） / LSL / CSV
+ExpandableEEG（原生串口直连） / LSL / CSV
     ↓
 EEGWorker（后台采集、2秒窗口化、记录）
     ↓
@@ -54,6 +55,10 @@ CrazyflieSwarmGateway 状态机 → 命令队列 → Flow/Lighthouse 控制 → 
 
 LoginView → AuthService → HTTP + JWT → Spring Boot → PostgreSQL
 ```
+
+士兵在线驾驶固定使用更严格的单向链路：`ExpandableEEG → 蓝牙采集线程 → LSL
+obci_eeg1 → EEGWorker → FBCCA/Transformer`。科研页仍可独立选择直接硬件、外部 LSL
+或 CSV 实验回放；二者不要求跨角色切换。
 
 真实接入集中在 `src/adapters/real/`，装配入口为 [src/container.py](src/container.py)。界面不会直接等待无线电或执行飞行动作。
 
@@ -221,7 +226,7 @@ BDS_FB_EEGNET_ENABLED=true python main.py
 
 | 数据类型 | 默认状态 | 真实实现位置 |
 | --- | --- | --- |
-| EEG 脑电 | ExpandableEEG/Cyton 直接串口、LSL 实时流或 CSV 回放 | [BrainFlowCytonEEGStream](src/adapters/real/brainflow_cyton_eeg_stream.py)、[LSLEEGStream](src/adapters/real/lsl_eeg_stream.py) |
+| EEG 脑电 | ExpandableEEG 原生串口（macOS 自动直连 RFCOMM）、LSL 实时流或 CSV 回放 | [ExpandableEEGSerialStream](src/adapters/real/expandable_eeg_serial_stream.py)、[LSLEEGStream](src/adapters/real/lsl_eeg_stream.py) |
 | 无人机遥测/命令 | 默认禁用；不生成虚假飞机 | [CrazyflieSwarmGateway](src/adapters/real/crazyflie_swarm_gateway.py) |
 | CPU/内存 | 本机实时指标 | [RealSystemMonitor](src/adapters/real/real_system_monitor.py) |
 | 工程模块/日志 | 运行时适配器缓存 | [RuntimeEngineerDataProvider](src/adapters/real/runtime_engineer_data.py) |
@@ -246,7 +251,7 @@ brain-drone-swarm-console/
 │   ├── adapters/
 │   │   ├── mock/                 # 自动化测试和显式离线演示
 │   │   ├── http/                 # Spring Boot JWT 认证客户端
-│   │   └── real/                 # BrainFlow硬件、CSV、LSL、Crazyflie、运行时监控
+│   │   └── real/                 # ExpandableEEG原生协议、CSV、LSL、Crazyflie、运行时监控
 │   ├── services/                 # 业务用例和拆分后的工作台子服务
 │   ├── workers/                  # EEG 后台采集、窗口化和记录
 │   ├── views/                    # 独立角色 QWidget、登录和刺激窗口
@@ -293,7 +298,7 @@ src/services/
 QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
 ```
 
-当前自动化测试覆盖 Spring REST 登录客户端、BrainFlow直连、CSV/LSL、OpenBCI 控制面板状态、六频 FBCCA、Transformer安全门、
+当前自动化测试覆盖 Spring REST 登录客户端、ExpandableEEG原生串口与配置协议、CSV/LSL、OpenBCI 控制面板状态、六频 FBCCA、Transformer安全门、
 刺激测频、信号质量、实验记录、Flow/Lighthouse 安全门控、编队、独立角色 QWidget、
 工作台服务组合和界面交互。详细运行方法见
 [EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。

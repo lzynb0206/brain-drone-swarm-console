@@ -199,6 +199,9 @@ class WorkbenchService:
     def set_bci_control_enabled(self, enabled: bool, eeg_source: str) -> str:
         return self.bci.set_enabled(enabled, eeg_source)
 
+    def start_bci_control_session(self, eeg_source: str) -> str:
+        return self.bci.start_session(eeg_source)
+
     def handle_intent(
         self, label: str, accepted: bool, eeg_source: str,
         frequency_hz: float | None = None,

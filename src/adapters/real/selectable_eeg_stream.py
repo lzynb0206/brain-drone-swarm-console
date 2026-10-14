@@ -9,6 +9,7 @@ from src.adapters.real.brainflow_cyton_eeg_stream import (
     SerialDeviceDescriptor,
 )
 from src.adapters.real.csv_eeg_stream import CsvEEGStream
+from src.adapters.real.expandable_eeg_serial_stream import ExpandableEEGSerialStream
 from src.adapters.real.lsl_eeg_stream import LSLEEGStream
 from src.domain import EEGFrame, EEGStreamDescriptor
 from src.ports import EEGStream
@@ -26,7 +27,7 @@ class SelectableEEGStream:
         self,
         initial: EEGStream,
         lsl: LSLEEGStream,
-        hardware: BrainFlowCytonEEGStream | None = None,
+        hardware: BrainFlowCytonEEGStream | ExpandableEEGSerialStream | None = None,
     ) -> None:
         self._active = initial
         self._lsl = lsl
@@ -66,10 +67,11 @@ class SelectableEEGStream:
         self._lsl.select_stream(descriptor)
         self._active = self._lsl
 
-    def select_lsl(self) -> None:
+    def select_lsl(self, source_id: str = "") -> None:
         """Select the configured live LSL source without starting it."""
         if self.connected:
             raise RuntimeError("请先断开当前 EEG 数据源，再切换到实时 LSL")
+        self._lsl.require_source_id(source_id)
         self._active = self._lsl
 
     def create_lsl_receiver(self) -> LSLEEGStream:
@@ -95,6 +97,23 @@ class SelectableEEGStream:
         port = device.port if isinstance(device, SerialDeviceDescriptor) else str(device)
         self._hardware.configure_serial_port(port)
         self._active = self._hardware
+
+    def configure_hardware_bridge(
+        self, device: SerialDeviceDescriptor | str,
+    ) -> BrainFlowCytonEEGStream | ExpandableEEGSerialStream:
+        """Configure hardware for a Bluetooth-to-LSL publisher.
+
+        The active worker-facing source is left unchanged so the primary EEG
+        worker can consume the LSL stream emitted by that publisher.
+        """
+
+        if self.connected:
+            raise RuntimeError("请先断开当前 EEG 数据源，再启动硬件桥接")
+        if self._hardware is None:
+            raise RuntimeError("当前容器未配置 OpenBCI/ExpandableEEG 硬件后端")
+        port = device.port if isinstance(device, SerialDeviceDescriptor) else str(device)
+        self._hardware.configure_serial_port(port)
+        return self._hardware
 
     def select_csv(
         self,

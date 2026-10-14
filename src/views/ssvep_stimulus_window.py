@@ -15,11 +15,12 @@ from src.bci.stimulus import StimulusSessionRecorder, StimulusTarget, luminance_
 
 
 class SSVEPStimulusWindow(QWidget):
-    """Render all configured targets from a monotonic clock and record frame timing.
+    """Render all configured targets for experiments or operational control.
 
-    J starts a synchronized trial, K stops it, 0 selects idle, 1..6 select a
-    true label, and Escape closes the stimulus window.  The EEG worker remains
-    outside this widget and receives trial markers through Qt signals.
+    Experiment mode accepts 0/1..6 ground-truth labels.  Control mode never
+    emits a non-empty true label, activates execution only after J, and revokes
+    authorization on K/Escape.  The EEG worker remains outside this widget and
+    receives synchronization markers through Qt signals.
     """
 
     trial_started = Signal(str, float, float)
@@ -27,10 +28,16 @@ class SSVEPStimulusWindow(QWidget):
     event_marker = Signal(str, float)
     status_changed = Signal(str)
     emergency_requested = Signal()
+    control_started = Signal()
+    control_stopped = Signal()
 
-    def __init__(self, recording_root: Path | str = STIMULUS_RECORDING_ROOT, parent=None) -> None:
+    def __init__(
+        self,
+        recording_root: Path | str = STIMULUS_RECORDING_ROOT,
+        parent=None,
+        mode: str = "experiment",
+    ) -> None:
         super().__init__(parent, Qt.Window)
-        self.setWindowTitle("脑控无人机蜂群作战系统 · SSVEP 六频刺激")
         self.setStyleSheet("background: black;")
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.BlankCursor)
@@ -46,11 +53,29 @@ class SSVEPStimulusWindow(QWidget):
         self._timer.timeout.connect(self.update)
         self._timer.start()
         self._running = False
+        self._mode = "experiment"
         self._selected_label = "空闲"
         self._started_at_unix = 0.0
         self._frame_times: list[float] = []
         self._luminance: list[list[float]] = [[] for _ in self.targets]
         self._last_payload: dict[str, object] | None = None
+        self.set_mode(mode)
+
+    @property
+    def control_mode(self) -> bool:
+        return self._mode == "control"
+
+    def set_mode(self, mode: str) -> None:
+        normalized = str(mode).strip().lower()
+        if normalized not in {"experiment", "control"}:
+            raise ValueError(f"unsupported SSVEP window mode: {mode}")
+        if self._running and normalized != self._mode:
+            self.end_trial()
+        self._mode = normalized
+        self._selected_label = "在线控制" if self.control_mode else "空闲"
+        title = "SSVEP 在线驾驶" if self.control_mode else "SSVEP 六频刺激实验"
+        self.setWindowTitle(f"脑控无人机蜂群作战系统 · {title}")
+        self.update()
 
     @property
     def selected_label(self) -> str:
@@ -69,10 +94,23 @@ class SSVEPStimulusWindow(QWidget):
         self._started_at_unix = time.time()
         self._running = True
         frequency = self._frequency_for_label(self._selected_label)
-        marker = f"SSVEP_{frequency:g}Hz_start" if frequency > 0 else "SSVEP_idle_start"
+        marker = (
+            "SSVEP_control_start" if self.control_mode else
+            f"SSVEP_{frequency:g}Hz_start" if frequency > 0 else
+            "SSVEP_idle_start"
+        )
         self.event_marker.emit(marker, self._started_at_unix)
-        self.trial_started.emit(self._selected_label, frequency, self._started_at_unix)
-        self.status_changed.emit(f"刺激已开始：{self._selected_label}（{frequency:g}Hz）")
+        # An empty label flushes buffered EEG and resets the decoder without
+        # creating a fake labelled training trial during operational control.
+        trial_label = "" if self.control_mode else self._selected_label
+        self.trial_started.emit(trial_label, frequency, self._started_at_unix)
+        if self.control_mode:
+            self.control_started.emit()
+        message = (
+            "SSVEP 在线驾驶已开始" if self.control_mode else
+            f"刺激已开始：{self._selected_label}（{frequency:g}Hz）"
+        )
+        self.status_changed.emit(message)
         self.update()
 
     def end_trial(self) -> None:
@@ -81,8 +119,16 @@ class SSVEPStimulusWindow(QWidget):
         self._running = False
         finished_at = time.time()
         frequency = self._frequency_for_label(self._selected_label)
-        marker = f"SSVEP_{frequency:g}Hz_stop" if frequency > 0 else "SSVEP_idle_stop"
+        marker = (
+            "SSVEP_control_stop" if self.control_mode else
+            f"SSVEP_{frequency:g}Hz_stop" if frequency > 0 else
+            "SSVEP_idle_stop"
+        )
         self.event_marker.emit(marker, finished_at)
+        # Revoke execution before spectrum rendering or file I/O so a stopped
+        # stimulus can never leave a brief command-acceptance window.
+        if self.control_mode:
+            self.control_stopped.emit()
         try:
             payload = self._recorder.save(
                 self.targets,
@@ -143,9 +189,14 @@ class SSVEPStimulusWindow(QWidget):
         painter.setPen(QColor("#d1d5db"))
         painter.setFont(QFont("PingFang SC", 15))
         state = "刺激运行中" if self._running else "等待开始"
+        instructions = (
+            f"{state} ｜在线脑控 ｜J 开始  K 暂停并关闭脑控授权  B 急停  Esc 退出"
+            if self.control_mode else
+            f"{state} ｜真实标签：{self._selected_label} ｜J 开始  K 停止  0 空闲  1-6 切换标签  B 急停  Esc 退出"
+        )
         painter.drawText(
             QRectF(0, 12, self.width(), 42), Qt.AlignCenter,
-            f"{state} ｜真实标签：{self._selected_label} ｜J 开始  K 停止  0 空闲  1-6 切换标签  B 急停  Esc 退出",
+            instructions,
         )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
@@ -154,7 +205,14 @@ class SSVEPStimulusWindow(QWidget):
             self.begin_trial()
             return
         if key == Qt.Key_K:
-            self.end_trial()
+            if self._running:
+                self.end_trial()
+            elif self.control_mode:
+                # K is also a safety revoke before J has started a trial.  It
+                # must not leave Bluetooth/LSL acquisition or authorization
+                # running merely because the stimulus was still idle.
+                self.control_stopped.emit()
+                self.status_changed.emit("SSVEP 在线驾驶已暂停，脑控授权已关闭")
             return
         if key == Qt.Key_B:
             self.end_trial()
@@ -162,6 +220,9 @@ class SSVEPStimulusWindow(QWidget):
             return
         if key == Qt.Key_Escape:
             self.close()
+            return
+        if self.control_mode and (key == Qt.Key_0 or Qt.Key_1 <= key <= Qt.Key_6):
+            self.status_changed.emit("在线驾驶由注视触发，数字键仅用于科研标注")
             return
         if key == Qt.Key_0:
             self._selected_label = "空闲"
@@ -180,6 +241,8 @@ class SSVEPStimulusWindow(QWidget):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         if self._running:
             self.end_trial()
+        elif self.control_mode:
+            self.control_stopped.emit()
         self.setCursor(Qt.ArrowCursor)
         super().closeEvent(event)
 

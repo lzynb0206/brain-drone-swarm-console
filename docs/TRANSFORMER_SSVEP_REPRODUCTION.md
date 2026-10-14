@@ -32,14 +32,14 @@ SSVEP 是视觉刺激范式，Transformer 只替换 FBCCA 所在的解码环节�
 | REF | A1 | 底部 SRB2 |
 | BIAS | A2 | 底部 BIAS |
 
-直接 BrainFlow 采集会输出上述脑区名称。外部 OpenBCI GUI 若只输出 `CH1..CH8`
+直接原生串口采集会输出上述脑区名称。外部 OpenBCI GUI 若只输出 `CH1..CH8`
 或 `EXG Channel 0..7`，LSL适配器只在八个标签全部为通用名称时按位置映射；原始
 来源标签仍保存在 CSV/NPZ metadata 的 `original_channel_names` 中。若外部流已经有
 具体脑区名称，程序不会覆盖。
 
 ## 采集要求
 
-必须采集七类：`空闲、起飞、前进、后退、左转、右转、降落`。试次文件默认位于
+必须采集七类：`空闲、起飞、前进、后退、左移、右移、降落`。试次文件默认位于
 `data/raw_trials/`，索引位于 `data/sessions/raw_trials_index.csv`。
 
 正式数据至少需要两个具有不同 `session_id` 的会话。训练脚本默认按完整会话分组，
@@ -99,4 +99,3 @@ export BDS_EEG_DECISION_STEP_SECONDS=0.25
 `ConsecutiveWindowGate` 是论文复现基线，不应被描述为独立证据或绝对安全保证。
 后续改进算法应与这条基线分离，并至少报告空闲误触发次数/分钟、触发延迟、准确率、
 ITR和跨会话结果。
-
