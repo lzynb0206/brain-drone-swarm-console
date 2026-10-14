@@ -19,8 +19,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.adapters.real import ExpandableEEGSerialStream
-from src.services import LSLEEGOutlet
+from src.adapters.real import ExpandableEEGSerialStream  # noqa: E402
+from src.services import LSLEEGOutlet  # noqa: E402
 
 
 DEFAULT_PORT = "/dev/cu.ExpandableEEGBT"

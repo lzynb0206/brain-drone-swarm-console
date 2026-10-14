@@ -301,8 +301,8 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertNotIn("lsl-refresh", actions)
 
     def test_acquisition_setup_uses_fixed_hardware_profile(self) -> None:
-        self.assertEqual(250, self.view._openbci_sample_rate)
-        self.assertEqual(8, len(self.view._hardware_channel_settings))
+        self.assertEqual(250, self.view.acquisition.sample_rate)
+        self.assertEqual(8, len(self.view.acquisition.hardware_channel_settings))
 
     def test_flight_stop_actions_are_routed_to_distinct_gateway_operations(self) -> None:
         self.view._activate("swarm-command:takeoff")
@@ -313,9 +313,9 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual("motor_stop", self.gateway.command_log[-1].action)
 
     def test_emergency_stop_closes_active_soldier_eeg_chain(self) -> None:
-        self.view._soldier_bci_chain_active = True
+        self.view.soldier_bci.chain_active = True
 
-        with patch.object(self.view, "_stop_soldier_bci_chain") as stop_chain:
+        with patch.object(self.view.soldier_bci, "stop") as stop_chain:
             self.view._activate("swarm-emergency-stop")
 
         stop_chain.assert_called_once()
@@ -482,23 +482,23 @@ class MainViewActionRoutingTest(unittest.TestCase):
             patch.object(self.view, "_disconnect_eeg_pipeline") as disconnect,
             patch.object(self.view, "_build_eeg_worker") as build_worker,
             patch.object(self.view, "_start_eeg_pipeline") as start_pipeline,
-            patch("src.views.main_view.EEGLSLBridgeWorker") as bridge_class,
+            patch("src.controllers.soldier_bci_controller.EEGLSLBridgeWorker") as bridge_class,
         ):
             bridge = bridge_class.return_value
-            started = self.view._start_soldier_bci_chain(open_control_when_ready=True)
+            started = self.view.soldier_bci.start(open_control_when_ready=True)
 
         self.assertTrue(started)
         disconnect.assert_called_once_with(stop_csv_recording=True)
         eeg_stream.configure_hardware_bridge.assert_called_once_with(device)
-        eeg_stream.select_lsl.assert_called_once_with(self.view._lsl_outlet.source_id)
+        eeg_stream.select_lsl.assert_called_once_with(self.view.acquisition.outlet.source_id)
         bridge_class.assert_called_once_with(
-            hardware_stream, self.view._lsl_outlet, parent=self.view,
+            hardware_stream, self.view.acquisition.outlet, parent=self.view,
         )
         bridge.start.assert_called_once_with()
         build_worker.assert_called_once_with(replace=True)
         start_pipeline.assert_called_once_with()
-        self.assertTrue(self.view._soldier_bci_start_pending)
-        self.assertTrue(self.view._soldier_bci_open_when_ready)
+        self.assertTrue(self.view.soldier_bci.start_pending)
+        self.assertTrue(self.view.soldier_bci.open_when_ready)
         self.assertFalse(self.view.actions.bci_control_enabled)
 
     def test_soldier_chain_authorizes_only_after_lsl_frame_arrives(self) -> None:
@@ -506,29 +506,29 @@ class MainViewActionRoutingTest(unittest.TestCase):
         worker.source_name = "LSL · obci_eeg1"
         worker.isRunning.return_value = True
         self.view._pipeline_worker = worker
-        self.view._lsl_outlet = MagicMock()
-        self.view._lsl_outlet.active = True
-        self.view._soldier_bci_start_pending = True
+        self.view.acquisition.outlet = MagicMock()
+        self.view.acquisition.outlet.active = True
+        self.view.soldier_bci.start_pending = True
 
-        self.view._complete_soldier_bci_chain(MagicMock())
+        self.view.soldier_bci.complete_after_frame(MagicMock())
 
         self.assertTrue(self.view.actions.bci_control_enabled)
-        self.assertTrue(self.view._soldier_bci_chain_active)
-        self.assertFalse(self.view._soldier_bci_start_pending)
+        self.assertTrue(self.view.soldier_bci.chain_active)
+        self.assertFalse(self.view.soldier_bci.start_pending)
 
     def test_soldier_chain_never_authorizes_when_lsl_publisher_is_down(self) -> None:
         worker = MagicMock()
         worker.source_name = "LSL · obci_eeg1"
         self.view._pipeline_worker = worker
-        self.view._lsl_outlet = MagicMock()
-        self.view._lsl_outlet.active = False
-        self.view._soldier_bci_start_pending = True
+        self.view.acquisition.outlet = MagicMock()
+        self.view.acquisition.outlet.active = False
+        self.view.soldier_bci.start_pending = True
 
-        self.view._complete_soldier_bci_chain(MagicMock())
+        self.view.soldier_bci.complete_after_frame(MagicMock())
 
         self.assertFalse(self.view.actions.bci_control_enabled)
-        self.assertFalse(self.view._soldier_bci_chain_active)
-        self.assertFalse(self.view._soldier_bci_start_pending)
+        self.assertFalse(self.view.soldier_bci.chain_active)
+        self.assertFalse(self.view.soldier_bci.start_pending)
 
     def test_cancelling_inspection_confirmation_sends_no_command(self) -> None:
         with patch.object(

@@ -8,7 +8,13 @@ from PySide6.QtWidgets import QApplication, QWidget
 from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
 from src.adapters.real.crazyflie_command_queue import CrazyflieCommandQueue
 from src.adapters.real.crazyflie_telemetry import CrazyflieTelemetryMapper
-from src.controllers import LSLCollectionController
+from src.controllers import (
+    CSVReplayController,
+    EEGAcquisitionController,
+    ExperimentController,
+    LSLCollectionController,
+    SoldierBCIController,
+)
 from src.domain import SwarmCommand
 from src.services import WorkbenchService
 from src.services.admin_operations_service import AdminOperationsService
@@ -39,7 +45,11 @@ class RefactoredBoundaryTest(unittest.TestCase):
             self.assertIsInstance(view.research_widget, QWidget)
             self.assertIsInstance(view.soldier_widget, QWidget)
             self.assertIsInstance(view.admin_widget, QWidget)
+            self.assertIsInstance(view.acquisition, EEGAcquisitionController)
+            self.assertIsInstance(view.csv_replay, CSVReplayController)
             self.assertIsInstance(view.lsl_collector, LSLCollectionController)
+            self.assertIsInstance(view.soldier_bci, SoldierBCIController)
+            self.assertIsInstance(view.experiment, ExperimentController)
             view.research_widget.action_requested.emit("algorithm-select:SVM", 0.0, 0.0)
             self.assertEqual("SVM", view.actions.algorithm)
         finally:

@@ -64,14 +64,20 @@ obci_eeg1 → EEGWorker → FBCCA/Transformer`。科研页仍可独立选择直�
 
 当前核心模块已经按职责拆分：
 
-- `CrazyflieSwarmGateway` 只保留应用侧蜂群状态机；配置、命令队列、遥测转换、
-  安全规则、事件日志、编队状态转换、Flow 控制循环和 cflib 连接分别放在独立模块中。
+- `CrazyflieSwarmGateway` 只保留应用侧蜂群状态机；配置、命令队列、飞行动作执行、
+  遥测转换、安全规则、事件日志、编队状态转换、Flow 控制循环和 cflib 连接分别放在独立模块中。
 - `WorkbenchService` 保留原有界面调用方式，内部组合科研配置、蜂群控制、脑控执行、
   管理操作和导出服务。
 - 科研、作战、管理员和工程画布页面都是独立 `QWidget`，通过 Qt Signal/Slot
   把语义动作交给 `MainView` 协调。
-- 独立 LSL 收集的发现、录制线程、波形缓存和运行状态由
-  `LSLCollectionController` 管理；`MainView` 不再保存这组采集状态。
+- 科研页入口只负责导航分发；硬件采集/CSV、独立 LSL 收集以及范式/算法/控制/映射/数据
+  渲染分别位于独立模块，避免继续扩张单个 `research_view.py`。
+- `MainView` 只负责页面装配、共享 EEG worker 生命周期和顶层事件转发。直接硬件采集、
+  CSV 回放、独立 LSL 收集、士兵脑控安全链路和自动实验分别由
+  `EEGAcquisitionController`、`CSVReplayController`、`LSLCollectionController`、
+  `SoldierBCIController` 和 `ExperimentController` 管理，不再在视图中维护重复状态。
+- `EEGWorker` 专注读流、时间对齐、窗口化和解码；连续 EEG 的缓存、10 秒分块及落盘由
+  `ContinuousEEGRecorder` 独立处理。
 - 实验记录字段与数据清洗规则位于独立 schema 模块；两个 SSVEP 窗口共用目标几何和
   注视点绘制，避免实验模式与在线控制模式产生布局偏差。
 
@@ -250,7 +256,7 @@ brain-drone-swarm-console/
 │   ├── container.py              # 真实/Mock 实现装配入口
 │   ├── domain/                   # 与 Qt、硬件无关的数据模型
 │   ├── ports/                    # EEG、蜂群、认证、监控等稳定接口
-│   ├── controllers/              # Qt工作流控制器（如独立LSL收集）
+│   ├── controllers/              # 采集、CSV回放、LSL收集、士兵脑控与实验工作流
 │   ├── bci/                      # SSVEP 配置、FBCCA、Transformer适配与安全门
 │   ├── ml/                       # FB-EEGNet 网络、预处理、训练和推理
 │   ├── adapters/

@@ -24,12 +24,6 @@ class RoleCanvasPage(QWidget):
         self._regions = []
         self.setMouseTracking(True)
 
-    def __getattr__(self, name: str):
-        context = self.__dict__.get("context")
-        if context is not None:
-            return getattr(context, name)
-        raise AttributeError(name)
-
     @property
     def actions(self):
         # QWidget already defines actions(); the role renderers need the
@@ -100,11 +94,169 @@ class RoleCanvasPage(QWidget):
 
 
 class ResearchPage(ResearchViewMixin, RoleCanvasPage):
+    """Research dashboard with an explicit, read-only shell boundary."""
+
+    @property
+    def acquisition_stage(self):
+        return self.context.acquisition_stage
+
+    @property
+    def acquisition_tab(self):
+        return self.context.acquisition_tab
+
+    @property
+    def research_page(self):
+        return self.context.research_page
+
+    @property
+    def eeg_stream(self):
+        return self.context.eeg_stream
+
+    @property
+    def intent_decoder(self):
+        return self.context.intent_decoder
+
+    @property
+    def experiment_recorder(self):
+        return self.context.experiment_recorder
+
+    @property
+    def lsl_collector(self):
+        return self.context.lsl_collector
+
+    @property
+    def _collector_selected_device(self):
+        return self.context.acquisition.selected_device
+
+    @property
+    def _collector_source_mode(self):
+        return self.context.acquisition.source_mode
+
+    @property
+    def _collector_waveform_paused(self):
+        return self.context.acquisition.waveform_paused
+
+    @property
+    def _continuous_recording(self):
+        return self.context.acquisition.continuous_recording
+
+    @property
+    def _csv_replay_paused(self):
+        return self.context.csv_replay.paused
+
+    def _csv_playback_snapshot(self):
+        return self.context.csv_replay.snapshot()
+
+    @property
+    def _eeg_channel_names(self):
+        return self.context._eeg_channel_names
+
+    @property
+    def _eeg_events(self):
+        return self.context._eeg_events
+
+    @property
+    def _eeg_health(self):
+        return self.context._eeg_health
+
+    @property
+    def _eeg_history(self):
+        return self.context._eeg_history
+
+    @property
+    def _eeg_quality(self):
+        return self.context._eeg_quality
+
+    @property
+    def _eeg_sample_rate(self):
+        return self.context._eeg_sample_rate
+
+    @property
+    def _eeg_status(self):
+        return self.context._eeg_status
+
+    @property
+    def _hardware_channel_settings(self):
+        return self.context.acquisition.hardware_channel_settings
+
+    @property
+    def _latest_recognition(self):
+        return self.context._latest_recognition
+
+    @property
+    def _lsl_outlet(self):
+        return self.context.acquisition.outlet
+
+    @property
+    def _openbci_sample_rate(self):
+        return self.context.acquisition.sample_rate
+
+    @property
+    def _pipeline_worker(self):
+        return self.context._pipeline_worker
+
+    @property
+    def _raw_csv_recorder(self):
+        return self.context.acquisition.raw_recorder
+
     def _render(self, canvas: Canvas) -> None:
         self._paint_research(canvas)
 
 
 class SoldierPage(SoldierViewMixin, RoleCanvasPage):
+    """Soldier dashboard with explicit operational dependencies."""
+
+    @property
+    def soldier_page(self):
+        return self.context.soldier_page
+
+    @property
+    def soldier_root(self):
+        return self.context.soldier_root
+
+    @property
+    def eeg_stream(self):
+        return self.context.eeg_stream
+
+    @property
+    def intent_decoder(self):
+        return self.context.intent_decoder
+
+    @property
+    def swarm_gateway(self):
+        return self.context.swarm_gateway
+
+    @property
+    def _latest_recognition(self):
+        return self.context._latest_recognition
+
+    @property
+    def _manual_forward(self):
+        return self.context._manual_forward
+
+    @property
+    def _manual_lateral(self):
+        return self.context._manual_lateral
+
+    @property
+    def _manual_vertical(self):
+        return self.context._manual_vertical
+
+    @property
+    def _pipeline_worker(self):
+        return self.context._pipeline_worker
+
+    @property
+    def _soldier_bci_chain_active(self):
+        return self.context.soldier_bci.chain_active
+
+    @property
+    def _soldier_bci_start_pending(self):
+        return self.context.soldier_bci.start_pending
+
+    def _soldier_live_chain_ready(self):
+        return self.context.soldier_bci.live_chain_ready()
+
     def _render(self, canvas: Canvas) -> None:
         self._paint_soldier(canvas)
 
@@ -115,6 +267,10 @@ class AdminPage(AdminViewMixin, RoleCanvasPage):
 
 
 class EngineerCanvasPage(EngineerCanvasViewMixin, RoleCanvasPage):
+    @property
+    def engineer_page(self):
+        return self.context.engineer_page
+
     def _render(self, canvas: Canvas) -> None:
         self._paint_engineer(canvas)
 

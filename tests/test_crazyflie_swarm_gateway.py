@@ -44,8 +44,12 @@ class FakeBackend:
         })
 
     def disconnect(self) -> None: self.calls.append(("disconnect",))
-    def arm_all(self) -> bool: self.calls.append(("arm",)); return True
-    def arm_one(self, uri) -> bool: self.calls.append(("arm_one", uri)); return True
+    def arm_all(self) -> bool:
+        self.calls.append(("arm",))
+        return True
+    def arm_one(self, uri) -> bool:
+        self.calls.append(("arm_one", uri))
+        return True
     def disarm_all(self) -> None: self.calls.append(("disarm",))
     def disarm_one(self, uri) -> None: self.calls.append(("disarm_one", uri))
     def takeoff_all(self, height_m, duration_s) -> None:
@@ -904,7 +908,9 @@ class CrazyflieGatewayTest(unittest.TestCase):
 
     def test_backend_streams_official_hover_setpoints(self) -> None:
         class Commander:
-            def __init__(self) -> None: self.hover_setpoints = []; self.stopped = False
+            def __init__(self) -> None:
+                self.hover_setpoints = []
+                self.stopped = False
             def send_hover_setpoint(self, vx, vy, yawrate, height) -> None: self.hover_setpoints.append((vx, vy, yawrate, height))
             def send_notify_setpoint_stop(self) -> None: return None
             def send_stop_setpoint(self) -> None: self.stopped = True
@@ -919,15 +925,19 @@ class CrazyflieGatewayTest(unittest.TestCase):
         class Scf:
             def __init__(self) -> None:
                 self.cf = type("Cf", (), {})()
-                self.cf.commander = Commander(); self.cf.platform = Platform(); self.cf.high_level_commander = HighLevelCommander()
+                self.cf.commander = Commander()
+                self.cf.platform = Platform()
+                self.cf.high_level_commander = HighLevelCommander()
 
         class Swarm:
             def __init__(self, scf) -> None: self._cfs = {"radio://test/01": scf}
             def parallel_safe(self, callback, args_dict=None) -> None:
-                for uri, scf in self._cfs.items(): callback(scf, *(args_dict[uri] if args_dict else []))
+                for uri, scf in self._cfs.items():
+                    callback(scf, *(args_dict[uri] if args_dict else []))
 
         backend = CflibBackend(CrazyflieSwarmConfig(uris=("radio://test/01",), flow_setpoint_rate_hz=100.0))
-        scf = Scf(); backend._swarm = Swarm(scf)
+        scf = Scf()
+        backend._swarm = Swarm(scf)
         backend._start_flow_control(0.4)
         time.sleep(0.04)
         self.assertTrue(scf.cf.commander.hover_setpoints)

@@ -319,7 +319,9 @@ class LSLEEGStreamTest(unittest.TestCase):
         self.assertEqual(named, LSLEEGStream._configured_montage_names(named))
 
     def test_wraps_lsl_samples_in_common_frame_contract(self) -> None:
-        resolver = lambda *_args, **_kwargs: [object()]
+        def resolver(*_args, **_kwargs):
+            return [object()]
+
         stream = LSLEEGStream(expected_channel_count=2, resolver=resolver, inlet_factory=_FakeInlet)
         stream.connect()
         frame = stream.read_frame()
@@ -352,7 +354,9 @@ class LSLEEGStreamTest(unittest.TestCase):
         )
 
     def test_discovers_selects_and_reports_timestamp_health(self) -> None:
-        resolver = lambda *_args, **_kwargs: [_FakeInfo()]
+        def resolver(*_args, **_kwargs):
+            return [_FakeInfo()]
+
         stream = LSLEEGStream(
             expected_channel_count=2, resolver=resolver, inlet_factory=_FakeInlet,
         )

@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import time
-from datetime import datetime
-
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QDialog,
@@ -22,13 +19,10 @@ from PySide6.QtWidgets import (
 
 from src.bci.config import (
     COMMANDS,
-    SAMPLE_RATE_HZ,
-    SSVEP_CHANNEL_NAMES,
     TARGET_FREQUENCIES_HZ,
     WINDOW_SECONDS,
 )
 from src.services.ssvep_experiment_protocol import AutomaticExperimentConfig
-from src.views.automatic_ssvep_experiment_window import AutomaticSSVEPExperimentWindow
 from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 
 
@@ -126,128 +120,6 @@ class MainDialogsMixin:
             f"自动采集配置已更新：{candidate.trial_count} 试次，seed={candidate.random_seed}"
         )
 
-    def _start_automatic_ssvep_experiment(self) -> None:
-        """Open the protocol only when fresh, non-replay EEG is arriving."""
-
-        worker = self._pipeline_worker
-        if worker is None or not worker.isRunning():
-            self._notify("自动采集无法开始：请先在“采集”页启动实时 EEG 数据流")
-            return
-        if self._last_eeg_frame_monotonic <= 0.0 or time.monotonic() - self._last_eeg_frame_monotonic > 2.0:
-            self._notify("自动采集无法开始：最近 2 秒没有收到实时 EEG，请检查电极与数据流")
-            return
-        source = worker.source_name.strip()
-        if source.lower().startswith(("csv", "mock", "demo")):
-            self._notify("自动采集拒绝回放/模拟源：请选择实时硬件或 LSL EEG")
-            return
-        actual_channels = tuple(str(value) for value in self._eeg_channel_names)
-        if actual_channels != tuple(SSVEP_CHANNEL_NAMES):
-            self._notify(
-                "自动采集无法开始：通道顺序必须为 "
-                f"{', '.join(SSVEP_CHANNEL_NAMES)}；实际为 "
-                f"{', '.join(actual_channels) or '未知'}"
-            )
-            return
-        actual_rate = float(self._eeg_sample_rate or 0.0)
-        if abs(actual_rate - float(SAMPLE_RATE_HZ)) > 5.0:
-            self._notify(
-                f"自动采集无法开始：需要约 {SAMPLE_RATE_HZ:g} Hz 实时 EEG；"
-                f"实际为 {actual_rate:g} Hz"
-            )
-            return
-        original_channels = tuple(
-            str(value) for value in self._eeg_original_channel_names
-        )
-        if original_channels and original_channels != actual_channels:
-            answer = QMessageBox.question(
-                self,
-                "确认通用通道与电极接线",
-                "当前 LSL 流只提供通用标签："
-                f"{', '.join(original_channels)}。软件只能按位置映射，无法从信号判断真实电极。\n\n"
-                "请确认物理接线依次为：\n"
-                "CH1=O1，CH2=Oz，CH3=O2，CH4=PO3，CH5=POz，CH6=PO4，"
-                "CH7=P3，CH8=P4。\n\n确认无误后才开始本次科研采集。",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                self._notify("自动采集已取消：尚未确认通用通道对应的真实电极位置")
-                return
-        existing = self._automatic_experiment_window
-        if existing is not None:
-            existing.showFullScreen()
-            existing.raise_()
-            existing.activateWindow()
-            return
-        worker.set_paradigm_type("SSVEP")
-        config = self.actions.automatic_experiment_config
-        window = AutomaticSSVEPExperimentWindow(config, parent=self)
-        window.setAttribute(Qt.WA_DeleteOnClose, True)
-        window.capture_requested.connect(self._on_automatic_trial_capture_requested)
-        window.phase_marker.connect(self._on_automatic_trial_phase)
-        window.status_changed.connect(self._on_eeg_status)
-        window.experiment_finished.connect(self._on_automatic_experiment_finished)
-        window.destroyed.connect(self._on_automatic_experiment_window_destroyed)
-        self._automatic_experiment_window = window
-        window.showFullScreen()
-        window.raise_()
-        window.activateWindow()
-        window.setFocus(Qt.OtherFocusReason)
-        QTimer.singleShot(0, window.start_experiment)
-
-    def _on_automatic_trial_capture_requested(self, payload: object) -> None:
-        worker = self._pipeline_worker
-        window = self._automatic_experiment_window
-        if worker is None or window is None or not isinstance(payload, dict):
-            return
-        try:
-            worker.capture_experiment_trial(
-                str(payload.get("true_label", "")),
-                float(payload.get("frequency_hz", 0.0) or 0.0),
-                float(payload.get("marker_timestamp", time.time())),
-                duration_seconds=float(payload.get("duration_seconds", 0.0) or 0.0),
-                discard_seconds=float(payload.get("discard_seconds", 0.0) or 0.0),
-                metadata=payload,
-            )
-        except Exception as exc:
-            window.notify_trial_save_error(str(exc))
-            self._notify(f"自动试次启动失败：{exc}")
-
-    def _on_automatic_trial_phase(
-        self, name: str, timestamp: float, metadata: object,
-    ) -> None:
-        worker = self._pipeline_worker
-        if worker is None:
-            return
-        context = metadata if isinstance(metadata, dict) else {}
-        phase = str(name).removeprefix("auto_ssvep_")
-        try:
-            if phase in {"cue", "stimulus", "analysis", "rest"}:
-                worker.record_trial_phase(
-                    phase, timestamp, context, timestamp_domain="auto",
-                )
-            else:
-                worker.record_experiment_marker(
-                    str(name), timestamp, context, timestamp_domain="auto",
-                )
-        except Exception as exc:
-            self._eeg_events.appendleft(
-                f"{datetime.now():%H:%M:%S}  ERROR  实验标记写入失败：{exc}"
-            )
-
-    def _on_automatic_experiment_finished(self, status: str, summary: object) -> None:
-        if status == "aborted" and self._pipeline_worker is not None:
-            self._pipeline_worker.cancel_experiment_trial("automatic_protocol_aborted")
-        values = summary if isinstance(summary, dict) else {}
-        self._notify(
-            f"自动采集{'完成' if status == 'completed' else '中止'}："
-            f"已保存 {values.get('saved_trials', 0)}，"
-            f"有效 {values.get('valid_trials', 0)}，"
-            f"剔除 {values.get('rejected_trials', 0)}"
-        )
-
-    def _on_automatic_experiment_window_destroyed(self, *_args) -> None:
-        self._automatic_experiment_window = None
     def _show_openbci_guide(self) -> None:
         QMessageBox.information(
             self,
@@ -285,8 +157,8 @@ class MainDialogsMixin:
         self._show_ssvep_window("experiment")
 
     def _open_ssvep_control(self) -> None:
-        if not self._soldier_live_chain_ready() or not self.actions.bci_control_enabled:
-            self._start_soldier_bci_chain(open_control_when_ready=True)
+        if not self.soldier_bci.live_chain_ready() or not self.actions.bci_control_enabled:
+            self.soldier_bci.start(open_control_when_ready=True)
             return
         self._show_ssvep_window("control")
 
@@ -348,11 +220,11 @@ class MainDialogsMixin:
     def _on_ssvep_control_stopped(self) -> None:
         if not (
             self.actions.bci_control_enabled
-            or self._soldier_bci_start_pending
-            or self._soldier_bci_chain_active
+            or self.soldier_bci.start_pending
+            or self.soldier_bci.chain_active
         ):
             return
-        self._stop_soldier_bci_chain(
+        self.soldier_bci.stop(
             "SSVEP在线驾驶已暂停：采集、LSL和脑控授权均已关闭"
         )
 
@@ -361,10 +233,10 @@ class MainDialogsMixin:
 
         if (
             self.actions.bci_control_enabled
-            or self._soldier_bci_start_pending
-            or self._soldier_bci_chain_active
+            or self.soldier_bci.start_pending
+            or self.soldier_bci.chain_active
         ):
-            self._stop_soldier_bci_chain(
+            self.soldier_bci.stop(
                 "SSVEP链路已关闭，正在执行无人机紧急停止"
             )
         self._notify(self.actions.emergency_stop())

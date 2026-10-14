@@ -17,6 +17,7 @@ from src.domain import EEGFrame, IntentResult
 from src.ports import EEGStream, IntentDecoder
 from src.services.experiment_recorder import ExperimentRecorder
 from src.services.experiment_timing import ExperimentClock, ExperimentMarkerOutlet, ExperimentTimestamp
+from src.workers.continuous_eeg_recorder import ContinuousEEGRecorder
 
 
 @dataclass(frozen=True)
@@ -73,12 +74,10 @@ class EEGWorker(QThread):
         self._labeled_start_time = ""
         self._subject_id = ""
         self._session_id = ""
-        self._continuous_enabled = False
-        self._continuous_buffer: np.ndarray | None = None
-        self._continuous_timestamps = np.asarray([], dtype=np.float64)
-        self._continuous_started_at = ""
-        self._continuous_chunk_index = 0
-        self._continuous_chunk_seconds = 10.0
+        self._continuous_recorder = ContinuousEEGRecorder(
+            recorder,
+            self.continuous_chunk_saved.emit,
+        )
         self._channel_names: tuple[str, ...] = ()
         self._original_channel_names: tuple[str, ...] = ()
         self._channel_units: tuple[str, ...] = ()
@@ -228,8 +227,7 @@ class EEGWorker(QThread):
         self.record_experiment_marker("trial_cancelled", metadata=context)
 
     def set_continuous_recording(self, enabled: bool) -> None:
-        with self._state_lock:
-            self._continuous_enabled = bool(enabled)
+        self._continuous_recorder.set_enabled(enabled)
 
     def set_paradigm_type(self, paradigm_type: str) -> None:
         with self._state_lock:
@@ -461,60 +459,24 @@ class EEGWorker(QThread):
     def _collect_continuous(
         self, values: np.ndarray, timestamps: np.ndarray, sample_rate_hz: float,
     ) -> None:
-        with self._state_lock:
-            enabled = self._continuous_enabled
-        if not enabled:
-            self._flush_continuous(sample_rate_hz)
-            return
-        if self._continuous_buffer is None or self._continuous_buffer.shape[0] != values.shape[0]:
-            self._continuous_buffer = values.copy()
-            self._continuous_timestamps = timestamps.copy()
-            self._continuous_started_at = datetime.now().astimezone().isoformat(timespec="milliseconds")
-        else:
-            self._continuous_buffer = np.concatenate((self._continuous_buffer, values), axis=1)
-            self._continuous_timestamps = np.concatenate((self._continuous_timestamps, timestamps))
-        threshold = max(1, round(sample_rate_hz * self._continuous_chunk_seconds))
-        while self._continuous_buffer is not None and self._continuous_buffer.shape[1] >= threshold:
-            chunk = self._continuous_buffer[:, :threshold].copy()
-            chunk_timestamps = self._continuous_timestamps[:threshold].copy()
-            self._continuous_buffer = self._continuous_buffer[:, threshold:]
-            self._continuous_timestamps = self._continuous_timestamps[threshold:]
-            self._save_continuous_chunk(chunk, chunk_timestamps, sample_rate_hz)
-            self._continuous_started_at = datetime.now().astimezone().isoformat(timespec="milliseconds")
-
-    def _flush_continuous(self, sample_rate_hz: float) -> None:
-        if self._continuous_buffer is None or self._continuous_buffer.shape[1] == 0:
-            self._continuous_buffer = None
-            self._continuous_timestamps = np.asarray([], dtype=np.float64)
-            return
-        fs = float(sample_rate_hz or getattr(self.stream, "sample_rate_hz", 0.0) or 0.0)
-        if fs > 0:
-            self._save_continuous_chunk(
-                self._continuous_buffer.copy(), self._continuous_timestamps.copy(), fs,
-            )
-        self._continuous_buffer = None
-        self._continuous_timestamps = np.asarray([], dtype=np.float64)
-        self._continuous_started_at = ""
-
-    def _save_continuous_chunk(
-        self, chunk: np.ndarray, timestamps: np.ndarray, sample_rate_hz: float,
-    ) -> None:
         subject_id, session_id = self._experiment_context()
-        path = self.recorder.record_continuous_chunk(
-            chunk,
+        self._continuous_recorder.append(
+            values,
+            timestamps,
             sample_rate_hz,
-            self.source_name,
-            subject_id,
-            session_id,
-            self._continuous_chunk_index,
-            self._continuous_started_at,
-            sample_timestamps=timestamps,
+            source=self.source_name,
+            subject_id=subject_id,
+            session_id=session_id,
             channel_names=self._channel_names,
             original_channel_names=self._original_channel_names,
             channel_units=self._channel_units,
         )
-        self._continuous_chunk_index += 1
-        self.continuous_chunk_saved.emit(path)
+
+    def _flush_continuous(self, sample_rate_hz: float) -> None:
+        fallback_rate = float(
+            sample_rate_hz or getattr(self.stream, "sample_rate_hz", 0.0) or 0.0
+        )
+        self._continuous_recorder.flush(fallback_rate)
 
     def _collect_labeled_trial(
         self,

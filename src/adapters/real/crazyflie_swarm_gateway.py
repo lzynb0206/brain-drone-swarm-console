@@ -15,9 +15,10 @@ from src.domain import (
     SwarmStatus,
     UAVTelemetry,
 )
-from src.services.formation_service import FormationPlanningError, FormationService
+from src.services.formation_service import FormationService
 from src.adapters.real.crazyflie_contracts import CrazyflieBackend, CrazyflieSwarmConfig
 from src.adapters.real.crazyflie_cflib_backend import CflibBackend
+from src.adapters.real.crazyflie_command_executor import CrazyflieCommandExecutor
 from src.adapters.real.crazyflie_command_queue import CrazyflieCommandQueue
 from src.adapters.real.crazyflie_event_journal import CrazyflieEventJournal
 from src.adapters.real.crazyflie_formation_state import (
@@ -47,6 +48,7 @@ class CrazyflieSwarmGateway:
         self._safety_policy = CrazyflieSafetyPolicy()
         self._lock = threading.RLock()
         self._command_queue = CrazyflieCommandQueue(maxsize=20)
+        self._command_executor = CrazyflieCommandExecutor(self)
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._command_idle = threading.Event()
@@ -620,218 +622,7 @@ class CrazyflieSwarmGateway:
                     self._message = "蜂群连接已断开"
 
     def _execute(self, command: SwarmCommand, generation: int) -> None:
-        self._raise_if_cancelled(generation)
-        with self._lock:
-            self._validate_command(command)
-        action = command.action.strip().lower()
-        targets = self._command_uris(command) if action != "led_test" else tuple(self.config.uris)
-        # A command without uav_id is a group command even when the current
-        # group happens to contain one aircraft.  This keeps group and targeted
-        # execution semantics stable as aircraft are added or removed.
-        one_uri = targets[0] if command.uav_id and len(targets) == 1 else None
-        if action == "led_test":
-            self._backend.set_led_all(0, 80, 255, float(command.parameters.get("duration_s", 1.0)))
-        elif action == "takeoff":
-            height = float(command.parameters.get("height_m", self.config.default_height_m))
-            speed = max(0.05, self.config.move_speed_mps)
-            duration = max(2.0, height / speed)
-            with self._lock:
-                needs_arming = tuple(uri for uri in targets if uri not in self._armed_uris)
-            if len(needs_arming) == len(self.config.uris) and set(needs_arming) == set(self.config.uris):
-                confirmed = self._backend.arm_all()
-            else:
-                confirmations = [self._backend.arm_one(uri) for uri in needs_arming]
-                confirmed = False if any(value is False for value in confirmations) else None
-            if confirmed is False:
-                raise RuntimeError("飞控拒绝解锁，请检查电池、机体姿态和飞控锁定状态")
-            with self._lock:
-                self._armed_uris.update(targets)
-                self._taking_off_uris.update(targets)
-                self._airborne_uris.difference_update(targets)
-                self._armed = bool(self._armed_uris)
-                self._airborne = bool(self._airborne_uris)
-                self._refresh_cached_flight_states()
-                self._state = "taking_off"
-                self._message = f"{len(targets)} 架无人机正在起飞并进入保持状态…"
-            if one_uri is not None:
-                self._backend.takeoff_one(one_uri, height, duration)
-            else:
-                self._backend.takeoff_all(height, duration)
-            self._raise_if_cancelled(generation)
-            self._wait_for_takeoff_height(
-                height, generation, target_uris=targets, timeout_s=duration + 2.0,
-            )
-            with self._lock:
-                self._taking_off_uris.difference_update(targets)
-                self._airborne_uris.update(targets)
-                self._horizontal_ready_uris.update(targets)
-                self._refresh_cached_flight_states()
-            if one_uri is not None:
-                self._backend.hover_one(one_uri, 0.4)
-            else:
-                self._backend.hover_all(0.4)
-            self._raise_if_cancelled(generation)
-            with self._lock:
-                self._airborne = bool(self._airborne_uris)
-                self._state = "airborne"
-                self._message = (
-                    f"{len(targets)} 架无人机已到达目标高度；"
-                    "可手动切换 Lighthouse 位置保持"
-                )
-        elif action == "land":
-            with self._lock:
-                self._state = "landing"
-                self._message = f"{len(targets)} 架无人机正在受控降落…"
-            if one_uri is not None:
-                self._backend.land_one(one_uri, 3.0)
-            else:
-                self._backend.land_all(3.0)
-            self._raise_if_cancelled(generation)
-            with self._lock:
-                if not self._emergency:
-                    self._airborne_uris.difference_update(targets)
-                    self._armed_uris.difference_update(targets)
-                    self._taking_off_uris.difference_update(targets)
-                    self._horizontal_ready_uris.difference_update(targets)
-                    self._lighthouse_hold_uris.difference_update(targets)
-                    for uri in targets:
-                        self._lighthouse_targets_by_uri.pop(uri, None)
-                    for uri in targets:
-                        self._formation_slots_by_uri.pop(uri, None)
-                    if not self._formation_slots_by_uri:
-                        self._formation_plan = None
-                    self._airborne = bool(self._airborne_uris)
-                    self._armed = bool(self._armed_uris)
-                    self._refresh_cached_flight_states()
-                    self._state = "airborne" if self._airborne else "connected"
-                    self._message = (
-                        f"{len(targets)} 架无人机已受控降落；曾检测到低电压（仅提示）"
-                        if self._battery_low_latched
-                        else f"{len(targets)} 架无人机已受控降落；可再次解锁起飞"
-                    )
-        elif action == "lighthouse_hold":
-            self._activate_lighthouse_hold(targets, generation)
-            with self._lock:
-                self._state = "lighthouse_hold"
-                self._message = f"{len(targets)} 架无人机已切换至 Lighthouse 绝对位置保持"
-        elif action in {"form_line", "form_triangle"}:
-            self._activate_lighthouse_hold(targets, generation)
-            shape = "line" if action == "form_line" else "triangle"
-            spacing = float(command.parameters.get("spacing_m", self.config.formation_spacing_m))
-            with self._lock:
-                selected_uavs = tuple(self._uavs[uri] for uri in targets)
-                altitude = sum(uav.position.z for uav in selected_uavs) / len(selected_uavs)
-                self._state = "forming"
-                self._message = f"正在生成{('直线' if shape == 'line' else '三角')}编队…"
-            try:
-                plan = self._formation_service.plan(
-                    selected_uavs, shape=shape, spacing_m=spacing, altitude_m=altitude,
-                )
-            except FormationPlanningError as exc:
-                raise RuntimeError(str(exc)) from exc
-            # First formation is deliberately formed one aircraft at a time.
-            # It prevents three initially unordered trajectories from crossing.
-            for assignment in sorted(plan.assignments, key=lambda item: item.distance_m):
-                self._raise_if_cancelled(generation)
-                uri = self._resolve_uri(assignment.uav_id)
-                yaw = self._uavs[uri].yaw_deg
-                duration = max(1.0, assignment.distance_m / max(0.05, self.config.move_speed_mps))
-                target = assignment.slot.position
-                self._backend.move_one_absolute(uri, target.x, target.y, target.z, yaw, duration)
-            with self._lock:
-                self._formation_plan = plan
-                self._formation_slots_by_uri = {
-                    self._resolve_uri(item.uav_id): item.slot.slot_id for item in plan.assignments
-                }
-                self._last_formation_manual_at = time.monotonic()
-                self._refresh_cached_flight_states()
-                self._state = "formation_hold"
-                self._message = (
-                    f"{len(plan.assignments)} 架无人机已形成"
-                    f"{('直线' if shape == 'line' else '三角')}编队，间距 {spacing:.2f}m"
-                )
-        elif action == "hover":
-            duration = float(command.parameters.get("duration_s", 0.5))
-            if one_uri is not None:
-                self._backend.hover_one(one_uri, duration)
-            else:
-                self._backend.hover_all(duration)
-        else:
-            if action == "move_relative":
-                dx = float(command.parameters.get("dx_m", 0.0))
-                dy = float(command.parameters.get("dy_m", 0.0))
-                dz = float(command.parameters.get("dz_m", 0.0))
-                distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-            else:
-                distance = float(command.parameters.get("distance_m", self.config.move_distance_m))
-                vectors = {
-                    "forward": (distance, 0.0, 0.0),
-                    "backward": (-distance, 0.0, 0.0),
-                    "left": (0.0, distance, 0.0),
-                    "right": (0.0, -distance, 0.0),
-                }
-                dx, dy, dz = vectors[action]
-            if math.hypot(dx, dy) > 1e-6:
-                with self._lock:
-                    pending_takeoff = tuple(
-                        uri for uri in targets if uri not in self._horizontal_ready_uris
-                    )
-                if pending_takeoff:
-                    self._wait_for_takeoff_height(
-                        self.config.default_height_m,
-                        generation,
-                        target_uris=pending_takeoff,
-                        timeout_s=4.0,
-                    )
-                    with self._lock:
-                        self._horizontal_ready_uris.update(pending_takeoff)
-                self._wait_for_takeoff_height(
-                    self.config.flow_min_height_m,
-                    generation,
-                    target_uris=targets,
-                    timeout_s=4.0,
-                )
-            duration = max(1.0, distance / max(0.05, self.config.move_speed_mps))
-            with self._lock:
-                lighthouse_group = (
-                    one_uri is None
-                    and bool(targets)
-                    and set(targets).issubset(self._lighthouse_hold_uris)
-                )
-                plan = self._formation_plan
-            if lighthouse_group:
-                if plan is not None:
-                    moved_plan = plan.translated(dx, dy, dz)
-                    with self._lock:
-                        absolute_targets = formation_targets(
-                            moved_plan,
-                            self._uavs,
-                            self._resolve_uri,
-                        )
-                else:
-                    with self._lock:
-                        absolute_targets = {
-                            uri: (
-                                self._uavs[uri].position.x + dx,
-                                self._uavs[uri].position.y + dy,
-                                self._uavs[uri].position.z + dz,
-                                self._uavs[uri].yaw_deg,
-                            )
-                            for uri in targets
-                        }
-                    moved_plan = None
-                self._backend.move_all_absolute(absolute_targets, duration)
-                with self._lock:
-                    if moved_plan is not None:
-                        self._formation_plan = moved_plan
-                    self._state = "formation_hold" if moved_plan is not None else "lighthouse_hold"
-            elif one_uri is not None:
-                self._backend.move_one_relative(one_uri, dx, dy, dz, duration)
-            else:
-                self._backend.move_all_relative(dx, dy, dz, duration)
-            self._raise_if_cancelled(generation)
-        self._raise_if_cancelled(generation)
-        self._record("INFO", f"飞行指令完成：{action}")
+        self._command_executor.execute(command, generation)
 
     def _raise_if_cancelled(self, generation: int) -> None:
         with self._lock:

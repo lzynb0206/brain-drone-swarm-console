@@ -57,23 +57,23 @@ class MainActionRouterMixin:
         elif action == "automatic-experiment-config":
             self._configure_automatic_ssvep_experiment()
         elif action == "automatic-experiment-start":
-            self._start_automatic_ssvep_experiment()
+            self.experiment.start_automatic()
         elif action == "soldier-ssvep-control":
             self._open_ssvep_control()
         elif action.startswith("collector-source:"):
-            self._select_collector_source(action.split(":", 1)[1])
+            self.acquisition.select_source(action.split(":", 1)[1])
         elif action == "collector-refresh":
-            self._refresh_collector_source()
+            self.acquisition.refresh_source()
         elif action == "collector-start":
-            self._start_integrated_collection()
+            self.acquisition.start_integrated_collection()
         elif action == "collector-stop":
-            self._stop_integrated_collection()
+            self.acquisition.stop_integrated_collection()
         elif action == "collector-pause-waveform":
-            self._toggle_collector_waveform()
+            self.acquisition.toggle_waveform()
         elif action == "collector-open-directory":
-            self._open_collector_data_directory()
+            self.acquisition.open_data_directory()
         elif action == "lsl-outlet-toggle":
-            self._toggle_lsl_outlet()
+            self.acquisition.toggle_outlet()
         elif action == "lsl-collector-refresh":
             self._discover_lsl_collector_streams()
         elif action == "lsl-collector-start":
@@ -85,27 +85,27 @@ class MainActionRouterMixin:
         elif action == "lsl-collector-open-directory":
             self._open_lsl_collector_directory()
         elif action == "openbci-start-session":
-            self._prepare_openbci_session()
+            self.acquisition.prepare_session()
         elif action == "openbci-data-stream-toggle":
-            self._toggle_openbci_data_stream()
+            self.acquisition.toggle_stream()
         elif action == "openbci-control-panel":
-            self._return_openbci_control_panel()
+            self.acquisition.return_to_setup()
         elif action == "openbci-serial-autoconnect":
-            self._discover_direct_devices()
+            self.acquisition.discover_direct_devices()
         elif action == "openbci-guide":
             self._show_openbci_guide()
         elif action == "continuous-record-toggle":
-            self._toggle_raw_csv_recording()
+            self.acquisition.toggle_raw_recording()
         elif action == "csv-import":
-            self._choose_csv_replay()
+            self.csv_replay.choose_file()
         elif action == "csv-playback-toggle":
-            self._toggle_csv_playback()
+            self.csv_replay.toggle()
         elif action == "csv-rewind":
-            self._rewind_csv_playback()
+            self.csv_replay.rewind()
         elif action.startswith("csv-speed:"):
-            self._set_csv_playback_speed(float(action.rsplit(":", 1)[1]))
+            self.csv_replay.set_speed(float(action.rsplit(":", 1)[1]))
         elif action == "csv-seek":
-            self._seek_csv_playback((x - 384) / 650)
+            self.csv_replay.seek((x - 384) / 650)
         elif action.startswith("algorithm-select:"):
             self._notify(self.actions.select_algorithm(action.split(":", 1)[1]))
         elif action.startswith("algorithm-mode:"):
@@ -213,7 +213,7 @@ class MainActionRouterMixin:
             self._center_joysticks(send=True)
             self._request_motor_stop()
         elif action == "bci-control-toggle":
-            self._toggle_soldier_bci_chain()
+            self.soldier_bci.toggle()
         elif action == "swarm-emergency-stop":
             self._center_joysticks(send=False)
             self._handle_ssvep_emergency()
