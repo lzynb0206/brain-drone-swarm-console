@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 from collections import deque
 from datetime import datetime
@@ -12,7 +11,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetricsF, QPainter
-from PySide6.QtWidgets import QMessageBox, QStackedWidget, QWidget
+from PySide6.QtWidgets import QStackedWidget, QWidget
 from src.bci.preprocessing import assess_signal_quality
 from src.bci.config import (
     DECISION_STEP_SECONDS,
@@ -24,6 +23,8 @@ from src.controllers import (
     EEGAcquisitionController,
     ExperimentController,
     LSLCollectionController,
+    ManualFlightController,
+    RecognitionController,
     SoldierBCIController,
 )
 from src.domain import EEGFrame, IntentResult, Role, User
@@ -31,12 +32,11 @@ from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGatew
 from src.services import (
     ExperimentRecorder,
     LSLEEGOutlet,
-    MissionPlanningError,
     RawEEGCsvRecorder,
     WorkbenchService,
 )
 from src.views.engineer_dashboard import EngineerDashboard
-from src.views.main_action_router import MainActionRouterMixin
+from src.controllers.main_action_router import MainActionRouter
 from src.views.main_dialogs import MainDialogsMixin
 from src.views.role_pages import AdminPage, EngineerCanvasPage, ResearchPage, SoldierPage
 from src.workers import EEGWorker
@@ -49,7 +49,6 @@ if TYPE_CHECKING:
 
 
 class MainView(
-    MainActionRouterMixin,
     MainDialogsMixin,
     QWidget,
 ):
@@ -123,6 +122,9 @@ class MainView(
         )
         self.soldier_bci = SoldierBCIController(self)
         self.experiment = ExperimentController(self)
+        self.recognition = RecognitionController(self)
+        self.manual_flight = ManualFlightController(self)
+        self.action_router = MainActionRouter(self)
         lsl_collector_stream = None
         lsl_factory = getattr(self.eeg_stream, "create_lsl_receiver", None)
         if callable(lsl_factory):
@@ -137,10 +139,6 @@ class MainView(
         )
         self.lsl_collector.changed.connect(self.update)
         self.lsl_collector.notification_requested.connect(self._notify)
-        self._active_joystick: str | None = None
-        self._manual_vertical = 0.0
-        self._manual_forward = 0.0
-        self._manual_lateral = 0.0
         self._role_stack = QStackedWidget(self)
         self.research_widget = ResearchPage(self, self._role_stack)
         self.soldier_widget = SoldierPage(self, self._role_stack)
@@ -160,7 +158,7 @@ class MainView(
             self.engineer_canvas_widget,
         ):
             self._role_stack.addWidget(page)
-            page.action_requested.connect(self._activate)
+            page.action_requested.connect(self.action_router.activate)
         self._build_eeg_worker()
         self.engineer_dashboard: EngineerDashboard | None = None
         if system_monitor is not None and engineer_data_provider is not None:
@@ -218,6 +216,11 @@ class MainView(
         if self._pipeline_worker is not None and not self._pipeline_worker.isRunning():
             self._eeg_status = "正在连接数据源…"
             self._pipeline_worker.start()
+
+    def _activate(self, action: str, x: float = 0, y: float = 0) -> None:
+        """Compatibility entry point for tests and non-widget callers."""
+
+        self.action_router.activate(action, x, y)
 
     def _build_eeg_worker(self, replace: bool = False) -> None:
         if replace and self._pipeline_worker is not None:
@@ -306,53 +309,7 @@ class MainView(
         self.update()
 
     def _on_recognition(self, result: IntentResult) -> None:
-        self._latest_recognition = result
-        label = result.label if result.accepted else f"候选{result.label}（拒绝）"
-        decoder_name = str(getattr(self.intent_decoder, "active_name", "EEG解码"))
-        self._eeg_events.appendleft(
-            f"{datetime.now():%H:%M:%S}  {decoder_name} {label}  "
-            f"分数 {result.best_score:.3f}  差值 {result.margin:.3f}"
-        )
-        if (
-            self._stimulus_window is not None
-            and self._stimulus_window.control_mode
-            and self._stimulus_window.running
-            and not self._stimulus_window.stimuli_active
-        ):
-            # Dark intervals are either the explicit initial idle calibration
-            # or command cooldown.  They may update the FBCCA baseline but can
-            # never dispatch a flight command.
-            if self._stimulus_window.calibrating_idle:
-                observe_idle = getattr(self.intent_decoder, "observe_idle", None)
-                if callable(observe_idle):
-                    observe_idle(result)
-            self.update()
-            return
-        if self.actions.is_single_uav_mission(result):
-            self._handle_single_uav_mission(result)
-            self.update()
-            return
-
-        source = self._pipeline_worker.source_name if self._pipeline_worker is not None else ""
-        previous_command_time = self.actions.bci.last_command_time
-        command_message = self.actions.handle_intent(
-            result.label,
-            result.accepted,
-            source,
-            result.frequency_hz,
-            safety_verified=result.safety_verified,
-        )
-        if command_message:
-            self._eeg_events.appendleft(command_message)
-        if (
-            self.actions.bci.last_command_time > previous_command_time
-            and self._stimulus_window is not None
-        ):
-            self._stimulus_window.begin_cooldown(
-                self.actions.bci.command_cooldown_seconds,
-                result.label,
-            )
-        self.update()
+        self.recognition.process(result)
 
     def _activate_selected_decoder(self) -> str:
         """Activate the selected UI algorithm in the live decoder manager."""
@@ -384,55 +341,7 @@ class MainView(
         self._on_recognition(self.actions.simulated_fbcca_result())
 
     def _handle_single_uav_mission(self, result: IntentResult) -> None:
-        try:
-            plan = self.actions.prepare_single_uav_mission(result)
-        except MissionPlanningError as exc:
-            message = f"任务规划失败：{exc}"
-            self._eeg_events.appendleft(message)
-            self._notify(message)
-            return
-
-        start = plan.start_position
-        target = plan.target.position
-        arrival_labels = {"HOLD": "到达后保持当前位置", "HOVER": "到达后定时悬停观察"}
-        return_labels = {"NONE": "不自动返航", "RETURN_TO_START": "返回起点"}
-        landing_labels = {"NONE": "不自动降落", "LAND": "任务结束后降落"}
-        steps = "\n".join(
-            f"{index}. {step.description}"
-            for index, step in enumerate(plan.steps, start=1)
-        )
-        confirmation = (
-            f"任务：{plan.task_label}\n"
-            f"任务类型：{plan.policy.task_type}\n"
-            f"执行无人机：{plan.uav_id}\n"
-            f"当前位置：({start.x:.2f}, {start.y:.2f}, {start.z:.2f}) m\n"
-            f"目标位置：({target.x:.2f}, {target.y:.2f}, {target.z:.2f}) m\n"
-            f"去程最短距离：{plan.outbound_distance_m:.2f} m\n"
-            f"预计总航程：{plan.total_distance_m:.2f} m\n"
-            f"直线路径点：{len(plan.waypoints)} 个\n"
-            f"预计耗时：{plan.estimated_duration_s:.1f} s\n\n"
-            f"到达策略：{arrival_labels[plan.policy.arrival_action]}\n"
-            f"返航策略：{return_labels[plan.policy.return_policy]}\n"
-            f"降落策略：{landing_labels[plan.policy.landing_policy]}\n\n"
-            f"将要执行：\n{steps}\n\n"
-            "是否确认执行？"
-        )
-        answer = QMessageBox.question(
-            self,
-            "单机任务确认",
-            confirmation,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            message = f"已取消任务：{plan.task_label}"
-            self._eeg_events.appendleft(message)
-            self._notify(message)
-            return
-
-        message = self.actions.execute_single_uav_mission(plan)
-        self._eeg_events.appendleft(message)
-        self._notify(message)
+        self.recognition.handle_single_uav_mission(result)
 
     def _on_eeg_status(self, status: str) -> None:
         self._eeg_status = status
@@ -504,37 +413,46 @@ class MainView(
         self._role_stack.setGeometry(self.rect())
         super().resizeEvent(event)
 
+    @property
+    def _active_joystick(self) -> str | None:
+        return self.manual_flight.active_stick
+
+    @_active_joystick.setter
+    def _active_joystick(self, value: str | None) -> None:
+        self.manual_flight.active_stick = value
+
+    @property
+    def _manual_vertical(self) -> float:
+        return self.manual_flight.vertical
+
+    @_manual_vertical.setter
+    def _manual_vertical(self, value: float) -> None:
+        self.manual_flight.vertical = float(value)
+
+    @property
+    def _manual_forward(self) -> float:
+        return self.manual_flight.forward
+
+    @_manual_forward.setter
+    def _manual_forward(self, value: float) -> None:
+        self.manual_flight.forward = float(value)
+
+    @property
+    def _manual_lateral(self) -> float:
+        return self.manual_flight.lateral
+
+    @_manual_lateral.setter
+    def _manual_lateral(self, value: float) -> None:
+        self.manual_flight.lateral = float(value)
+
     def _update_manual_stick(self, stick: str, x: float, y: float) -> None:
-        if stick == "manual-stick-height":
-            center_y, travel = 386.0, 82.0
-            self._manual_vertical = max(-1.0, min(1.0, (center_y - y) / travel))
-        else:
-            center_x, center_y, travel = 760.0, 386.0, 82.0
-            dx, dy = x - center_x, y - center_y
-            length = math.hypot(dx, dy)
-            if length > travel:
-                dx, dy = dx * travel / length, dy * travel / length
-            self._manual_lateral = max(-1.0, min(1.0, dx / travel))
-            self._manual_forward = max(-1.0, min(1.0, -dy / travel))
-        self._send_manual_input()
-        self.update()
+        self.manual_flight.update_stick(stick, x, y)
 
     def _send_manual_input(self) -> None:
-        message = self.actions.set_manual_control(
-            self._manual_vertical, self._manual_forward, self._manual_lateral,
-        )
-        if message:
-            self._active_joystick = None
-            self._manual_vertical = self._manual_forward = self._manual_lateral = 0.0
-            self.releaseMouse()
-            self._notify(message)
+        self.manual_flight.send()
 
     def _center_joysticks(self, send: bool = False) -> None:
-        self._active_joystick = None
-        self._manual_vertical = self._manual_forward = self._manual_lateral = 0.0
-        if send:
-            self.actions.set_manual_control(0.0, 0.0, 0.0)
-        self.update()
+        self.manual_flight.center(send=send)
 
     def keyPressEvent(self, event) -> None:  # type: ignore[override]
         # This works while the application has focus on both macOS and Windows.

@@ -21,6 +21,7 @@ from src.adapters.real.crazyflie_cflib_backend import CflibBackend
 from src.adapters.real.crazyflie_command_executor import CrazyflieCommandExecutor
 from src.adapters.real.crazyflie_command_queue import CrazyflieCommandQueue
 from src.adapters.real.crazyflie_event_journal import CrazyflieEventJournal
+from src.adapters.real.crazyflie_emergency import CrazyflieEmergencyCoordinator
 from src.adapters.real.crazyflie_formation_state import (
     formation_targets,
     lighthouse_targets_from_telemetry,
@@ -28,6 +29,7 @@ from src.adapters.real.crazyflie_formation_state import (
 )
 from src.adapters.real.crazyflie_safety import CrazyflieSafetyPolicy
 from src.adapters.real.crazyflie_telemetry import CrazyflieTelemetryMapper
+from src.adapters.real.crazyflie_telemetry_safety import CrazyflieTelemetrySafetyMonitor
 
 class _CommandCancelled(RuntimeError):
     """Internal signal used when a high-priority motor stop cancels queued work."""
@@ -57,9 +59,8 @@ class CrazyflieSwarmGateway:
         self._motor_stop_backend_complete = False
         self._motor_stop_error: Exception | None = None
         self._landing_requested = False
-        self._battery_low_latched = False
-        self._battery_low_since: dict[str, float] = {}
-        self._last_low_voltage: float | None = None
+        self._telemetry_safety = CrazyflieTelemetrySafetyMonitor()
+        self._emergency_coordinator = CrazyflieEmergencyCoordinator(self)
         self._state = "disconnected"
         self._message = "尚未连接"
         self._connected = False
@@ -79,7 +80,6 @@ class CrazyflieSwarmGateway:
         self._last_lighthouse_manual_at = time.monotonic()
         self._emergency = False
         self._uavs: dict[str, UAVTelemetry] = {}
-        self._flow_failure_counts: dict[str, int] = {}
         self._journal = CrazyflieEventJournal()
 
     @property
@@ -116,10 +116,7 @@ class CrazyflieSwarmGateway:
             self._formation_plan = None
             self._landing_requested = False
             self._uavs.clear()
-            self._flow_failure_counts.clear()
-            self._battery_low_latched = False
-            self._battery_low_since.clear()
-            self._last_low_voltage = None
+            self._telemetry_safety.reset()
             self._state = "connecting"
             self._message = f"正在连接 {len(self.config.uris)} 架 Crazyflie…"
             self._thread = threading.Thread(target=self._run, name="Crazyflie-Swarm-Gateway", daemon=True)
@@ -338,8 +335,8 @@ class CrazyflieSwarmGateway:
                     self._uavs,
                     self._resolve_uri,
                 )
-                if self._battery_low_latched:
-                    voltage = self._last_low_voltage or 0.0
+                if self._telemetry_safety.battery_low_latched:
+                    voltage = self._telemetry_safety.last_low_voltage or 0.0
                     self._state = "battery_low"
                     self._message = f"电量过低：{voltage:.2f}V，请立即受控降落"
                 else:
@@ -348,24 +345,7 @@ class CrazyflieSwarmGateway:
         self._record("INFO", "操作员停止移动并进入保持状态")
 
     def stop_motors(self) -> None:
-        with self._lock:
-            if not self._connected:
-                raise RuntimeError("蜂群尚未连接")
-            if self._emergency:
-                raise RuntimeError("当前已处于硬件急停锁定状态")
-            if self._motor_stop_in_progress:
-                return
-            self._command_generation += 1
-            self._discard_pending_commands("操作员停止电机")
-            self._armed = False
-            self._armed_uris.clear()
-            self._motor_stop_in_progress = True
-            self._motor_stop_backend_complete = False
-            self._motor_stop_error = None
-            self._state = "stopping_motors"
-            self._message = "正在发送电机停止指令…"
-            self._record("WARN", "操作员触发可恢复的电机立即停转")
-        threading.Thread(target=self._stop_motors_backend, name="Crazyflie-Motor-Stop", daemon=True).start()
+        self._emergency_coordinator.stop_motors()
 
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
         """Drive Flow velocity or Lighthouse absolute targets with one stick API."""
@@ -477,8 +457,8 @@ class CrazyflieSwarmGateway:
             self._backend.set_manual_input(*values)
         with self._lock:
             self._airborne = bool(self._airborne_uris)
-            if self._battery_low_latched:
-                voltage = self._last_low_voltage or 0.0
+            if self._telemetry_safety.battery_low_latched:
+                voltage = self._telemetry_safety.last_low_voltage or 0.0
                 self._state = "battery_low"
                 self._message = f"电量过低：{voltage:.2f}V，请立即受控降落"
             else:
@@ -498,42 +478,10 @@ class CrazyflieSwarmGateway:
                 )
 
     def emergency_stop(self) -> None:
-        with self._lock:
-            self._command_generation += 1
-            self._discard_pending_commands("紧急停止")
-            self._emergency = True
-            self._armed = False
-            self._airborne = False
-            self._armed_uris.clear()
-            self._taking_off_uris.clear()
-            self._airborne_uris.clear()
-            self._horizontal_ready_uris.clear()
-            self._landing_uris.clear()
-            self._lighthouse_hold_uris.clear()
-            self._lighthouse_targets_by_uri.clear()
-            self._formation_slots_by_uri.clear()
-            self._formation_plan = None
-            self._landing_requested = False
-            self._refresh_cached_flight_states()
-            self._state = "emergency"
-            self._message = "急停指令已发送；需要现场确认设备状态"
-            connected = self._connected
-            self._record("ERROR", "操作员触发蜂群急停")
-        if connected:
-            threading.Thread(target=self._emergency_backend, name="Crazyflie-Emergency", daemon=True).start()
-        else:
-            raise RuntimeError("蜂群未连接，无法获得硬件急停回执")
+        self._emergency_coordinator.emergency_stop()
 
     def reset_after_emergency_reboot(self) -> None:
-        with self._lock:
-            if self._connected or (self._thread is not None and self._thread.is_alive()):
-                raise RuntimeError("请先断开链路，并先给无人机断电重启")
-            self._emergency = False
-            if self._motor_stop_in_progress:
-                raise RuntimeError("电机停止线程尚未结束，请稍候再复位")
-            self._state = "disconnected"
-            self._message = "急停锁已复位；等待重新连接"
-            self._record("INFO", "操作员确认无人机已重启，上位机急停锁复位")
+        self._emergency_coordinator.reset_after_reboot()
 
     def events(self, level: str | None = None) -> list[str]:
         return self._journal.formatted_events(level)
@@ -867,36 +815,27 @@ class CrazyflieSwarmGateway:
         position = facts.position
         voltage = facts.voltage
         name = facts.name
-        should_trip = False
         newly_locked = False
-        low_voltage_warning: str | None = None
         with self._lock:
-            now = time.monotonic()
-            threshold = self.config.minimum_battery_voltage
             uri_airborne = uri in self._airborne_uris
+            decision = self._telemetry_safety.evaluate(
+                uri,
+                facts,
+                airborne=uri_airborne,
+                config=self.config,
+            )
             control_mode = (
                 "FORMATION" if uri in self._formation_slots_by_uri else
                 "LIGHTHOUSE_HOLD" if uri in self._lighthouse_hold_uris else
                 "TAKING_OFF" if uri in self._taking_off_uris else
                 "FLOW_HOVER" if uri_airborne else "GROUND"
             )
-            if uri_airborne and voltage < threshold:
-                started = self._battery_low_since.setdefault(uri, now)
-                confirmed = now - started >= max(0.0, self.config.battery_low_confirm_s)
-                if confirmed and not self._battery_low_latched:
-                    self._battery_low_latched = True
-                    self._last_low_voltage = voltage
-                    self._state = "battery_low"
-                    self._message = f"电量过低：{voltage:.2f}V，请立即受控降落"
-                    low_voltage_warning = self._message
-                elif self._battery_low_latched:
-                    self._last_low_voltage = min(self._last_low_voltage or voltage, voltage)
-                    self._state = "battery_low"
-                    self._message = f"电量过低：{voltage:.2f}V（仅提示）"
-            elif voltage >= threshold + 0.05:
-                # Require a fresh continuous low interval after voltage recovers
-                # instead of triggering on one transient motor-load sample.
-                self._battery_low_since.pop(uri, None)
+            if decision.battery_low_active:
+                self._state = "battery_low"
+                self._message = (
+                    decision.low_voltage_warning
+                    or f"电量过低：{voltage:.2f}V（仅提示）"
+                )
 
             self._uavs[uri] = UAVTelemetry(
                 uav_id=f"CF-{name}", battery=facts.battery_percent,
@@ -921,38 +860,13 @@ class CrazyflieSwarmGateway:
                 control_mode=control_mode,
                 formation_slot_id=self._formation_slots_by_uri.get(uri, ""),
             )
-            if uri_airborne:
-                self._flow_failure_counts[uri] = (
-                    0 if facts.positioning_ok else self._flow_failure_counts.get(uri, 0) + 1
-                )
-                should_trip = self._flow_failure_counts[uri] >= self.config.flow_failure_samples
-            else:
-                self._flow_failure_counts[uri] = 0
-            if facts.firmware_locked and not self._emergency:
-                self._command_generation += 1
-                self._discard_pending_commands("飞控进入锁定状态")
-                self._emergency = True
-                self._armed = False
-                self._airborne = False
-                self._armed_uris.clear()
-                self._taking_off_uris.clear()
-                self._airborne_uris.clear()
-                self._horizontal_ready_uris.clear()
-                self._landing_uris.clear()
-                self._lighthouse_hold_uris.clear()
-                self._lighthouse_targets_by_uri.clear()
-                self._formation_slots_by_uri.clear()
-                self._formation_plan = None
-                self._landing_requested = False
-                self._refresh_cached_flight_states()
-                self._state = "emergency"
-                self._message = "飞控处于锁定状态；请给无人机断电重启后再复位"
-                newly_locked = True
+            if decision.firmware_locked:
+                newly_locked = self._emergency_coordinator.lock_from_firmware()
         if newly_locked:
             self._record("ERROR", f"{name} 飞控报告锁定状态，需要断电重启")
-        if low_voltage_warning is not None:
-            self._record("WARN", low_voltage_warning)
-        if should_trip:
+        if decision.low_voltage_warning is not None:
+            self._record("WARN", decision.low_voltage_warning)
+        if decision.positioning_failure_trip:
             self._trip_emergency(
                 f"{name} Flow/Lighthouse 定位连续 {self.config.flow_failure_samples} 次未就绪"
             )
@@ -964,73 +878,10 @@ class CrazyflieSwarmGateway:
             self._record(level, message)
 
     def _trip_emergency(self, reason: str) -> None:
-        with self._lock:
-            if self._emergency or not self._airborne:
-                self._record("WARN", f"安全事件（未在飞行）：{reason}")
-                return
-        self._record("ERROR", f"安全门控触发急停：{reason}")
-        try:
-            self.emergency_stop()
-        except RuntimeError as exc:
-            self._record("ERROR", f"自动急停未送达：{exc}")
-
-    def _emergency_backend(self) -> None:
-        try:
-            self._backend.emergency_stop_all()
-            self._record("ERROR", "硬件急停调用已完成；请现场确认电机状态")
-        except Exception as exc:
-            self._record("ERROR", f"硬件急停调用失败：{exc}")
-
-    def _stop_motors_backend(self) -> None:
-        error: Exception | None = None
-        try:
-            self._backend.stop_motors_all()
-            self._record("WARN", "电机停止调用已完成")
-        except Exception as exc:
-            error = exc
-            self._record("ERROR", f"电机停止调用失败：{exc}")
-        finally:
-            with self._lock:
-                self._motor_stop_backend_complete = True
-                self._motor_stop_error = error
-            self._try_finalize_motor_stop()
+        self._emergency_coordinator.trip(reason)
 
     def _try_finalize_motor_stop(self) -> None:
-        with self._lock:
-            if (
-                not self._motor_stop_in_progress
-                or not self._motor_stop_backend_complete
-                or not self._command_idle.is_set()
-            ):
-                return
-            error = self._motor_stop_error
-            self._motor_stop_in_progress = False
-            self._motor_stop_backend_complete = False
-            self._motor_stop_error = None
-            if self._emergency:
-                return
-            if error is None:
-                self._airborne = False
-                self._armed_uris.clear()
-                self._taking_off_uris.clear()
-                self._airborne_uris.clear()
-                self._horizontal_ready_uris.clear()
-                self._landing_uris.clear()
-                self._lighthouse_hold_uris.clear()
-                self._lighthouse_targets_by_uri.clear()
-                self._formation_slots_by_uri.clear()
-                self._formation_plan = None
-                self._landing_requested = False
-                self._refresh_cached_flight_states()
-                self._state = "connected"
-                self._message = (
-                    "电机已停止；曾检测到低电压（仅提示）"
-                    if self._battery_low_latched
-                    else "电机已停止；重新起飞前需要再次解锁"
-                )
-            else:
-                self._state = "stop_error"
-                self._message = f"电机停止未确认：{error}；请立即现场处置"
+        self._emergency_coordinator.try_finalize_motor_stop()
 
     def _record(self, level: str, message: str) -> None:
         self._journal.record(level, message)

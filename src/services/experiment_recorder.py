@@ -15,6 +15,8 @@ import numpy as np
 
 from src.bci.config import LABEL_TO_FREQUENCY
 from src.domain import IntentResult
+from src.services.command_audit_repository import CommandAuditRepository
+from src.services.continuous_eeg_repository import ContinuousEEGRepository
 from src.services.experiment_record_schema import (
     PHASE_NAMES,
     RECOGNITION_FIELDS,
@@ -32,6 +34,7 @@ from src.services.experiment_record_schema import (
     safe_trial_id,
     validated_timestamps,
 )
+from src.services.experiment_marker_store import ExperimentMarkerStore
 
 
 class ExperimentRecorder:
@@ -65,13 +68,24 @@ class ExperimentRecorder:
         self.command_log_path = self.recognition_log_dir / "command_execution_log.csv"
         self._lock = threading.Lock()
         self._known_sessions: set[str] = set()
-        self._trial_phase_times: dict[str, dict[str, float]] = {}
-        self._trial_paths: dict[str, Path] = {}
         for directory in (
             self.raw_trial_dir, self.session_dir, self.recognition_log_dir, self.export_dir,
             self.continuous_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
+        self._marker_store = ExperimentMarkerStore(
+            self.raw_trial_dir,
+            self.raw_trial_index_path,
+            self.marker_log_path,
+            self._lock,
+        )
+        self._continuous_repository = ContinuousEEGRepository(
+            self.root,
+            self.continuous_dir,
+            self.continuous_index_path,
+            self._lock,
+        )
+        self._command_audit = CommandAuditRepository(self.command_log_path, self._lock)
 
     def record(
         self,
@@ -130,7 +144,7 @@ class ExperimentRecorder:
                 if trial_path.exists():
                     raise ValueError(f"Trial ID already exists: {trial_id}")
                 phase_times = self._phase_times_from_metadata(supplied_metadata)
-                phase_times.update(self._trial_phase_times.get(trial_id, {}))
+                phase_times.update(self._marker_store.phase_times_for(trial_id))
                 for phase in self.PHASE_NAMES:
                     value = phase_times.get(phase)
                     if value is not None:
@@ -201,7 +215,7 @@ class ExperimentRecorder:
                     metadata=np.asarray(json.dumps(metadata, ensure_ascii=False)),
                 )
                 relative_trial_path = str(trial_path.relative_to(self.root))
-                self._trial_paths[trial_id] = trial_path
+                self._marker_store.remember_trial(trial_id, trial_path)
                 self._append_csv(
                     self.raw_trial_index_path,
                     self.TRIAL_FIELDS,
@@ -286,33 +300,15 @@ class ExperimentRecorder:
         unix_timestamp: float | None = None,
         clock_source: str = "",
     ) -> None:
-        """Append a stimulus/experiment marker without storing sample points in a database."""
-
-        safe_metadata = self._json_safe_dict(metadata)
-        trial_id = str(safe_metadata.get("trial_id", "")).strip()
-        phase = self._canonical_phase(str(safe_metadata.get("phase", "") or name))
-        payload = {
-            "name": str(name),
-            # ``timestamp`` remains for readers of the first schema, but is
-            # now explicitly the LSL/local-clock value.
-            "timestamp": float(timestamp),
-            "lsl_timestamp": float(timestamp),
-            "unix_timestamp": (
-                float(unix_timestamp) if unix_timestamp is not None else None
-            ),
-            "clock_source": str(clock_source),
-            "subject_id": str(subject_id),
-            "session_id": str(session_id),
-            "trial_id": trial_id,
-            "phase": phase,
-            "metadata": safe_metadata,
-        }
-        with self._lock:
-            if trial_id and phase:
-                self._trial_phase_times.setdefault(trial_id, {})[phase] = float(timestamp)
-                self._patch_trial_phase_locked(trial_id, phase, float(timestamp))
-            with self.marker_log_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+        self._marker_store.record(
+            name,
+            timestamp,
+            subject_id,
+            session_id,
+            metadata,
+            unix_timestamp=unix_timestamp,
+            clock_source=clock_source,
+        )
 
     @staticmethod
     def new_trial_id() -> str:
@@ -332,63 +328,19 @@ class ExperimentRecorder:
         original_channel_names=(),
         channel_units=(),
     ) -> str:
-        """Persist one bounded continuous EEG chunk and append its searchable index row."""
-
-        data = np.asarray(eeg, dtype=np.float32)
-        if data.ndim != 2 or data.shape[0] == 0 or data.shape[1] == 0:
-            raise ValueError("Continuous EEG chunk must have shape (channels, samples)")
-        if not np.isfinite(data).all():
-            raise ValueError("Continuous EEG chunk contains NaN or Inf")
-        timestamps = self._validated_timestamps(sample_timestamps, data.shape[1])
-        names = self._normalized_labels(channel_names, data.shape[0], "CH")
-        original_values = tuple(
-            () if original_channel_names is None else original_channel_names
+        return self._continuous_repository.record(
+            eeg,
+            sample_rate_hz,
+            source,
+            subject_id,
+            session_id,
+            chunk_index,
+            started_at,
+            sample_timestamps,
+            channel_names,
+            original_channel_names,
+            channel_units,
         )
-        original_names = self._normalized_labels(
-            original_values or names, data.shape[0], "CH"
-        )
-        units = self._normalized_labels(channel_units, data.shape[0], "")
-        safe_session = re.sub(r"[^0-9A-Za-z_.-]+", "_", session_id or "session")
-        session_path = self.continuous_dir / safe_session
-        session_path.mkdir(parents=True, exist_ok=True)
-        name = f"chunk-{int(chunk_index):06d}-{uuid.uuid4().hex[:8]}.npz"
-        path = session_path / name
-        np.savez_compressed(
-            path,
-            eeg=data,
-            fs=np.asarray(float(sample_rate_hz), dtype=np.float32),
-            source=np.asarray(source),
-            subject_id=np.asarray(subject_id),
-            session_id=np.asarray(session_id),
-            started_at=np.asarray(started_at),
-            sample_timestamps=timestamps,
-            channel_names=np.asarray(names),
-            original_channel_names=np.asarray(original_names),
-            channel_units=np.asarray(units),
-        )
-        relative = str(path.relative_to(self.root))
-        fields = (
-            "timestamp", "subject_id", "session_id", "source", "chunk_index",
-            "path", "sample_rate_hz", "channels", "samples", "started_at",
-        )
-        with self._lock:
-            self._append_csv(
-                self.continuous_index_path,
-                fields,
-                {
-                    "timestamp": datetime.now().astimezone().isoformat(timespec="milliseconds"),
-                    "subject_id": subject_id,
-                    "session_id": session_id,
-                    "source": source,
-                    "chunk_index": int(chunk_index),
-                    "path": relative,
-                    "sample_rate_hz": float(sample_rate_hz),
-                    "channels": data.shape[0],
-                    "samples": data.shape[1],
-                    "started_at": started_at,
-                },
-            )
-        return relative
 
     def record_command_event(
         self,
@@ -399,23 +351,14 @@ class ExperimentRecorder:
         uav_id: str = "",
         source: str = "swarm_gateway",
     ) -> None:
-        fields = (
-            "timestamp", "command_id", "action", "uav_id", "status", "message", "source",
+        self._command_audit.record(
+            status,
+            message,
+            action,
+            command_id,
+            uav_id,
+            source,
         )
-        with self._lock:
-            self._append_csv(
-                self.command_log_path,
-                fields,
-                {
-                    "timestamp": datetime.now().astimezone().isoformat(timespec="milliseconds"),
-                    "command_id": command_id,
-                    "action": action,
-                    "uav_id": uav_id,
-                    "status": status,
-                    "message": message,
-                    "source": source,
-                },
-            )
 
     def _ensure_session(self, session_id: str, subject_id: str, source: str, timestamp: str) -> None:
         if not session_id or session_id in self._known_sessions:
@@ -433,71 +376,6 @@ class ExperimentRecorder:
             }
             path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         self._known_sessions.add(session_id)
-
-    def _patch_trial_phase_locked(self, trial_id: str, phase: str, timestamp: float) -> None:
-        """Backfill a late rest marker into an already-saved trial and index."""
-
-        path = self._trial_paths.get(trial_id)
-        if path is None:
-            candidate = self.raw_trial_dir / f"{self._safe_trial_id(trial_id)}.npz"
-            path = candidate if candidate.exists() else None
-        if path is None or not path.exists():
-            return
-
-        with np.load(path, allow_pickle=False) as payload:
-            arrays = {key: np.asarray(payload[key]) for key in payload.files}
-        context = self._json_from_array(arrays.get("trial_context"))
-        context[f"{phase}_lsl_time"] = float(timestamp)
-        context.setdefault("trial_id", trial_id)
-        arrays[f"{phase}_lsl_time"] = np.asarray(float(timestamp), dtype=np.float64)
-        arrays["trial_context"] = np.asarray(
-            json.dumps(context, ensure_ascii=False, sort_keys=True)
-        )
-        metadata = self._json_from_array(arrays.get("metadata"))
-        phase_times = metadata.get("phase_timestamps_lsl")
-        if not isinstance(phase_times, dict):
-            phase_times = {}
-        phase_times[phase] = float(timestamp)
-        metadata["phase_timestamps_lsl"] = phase_times
-        metadata["trial_context"] = context
-        arrays["metadata"] = np.asarray(json.dumps(metadata, ensure_ascii=False))
-        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        with temporary.open("wb") as handle:
-            np.savez_compressed(handle, **arrays)
-        temporary.replace(path)
-        self._patch_trial_index_locked(trial_id, phase, timestamp, context)
-
-    def _patch_trial_index_locked(
-        self,
-        trial_id: str,
-        phase: str,
-        timestamp: float,
-        context: Mapping[str, object],
-    ) -> None:
-        path = self.raw_trial_index_path
-        if not path.exists():
-            return
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            rows = list(csv.DictReader(handle))
-        changed = False
-        for row in rows:
-            if row.get("trial_id") != trial_id:
-                continue
-            row[f"{phase}_lsl_time"] = self._csv_optional(timestamp)
-            row["trial_metadata_json"] = json.dumps(
-                dict(context), ensure_ascii=False, sort_keys=True,
-            )
-            changed = True
-        if not changed:
-            return
-        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        with temporary.open("w", newline="", encoding="utf-8-sig") as handle:
-            writer = csv.DictWriter(
-                handle, fieldnames=self.TRIAL_FIELDS, extrasaction="ignore",
-            )
-            writer.writeheader()
-            writer.writerows(rows)
-        temporary.replace(path)
 
     def stats(self) -> dict[str, int]:
         return {

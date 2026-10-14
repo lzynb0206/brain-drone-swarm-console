@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Mapping
 
@@ -12,22 +11,12 @@ import numpy as np
 from PySide6.QtCore import QThread, Signal
 
 from src.bci.config import DECISION_STEP_SECONDS, WINDOW_SECONDS
-from src.bci.preprocessing import assess_signal_quality
 from src.domain import EEGFrame, IntentResult
 from src.ports import EEGStream, IntentDecoder
 from src.services.experiment_recorder import ExperimentRecorder
-from src.services.experiment_timing import ExperimentClock, ExperimentMarkerOutlet, ExperimentTimestamp
+from src.services.experiment_timing import ExperimentClock, ExperimentMarkerOutlet
 from src.workers.continuous_eeg_recorder import ContinuousEEGRecorder
-
-
-@dataclass(frozen=True)
-class _TrialCaptureRequest:
-    label: str
-    frequency_hz: float
-    marker: ExperimentTimestamp
-    duration_seconds: float | None
-    analysis_offset_seconds: float
-    metadata: dict[str, object]
+from src.workers.labeled_trial_recorder import LabeledTrialRecorder
 
 
 class EEGWorker(QThread):
@@ -60,18 +49,6 @@ class EEGWorker(QThread):
         self.experiment_clock = experiment_clock or ExperimentClock()
         self.marker_outlet = marker_outlet or ExperimentMarkerOutlet()
         self._state_lock = threading.Lock()
-        self._pending_true_label = ""
-        self._pending_stimulus: _TrialCaptureRequest | None = None
-        self._capture_generation = 0
-        self._active_capture_generation = -1
-        self._active_trial_metadata: dict[str, object] = {}
-        self._active_capture_seconds: float | None = None
-        self._active_analysis_offset_seconds = 0.0
-        self._active_stimulus_lsl_time = 0.0
-        self._analysis_marker_generation = -1
-        self._labeled_buffer: np.ndarray | None = None
-        self._labeled_timestamps = np.asarray([], dtype=np.float64)
-        self._labeled_start_time = ""
         self._subject_id = ""
         self._session_id = ""
         self._continuous_recorder = ContinuousEEGRecorder(
@@ -81,7 +58,20 @@ class EEGWorker(QThread):
         self._channel_names: tuple[str, ...] = ()
         self._original_channel_names: tuple[str, ...] = ()
         self._channel_units: tuple[str, ...] = ()
-        self._paradigm_type = "SSVEP"
+        self._labeled_trial_recorder = LabeledTrialRecorder(
+            recorder,
+            decoder,
+            self.experiment_clock,
+            self.marker_outlet,
+            source_name=lambda: self.source_name,
+            experiment_context=self._experiment_context,
+            channel_metadata=self._channel_metadata,
+            status_changed=self.status_changed.emit,
+            error_occurred=self.error_occurred.emit,
+            recognition_received=self.recognition_received.emit,
+            trial_saved=self.labeled_trial_saved.emit,
+            record_phase=self.record_trial_phase,
+        )
         self._pending_online_decode_reset = ""
         self.setObjectName("EEG-Acquisition-Decode")
 
@@ -95,13 +85,7 @@ class EEGWorker(QThread):
             self._session_id = str(session_id)
 
     def capture_next_trial(self, true_label: str) -> None:
-        with self._state_lock:
-            self._pending_true_label = str(true_label)
-            self._active_trial_metadata = {}
-            self._active_capture_seconds = None
-            self._active_analysis_offset_seconds = 0.0
-            self._active_stimulus_lsl_time = 0.0
-            self._capture_generation += 1
+        self._labeled_trial_recorder.capture_next(true_label)
 
     def capture_stimulus_trial(self, true_label: str, frequency_hz: float, marker_timestamp: float) -> None:
         """Backward-compatible three-argument capture used by the manual window."""
@@ -130,34 +114,14 @@ class EEGWorker(QThread):
         can be evaluated offline.
         """
 
-        label = str(true_label)
-        duration = None if duration_seconds is None else float(duration_seconds)
-        offset = max(0.0, float(discard_seconds))
-        if duration is not None and duration <= 0.0:
-            raise ValueError("duration_seconds must be positive")
-        if duration is not None and offset >= duration:
-            raise ValueError("discard_seconds must be shorter than duration_seconds")
-        context = dict(metadata or {})
-        trial_id = str(context.get("trial_id", "")).strip()
-        if label and not trial_id:
-            trial_id = self.recorder.new_trial_id()
-            context["trial_id"] = trial_id
-        stamp = self.experiment_clock.stamp(marker_timestamp, "auto")
-        context.setdefault("stimulus_lsl_time", stamp.lsl_seconds)
-        context.setdefault("analysis_start_offset_seconds", offset)
-        context.setdefault("capture_duration_seconds", duration)
-        context.setdefault("clock_source", stamp.clock_source)
-
-        with self._state_lock:
-            self._pending_stimulus = _TrialCaptureRequest(
-                label=label,
-                frequency_hz=float(frequency_hz),
-                marker=stamp,
-                duration_seconds=duration,
-                analysis_offset_seconds=offset,
-                metadata=context,
-            )
-        return trial_id
+        return self._labeled_trial_recorder.queue_capture(
+            true_label,
+            frequency_hz,
+            marker_timestamp,
+            duration_seconds,
+            discard_seconds,
+            metadata,
+        )
 
     def record_stimulus_marker(self, name: str, timestamp: float) -> None:
         self.record_experiment_marker(name, timestamp)
@@ -211,18 +175,7 @@ class EEGWorker(QThread):
     def cancel_experiment_trial(self, reason: str = "aborted") -> None:
         """Cancel pending/active capture so an aborted UI cannot save stale EEG."""
 
-        with self._state_lock:
-            request = self._pending_stimulus
-            context = dict(
-                request.metadata if request is not None else self._active_trial_metadata
-            )
-            self._pending_stimulus = None
-            self._pending_true_label = ""
-            self._capture_generation += 1
-            self._active_trial_metadata = {}
-            self._active_capture_seconds = None
-            self._active_analysis_offset_seconds = 0.0
-            self._active_stimulus_lsl_time = 0.0
+        context = self._labeled_trial_recorder.cancel()
         context["reason"] = str(reason)
         self.record_experiment_marker("trial_cancelled", metadata=context)
 
@@ -230,8 +183,7 @@ class EEGWorker(QThread):
         self._continuous_recorder.set_enabled(enabled)
 
     def set_paradigm_type(self, paradigm_type: str) -> None:
-        with self._state_lock:
-            self._paradigm_type = str(paradigm_type or "SSVEP")
+        self._labeled_trial_recorder.set_paradigm_type(paradigm_type)
 
     def reset_online_decoding(self, reason: str = "开始采集新的完整窗口") -> None:
         """Request a thread-safe rolling-window and decoder-state reset."""
@@ -240,8 +192,7 @@ class EEGWorker(QThread):
             self._pending_online_decode_reset = str(reason).strip() or "在线解码重置"
 
     def pending_true_label(self) -> str:
-        with self._state_lock:
-            return self._pending_true_label
+        return self._labeled_trial_recorder.pending_true_label()
 
     def stop(self) -> None:
         self.requestInterruption()
@@ -330,9 +281,8 @@ class EEGWorker(QThread):
                 buffer_timestamps = np.concatenate((buffer_timestamps, frame_timestamps))
                 samples_since_decision += values.shape[1]
             window_samples = max(100, round(frame.sample_rate_hz * self.window_seconds))
-            with self._state_lock:
-                paradigm_type = self._paradigm_type
-                capture_seconds = self._active_capture_seconds
+            paradigm_type = self._labeled_trial_recorder.paradigm_type
+            capture_seconds = self._labeled_trial_recorder.capture_seconds
             labeled_window_samples = max(
                 100,
                 round(frame.sample_rate_hz * (
@@ -399,61 +349,8 @@ class EEGWorker(QThread):
         buffer_timestamps: np.ndarray,
         samples_since_decision: int,
     ) -> tuple[np.ndarray | None, np.ndarray, int]:
-        with self._state_lock:
-            request = self._pending_stimulus
-            self._pending_stimulus = None
-        if request is None:
+        if not self._labeled_trial_recorder.apply_pending(self.stream):
             return buffer, buffer_timestamps, samples_since_decision
-        label = request.label
-        discarded = 0
-        flush = getattr(self.stream, "flush", None)
-        # Labelled trials are aligned from their sample timestamps.  Flushing
-        # here could throw away valid post-onset EEG while this worker was
-        # blocked in read_frame.  Operational control still needs an explicit
-        # reset because it does not persist an onset-aligned raw trial.
-        if callable(flush) and not label:
-            try:
-                discarded = int(flush() or 0)
-            except Exception as exc:
-                self.error_occurred.emit(f"清空 LSL 历史缓存失败：{exc}")
-        with self._state_lock:
-            self._pending_true_label = label
-            self._active_trial_metadata = dict(request.metadata)
-            self._active_capture_seconds = request.duration_seconds
-            self._active_analysis_offset_seconds = request.analysis_offset_seconds
-            self._active_stimulus_lsl_time = request.marker.lsl_seconds
-            self._capture_generation += 1
-        reset_decoder = getattr(self.decoder, "reset", None)
-        if callable(reset_decoder):
-            reset_decoder()
-        subject_id, session_id = self._experiment_context()
-        marker_metadata = {
-            **request.metadata,
-            "phase": "stimulus",
-            "true_label": label,
-            "frequency_hz": request.frequency_hz,
-            "discarded_samples": discarded,
-            "analysis_start_offset_seconds": request.analysis_offset_seconds,
-            "capture_duration_seconds": request.duration_seconds,
-            "mode": "experiment" if label else "control",
-        }
-        self.recorder.record_marker(
-            "stimulus_capture_started",
-            request.marker.lsl_seconds,
-            subject_id,
-            session_id,
-            marker_metadata,
-            unix_timestamp=request.marker.unix_seconds,
-            clock_source=request.marker.clock_source,
-        )
-        self.marker_outlet.publish(
-            "stimulus_capture_started", request.marker.lsl_seconds, marker_metadata,
-        )
-        if label:
-            message = f"刺激同步采集：{label}，已按 LSL 时间戳对齐（保留起始原始段）"
-        else:
-            message = f"在线脑控已同步，已清空 {discarded} 个历史样本并重置解码器"
-        self.status_changed.emit(message)
         return None, np.asarray([], dtype=np.float64), 0
 
     def _collect_continuous(
@@ -485,132 +382,21 @@ class EEGWorker(QThread):
         sample_rate_hz: float,
         window_samples: int,
     ) -> None:
-        with self._state_lock:
-            label = self._pending_true_label
-            generation = self._capture_generation
-            trial_metadata = dict(self._active_trial_metadata)
-            analysis_offset = self._active_analysis_offset_seconds
-            stimulus_lsl_time = self._active_stimulus_lsl_time
-        if not label:
-            self._reset_labeled_capture()
-            return
-        if timestamps.size and stimulus_lsl_time > 0.0:
-            distance = abs(float(timestamps[-1]) - stimulus_lsl_time)
-            if distance <= 3600.0:
-                if float(timestamps[-1]) < stimulus_lsl_time:
-                    return
-                keep = timestamps >= stimulus_lsl_time
-                values = values[:, keep]
-                timestamps = timestamps[keep]
-                if values.shape[1] == 0:
-                    return
-            else:
-                # Legacy/offline producers may not share the LSL clock.  Keep
-                # them usable, but make the downgrade explicit in metadata.
-                trial_metadata.setdefault("sample_clock_alignment", "unverified_fallback")
-                with self._state_lock:
-                    if self._capture_generation == generation:
-                        self._active_trial_metadata.setdefault(
-                            "sample_clock_alignment", "unverified_fallback",
-                        )
-        if generation != self._active_capture_generation:
-            self._active_capture_generation = generation
-            self._labeled_buffer = values.copy()
-            self._labeled_timestamps = timestamps.copy()
-            first_lsl = float(timestamps[0]) if timestamps.size else self.experiment_clock.now().lsl_seconds
-            first_unix = self.experiment_clock.to_unix(first_lsl, "lsl")
-            self._labeled_start_time = datetime.fromtimestamp(first_unix).astimezone().isoformat(
-                timespec="milliseconds"
-            )
-        elif self._labeled_buffer is None or self._labeled_buffer.shape[0] != values.shape[0]:
-            self._labeled_buffer = values.copy()
-            self._labeled_timestamps = timestamps.copy()
-            first_lsl = float(timestamps[0]) if timestamps.size else self.experiment_clock.now().lsl_seconds
-            first_unix = self.experiment_clock.to_unix(first_lsl, "lsl")
-            self._labeled_start_time = datetime.fromtimestamp(first_unix).astimezone().isoformat(
-                timespec="milliseconds"
-            )
-        else:
-            self._labeled_buffer = np.concatenate((self._labeled_buffer, values), axis=1)
-            self._labeled_timestamps = np.concatenate((self._labeled_timestamps, timestamps))
-        if trial_metadata.get("trial_id") and generation != self._analysis_marker_generation:
-            analysis_target = stimulus_lsl_time + analysis_offset
-            eligible = self._labeled_timestamps[self._labeled_timestamps >= analysis_target]
-            if eligible.size:
-                analysis_time = float(eligible[0])
-                trial_metadata["analysis_lsl_time"] = analysis_time
-                with self._state_lock:
-                    if self._capture_generation == generation:
-                        self._active_trial_metadata["analysis_lsl_time"] = analysis_time
-                self.record_trial_phase(
-                    "analysis",
-                    analysis_time,
-                    trial_metadata,
-                    timestamp_domain="lsl",
-                )
-                self._analysis_marker_generation = generation
-        if self._labeled_buffer.shape[1] < window_samples:
-            return
-
-        labeled_window = self._labeled_buffer[:, :window_samples].copy()
-        labeled_timestamps = self._labeled_timestamps[:window_samples].copy()
-        with self._state_lock:
-            paradigm_type = self._paradigm_type
-        if paradigm_type == "SSVEP":
-            result: IntentResult = self.decoder.decode(labeled_window, sample_rate_hz)
-        else:
-            try:
-                quality = assess_signal_quality(labeled_window, sample_rate_hz)
-            except Exception as exc:
-                quality = {"status": "unknown", "reason": str(exc)}
-            result = IntentResult(
-                timestamp=datetime.now().timestamp(),
-                label="",
-                confidence=0.0,
-                margin=0.0,
-                accepted=False,
-                reason="运动想象采集模式：仅保存原始 EEG，尚未启用 MI 分类器",
-                frequency_hz=0.0,
-                scores={},
-                sample_rate_hz=float(sample_rate_hz),
-                sample_count=int(labeled_window.shape[1]),
-                used_channels_1based=tuple(range(1, labeled_window.shape[0] + 1)),
-                signal_quality=quality,
-            )
-        subject_id, session_id = self._experiment_context()
-        saved = self.recorder.record(
-            result, labeled_window, label, self.source_name, subject_id, session_id,
-            self._labeled_start_time,
-            sample_timestamps=labeled_timestamps,
-            channel_names=self._channel_names,
-            original_channel_names=self._original_channel_names,
-            channel_units=self._channel_units,
-            paradigm_type=paradigm_type,
-            log_recognition=paradigm_type == "SSVEP",
-            trial_metadata=trial_metadata,
-            clock_source=self.experiment_clock.source,
+        self._labeled_trial_recorder.collect(
+            values,
+            timestamps,
+            sample_rate_hz,
+            window_samples,
         )
-        if paradigm_type == "SSVEP":
-            self.recognition_received.emit(result)
-        self.labeled_trial_saved.emit(label, saved["raw_trial_path"])
-        with self._state_lock:
-            if self._capture_generation == generation:
-                self._pending_true_label = ""
-                self._active_trial_metadata = {}
-                self._active_capture_seconds = None
-                self._active_analysis_offset_seconds = 0.0
-                self._active_stimulus_lsl_time = 0.0
-        self._reset_labeled_capture()
 
     def _experiment_context(self) -> tuple[str, str]:
         with self._state_lock:
             return self._subject_id, self._session_id
 
-    def _reset_labeled_capture(self) -> None:
-        self._labeled_buffer = None
-        self._labeled_timestamps = np.asarray([], dtype=np.float64)
-        self._active_capture_generation = -1
-        self._labeled_start_time = ""
+    def _channel_metadata(
+        self,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        return self._channel_names, self._original_channel_names, self._channel_units
 
     def _frame_timestamps(self, frame: EEGFrame, sample_count: int) -> np.ndarray:
         """Use source timestamps, or synthesize an aligned sequence for legacy streams."""

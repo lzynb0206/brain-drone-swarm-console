@@ -57,7 +57,7 @@ src/
 ├── bci/                     # 六频配置、质量检测、FBCCA、混合解码
 ├── ml/                      # FB-EEGNet 训练、评估和可选推理
 ├── workers/                 # EEG 后台采集、同步试次和连续录制
-├── controllers/             # 采集、回放、LSL、士兵脑控与实验工作流
+├── controllers/             # 页面动作、采集、回放、脑控、识别、摇杆与实验工作流
 ├── services/                # 业务用例、实验记录和脑控安全
 ├── views/                   # PySide6页面
 ├── widgets/                 # 可复用面板、仪表、图表组件
@@ -70,22 +70,29 @@ src/
   串行命令队列、飞行动作执行、遥测转换、安全参数校验、事件日志、编队状态转换、
   Flow/Lighthouse 控制循环和 cflib 连接
   分别位于同目录的 `crazyflie_contracts.py`、`crazyflie_command_queue.py`、
-  `crazyflie_command_executor.py`、`crazyflie_telemetry.py`、`crazyflie_safety.py`、
-  `crazyflie_event_journal.py`、
+  `crazyflie_command_executor.py`、`crazyflie_telemetry.py`、
+  `crazyflie_telemetry_safety.py`、`crazyflie_safety.py`、
+  `crazyflie_emergency.py`、`crazyflie_event_journal.py`、
   `crazyflie_formation_state.py`、`crazyflie_flow_control.py` 和 `crazyflie_cflib_backend.py`。
 - `WorkbenchService` 是应用门面；科研配置、蜂群控制、脑控执行门控、管理员操作和
   JSON 导出由独立服务实现。
 - `MainView` 负责页面装配、共享 EEG worker 生命周期和顶层事件转发。直接采集、CSV 回放、
   独立 LSL 收集、士兵脑控安全链路和自动实验分别由 `controllers/` 下的
   `eeg_acquisition_controller.py`、`csv_replay_controller.py`、
-  `lsl_collection_controller.py`、`soldier_bci_controller.py` 和
-  `experiment_controller.py` 管理。科研、作战、管理员和工程画布页面是
-  `role_pages.py` 中的独立 `QWidget`，通过 Qt Signal 把语义动作交给主界面路由。
+  `lsl_collection_controller.py`、`soldier_bci_controller.py`、
+  `experiment_controller.py`、`recognition_controller.py` 和
+  `manual_flight_controller.py` 管理。科研、作战、管理员和工程画布页面是
+  `role_pages.py` 中的独立 `QWidget`，通过 Qt Signal 把语义动作交给独立的
+  `main_action_router.py`，`MainView` 不再继承动作路由 mixin。
 - 科研页面入口 `research_view.py` 只保留导航分发；采集/回放、LSL 收集和科研配置渲染
   分别在 `research_acquisition_view.py`、`research_collection_view.py` 与
   `research_configuration_view.py` 中实现。
-- `EEGWorker` 保留读流、时间对齐、窗口化和解码调度；连续 EEG 的缓存、固定时长分块与
-  落盘由 `workers/continuous_eeg_recorder.py` 管理。
+- `EEGWorker` 保留读流、窗口化和解码调度；连续 EEG 的缓存、固定时长分块由
+  `workers/continuous_eeg_recorder.py` 管理，刺激时间对齐、标注试次解码与保存由
+  `workers/labeled_trial_recorder.py` 管理。
+- `ExperimentRecorder` 作为写入门面，Marker、连续 EEG 索引和命令审计分别由
+  `experiment_marker_store.py`、`continuous_eeg_repository.py` 和
+  `command_audit_repository.py` 管理。
 
 ## 4. 各页面应该连接的接口
 
