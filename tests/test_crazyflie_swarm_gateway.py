@@ -444,6 +444,19 @@ class CrazyflieGatewayTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "不能修改"):
             gateway.set_takeoff_height(0.6)
 
+    def test_move_distance_can_change_during_flight_and_applies_to_next_command(self) -> None:
+        gateway, backend = self.make_gateway()
+        gateway.arm()
+
+        gateway.set_move_distance(0.08)
+        gateway.send_command(SwarmCommand("forward"))
+
+        move = self.wait_for_call(backend, "move")
+        self.assertEqual(0.08, gateway.move_distance_m())
+        self.assertEqual((0.08, 0.0, 0.0), move[1:4])
+        with self.assertRaisesRegex(RuntimeError, "0.01–1.00m"):
+            gateway.set_move_distance(0.005)
+
     def test_virtual_sticks_are_clamped(self) -> None:
         gateway, backend = self.make_gateway()
         gateway.arm()

@@ -86,6 +86,15 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertIn("0.50m", message)
         self.assertEqual(0.5, self.gateway.takeoff_height_m())
 
+    def test_ssvep_move_distance_can_be_changed_while_control_is_armed(self) -> None:
+        message = self.service.set_swarm_move_distance(0.12)
+        self.service.send_swarm_command("takeoff")
+        self.service.send_swarm_command("forward")
+
+        self.assertIn("12cm", message)
+        self.assertEqual(0.12, self.service.swarm_move_distance_m())
+        self.assertEqual(0.12, self.gateway.command_log[-1].parameters["distance_m"])
+
     def test_csv_replay_cannot_enable_hardware_bci_control(self) -> None:
         message = self.service.set_bci_control_enabled(True, "CSV回放 · start-1.csv")
         self.assertIn("只有实时 LSL", message)
@@ -398,6 +407,21 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertIsNone(self.view._height_input)
         self.assertEqual(0.55, self.gateway.takeoff_height_m())
 
+    def test_move_distance_dialog_updates_gateway_in_centimeters(self) -> None:
+        self.view._show_move_distance_dialog()
+        dialog = self.view._distance_dialog
+        distance_input = self.view._distance_input
+        self.assertIsNotNone(dialog)
+        self.assertIsNotNone(distance_input)
+        distance_input.setValue(12.0)
+
+        dialog.accept()
+        self.app.processEvents()
+
+        self.assertIsNone(self.view._distance_dialog)
+        self.assertIsNone(self.view._distance_input)
+        self.assertEqual(0.12, self.gateway.move_distance_m())
+
     def test_long_toast_starts_smooth_scroll_animation(self) -> None:
         message = "硬件急停未送达：蜂群未连接，无法获得硬件急停回执；请断电重启无人机后再复位"
         self.view._notify(message)
@@ -437,6 +461,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
         actions = [action for _rect, action in self.view.soldier_widget._regions]
         self.assertIn("mission-simulate", actions)
+        self.assertIn("swarm-move-distance-custom", actions)
         # Lighthouse switching is deliberately unavailable until real height
         # and positioning telemetry confirm that the aircraft is airborne.
         self.assertNotIn("swarm-lighthouse-hold", actions)

@@ -147,6 +147,11 @@ class SoldierViewMixin:
         self._hit(548, 126, 46, 32, "swarm-height-decrease")
         self._hit(601, 126, 100, 32, "swarm-height-custom")
         self._hit(708, 126, 46, 32, "swarm-height-increase")
+        move_distance_cm = self.actions.swarm_move_distance_m() * 100.0
+        c.text(385, 170, 160, 32, "SSVEP移动距离", 13, TEXT, True, Qt.AlignCenter)
+        c.button(548, 170, 206, 32, f"设置为 {move_distance_cm:g} cm", False, accent=CYAN)
+        c.text(762, 170, 145, 32, "范围 1–100cm", 10, MUTED, False, Qt.AlignCenter)
+        self._hit(548, 170, 206, 32, "swarm-move-distance-custom")
         c.button(930, 126, 145, 32, "模拟结构化任务", False, accent=YELLOW)
         self._hit(930, 126, 145, 32, "mission-simulate")
         lighthouse_ready = bool(telemetry) and all(item.lighthouse_ready for item in telemetry)

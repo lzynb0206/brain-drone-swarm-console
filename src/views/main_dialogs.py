@@ -186,9 +186,8 @@ class MainDialogsMixin:
             self._stimulus_window.trial_stopped.connect(
                 self._on_ssvep_window_stopped
             )
-        config = getattr(self.swarm_gateway, "config", None)
         self._stimulus_window.set_control_profile(
-            move_distance_m=float(getattr(config, "move_distance_m", 0.05)),
+            move_distance_m=self.actions.swarm_move_distance_m(),
             command_cooldown_seconds=self.actions.bci.command_cooldown_seconds,
         )
         self._stimulus_window.set_mode(mode)
@@ -335,6 +334,61 @@ class MainDialogsMixin:
         if self._height_dialog is dialog:
             self._height_dialog = None
             self._height_input = None
+        dialog.deleteLater()
+        self.activateWindow()
+        self.setFocus(Qt.OtherFocusReason)
+
+    def _show_move_distance_dialog(self) -> None:
+        if self._distance_dialog is not None:
+            self._distance_dialog.raise_()
+            self._distance_dialog.activateWindow()
+            return
+        self._release_mouse_capture_for_dialog()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("设置 SSVEP 单次移动距离")
+        dialog.setWindowModality(Qt.WindowModal)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("输入后续前进、后退、左移、右移指令的移动距离：", dialog))
+        distance_input = QDoubleSpinBox(dialog)
+        distance_input.setRange(1.0, 100.0)
+        distance_input.setDecimals(1)
+        distance_input.setSingleStep(1.0)
+        distance_input.setSuffix(" cm")
+        distance_input.setValue(self.actions.swarm_move_distance_m() * 100.0)
+        layout.addWidget(distance_input)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        self._distance_dialog = dialog
+        self._distance_input = distance_input
+        dialog.accepted.connect(
+            lambda: self._apply_move_distance_cm(distance_input.value())
+        )
+        dialog.rejected.connect(lambda: self._notify("已取消移动距离设置"))
+        dialog.finished.connect(lambda _result: self._finish_move_distance_dialog(dialog))
+        QTimer.singleShot(0, lambda: self._open_move_distance_dialog_if_current(dialog))
+
+    def _open_move_distance_dialog_if_current(self, dialog: QDialog) -> None:
+        if self._distance_dialog is dialog:
+            dialog.open()
+
+    def _apply_move_distance_cm(self, distance_cm: float) -> None:
+        message = self.actions.set_swarm_move_distance(float(distance_cm) / 100.0)
+        if self._stimulus_window is not None:
+            self._stimulus_window.set_control_profile(
+                move_distance_m=self.actions.swarm_move_distance_m(),
+                command_cooldown_seconds=self.actions.bci.command_cooldown_seconds,
+            )
+        self._notify(message)
+
+    def _finish_move_distance_dialog(self, dialog: QDialog) -> None:
+        if self._distance_dialog is dialog:
+            self._distance_dialog = None
+            self._distance_input = None
         dialog.deleteLater()
         self.activateWindow()
         self.setFocus(Qt.OtherFocusReason)

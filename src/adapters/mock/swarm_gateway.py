@@ -29,6 +29,7 @@ class MockSwarmGateway:
         self._command_listeners = []
         self.manual_input = (0.0, 0.0, 0.0)
         self._takeoff_height_m = 0.4
+        self._move_distance_m = 0.05
 
     def connect(self) -> None:
         if self.emergency_stopped:
@@ -91,6 +92,15 @@ class MockSwarmGateway:
                 dy=float(command.parameters.get("dy_m", 0.0)),
                 dz=float(command.parameters.get("dz_m", 0.0)),
             )
+        elif command.action in {"forward", "backward", "left", "right"}:
+            distance = float(command.parameters.get("distance_m", self._move_distance_m))
+            dx, dy = {
+                "forward": (distance, 0.0),
+                "backward": (-distance, 0.0),
+                "left": (0.0, distance),
+                "right": (0.0, -distance),
+            }[command.action]
+            self._update_positions(command.uav_id, dx=dx, dy=dy)
         elif command.action == "land":
             self._update_positions(
                 command.uav_id, dz=0.0, absolute_z=True, armed=False, airborne=False,
@@ -177,6 +187,15 @@ class MockSwarmGateway:
         if self._armed or self._airborne:
             raise RuntimeError("Flow Hover 已启动，不能修改启动目标高度")
         self._takeoff_height_m = height
+
+    def move_distance_m(self) -> float:
+        return self._move_distance_m
+
+    def set_move_distance(self, distance_m: float) -> None:
+        distance = float(distance_m)
+        if not 0.01 <= distance <= 1.0:
+            raise RuntimeError("单次移动距离必须在 0.01–1.00m 之间")
+        self._move_distance_m = distance
 
     def configure_uris(self, uris) -> None:
         if self._connected:

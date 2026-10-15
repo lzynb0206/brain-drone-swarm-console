@@ -108,6 +108,8 @@ class MainView(
         self._uri_editor: QPlainTextEdit | None = None
         self._height_dialog: QDialog | None = None
         self._height_input: QDoubleSpinBox | None = None
+        self._distance_dialog: QDialog | None = None
+        self._distance_input: QDoubleSpinBox | None = None
         csv_root = (
             experiment_recorder.root / "csv_sessions"
             if experiment_recorder is not None

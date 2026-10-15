@@ -61,6 +61,14 @@ class SwarmGateway(Protocol):
         """设置下一次 Flow Hover 目标高度；飞行或解锁后必须拒绝修改。"""
         ...
 
+    def move_distance_m(self) -> float:
+        """返回离散前后左右指令的单次移动距离。"""
+        ...
+
+    def set_move_distance(self, distance_m: float) -> None:
+        """设置后续离散移动指令的距离；允许在连接或飞行期间修改。"""
+        ...
+
     def emergency_stop(self) -> None:
         """触发固件锁存急停；恢复前必须重启无人机。"""
         ...

@@ -239,6 +239,18 @@ class CrazyflieSwarmGateway:
             self._message = f"启动目标高度已设置为 {height:.2f}m"
         self._record("INFO", f"Flow Hover 启动目标高度设置为 {height:.2f}m")
 
+    def move_distance_m(self) -> float:
+        with self._lock:
+            return self.config.move_distance_m
+
+    def set_move_distance(self, distance_m: float) -> None:
+        distance = float(distance_m)
+        if not math.isfinite(distance) or not 0.01 <= distance <= 1.0:
+            raise RuntimeError("单次移动距离必须在 0.01–1.00m 之间")
+        with self._lock:
+            self.config = replace(self.config, move_distance_m=distance)
+        self._record("INFO", f"SSVEP 单次移动距离设置为 {distance:.2f}m")
+
     def disarm(self) -> None:
         with self._lock:
             if self._emergency:

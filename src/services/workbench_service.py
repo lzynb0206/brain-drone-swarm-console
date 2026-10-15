@@ -168,6 +168,12 @@ class WorkbenchService:
     def adjust_swarm_takeoff_height(self, delta_m: float) -> str:
         return self.swarm.adjust_takeoff_height(delta_m)
 
+    def swarm_move_distance_m(self) -> float:
+        return self.swarm.move_distance_m()
+
+    def set_swarm_move_distance(self, distance_m: float) -> str:
+        return self.swarm.set_move_distance(distance_m)
+
     def connect_swarm(self) -> str:
         return self.swarm.connect()
 

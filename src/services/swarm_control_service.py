@@ -72,10 +72,15 @@ class SwarmControlService:
         if self.emergency_stopped:
             return self._record("系统处于急停状态，指令被安全策略拒绝")
         command_id = uuid.uuid4().hex
+        command_parameters = dict(parameters or {})
+        if action in {"forward", "backward", "left", "right"}:
+            # Snapshot the configured step when the command is submitted so a
+            # later UI adjustment cannot change an already queued movement.
+            command_parameters.setdefault("distance_m", self.move_distance_m())
         command = SwarmCommand(
             action,
             uav_id=uav_id,
-            parameters=parameters or {},
+            parameters=command_parameters,
             command_id=command_id,
         )
         if self.gateway is not None:
@@ -124,6 +129,28 @@ class SwarmControlService:
 
     def adjust_takeoff_height(self, delta_m: float) -> str:
         return self.set_takeoff_height(round(self.takeoff_height_m() + float(delta_m), 2))
+
+    def move_distance_m(self) -> float:
+        if self.gateway is None:
+            return 0.05
+        getter = getattr(self.gateway, "move_distance_m", None)
+        if callable(getter):
+            return float(getter())
+        config = getattr(self.gateway, "config", None)
+        return float(getattr(config, "move_distance_m", 0.05))
+
+    def set_move_distance(self, distance_m: float) -> str:
+        if self.gateway is None:
+            return self._record("无人机接口未配置")
+        setter = getattr(self.gateway, "set_move_distance", None)
+        if not callable(setter):
+            return self._record("当前无人机接口不支持在线调节移动距离")
+        try:
+            setter(distance_m)
+        except (TypeError, ValueError, RuntimeError) as exc:
+            return self._record(f"移动距离设置失败：{exc}")
+        distance = self.move_distance_m()
+        return self._record(f"SSVEP 单次移动距离：{distance * 100:g}cm")
 
     def connect(self) -> str:
         if self.gateway is None:
