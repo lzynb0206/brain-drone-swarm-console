@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.bci.preprocessing import assess_signal_quality
 from src.bci.stimulus import measure_frequency
+from src.domain import IntentResult
 from src.views.ssvep_rendering import target_rectangles
 from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 
@@ -61,6 +62,69 @@ class StimulusWindowModeTest(unittest.TestCase):
             self.assertFalse(window.stimuli_active)
         finally:
             window._running = False
+            window._timer.stop()
+            window.close()
+
+    def test_command_test_starts_without_authorizing_online_control(self) -> None:
+        window = SSVEPStimulusWindow(mode="test")
+        started = []
+        control_started = []
+        window.trial_started.connect(lambda *args: started.append(args))
+        window.control_started.connect(lambda: control_started.append(True))
+        try:
+            window.begin_trial()
+
+            self.assertTrue(window.test_mode)
+            self.assertTrue(window.blocks_hardware_execution)
+            self.assertEqual("指令测试", window.selected_label)
+            self.assertEqual("", started[0][0])
+            self.assertEqual(0.0, started[0][1])
+            self.assertEqual([], control_started)
+            self.assertFalse(window.calibrating_idle)
+            self.assertTrue(window.stimuli_active)
+        finally:
+            window._running = False
+            window._timer.stop()
+            window.close()
+
+    def test_command_test_displays_decoder_evidence(self) -> None:
+        window = SSVEPStimulusWindow(mode="test")
+        result = IntentResult(
+            timestamp=1.0,
+            label="前进",
+            confidence=0.82,
+            margin=0.21,
+            accepted=True,
+            reason="",
+            frequency_hz=11.25,
+            scores={"起飞": 0.22, "前进": 0.82},
+            sample_rate_hz=250.0,
+            sample_count=500,
+            used_channels_1based=(1, 2, 3, 4),
+        )
+        try:
+            window.show_recognition_result(result)
+
+            self.assertIs(result, window._latest_recognition)
+            self.assertEqual(1, window._recognition_count)
+            self.assertEqual(1, window._accepted_count)
+        finally:
+            window.close()
+
+    def test_b_key_stops_command_test_without_requesting_emergency_stop(self) -> None:
+        window = SSVEPStimulusWindow(mode="test")
+        emergencies = []
+        window.emergency_requested.connect(lambda: emergencies.append(True))
+        try:
+            window.show()
+            window.begin_trial()
+            self.app.processEvents()
+
+            QTest.keyClick(window, Qt.Key_B)
+
+            self.assertFalse(window.running)
+            self.assertEqual([], emergencies)
+        finally:
             window._timer.stop()
             window.close()
 

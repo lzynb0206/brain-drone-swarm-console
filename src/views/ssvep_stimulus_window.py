@@ -18,16 +18,19 @@ from src.bci.config import (
     WINDOW_SECONDS,
 )
 from src.bci.stimulus import StimulusSessionRecorder, StimulusTarget, luminance_at
+from src.domain import IntentResult
 from src.views.ssvep_rendering import draw_fixation_cross, target_rectangles
 
 
 class SSVEPStimulusWindow(QWidget):
-    """Render all configured targets for experiments or operational control.
+    """Render all configured targets for experiments, tests or control.
 
     Experiment mode accepts 0/1..6 ground-truth labels.  Control mode never
     emits a non-empty true label, activates execution only after J, and revokes
-    authorization on K/Escape.  The EEG worker remains outside this widget and
-    receives synchronization markers through Qt signals.
+    authorization on K/Escape.  Test mode uses the same six simultaneous
+    stimuli while displaying decoder evidence and never authorizing hardware
+    execution.  The EEG worker remains outside this widget and receives
+    synchronization markers through Qt signals.
     """
 
     trial_started = Signal(str, float, float)
@@ -75,21 +78,43 @@ class SSVEPStimulusWindow(QWidget):
         self._frame_times: list[float] = []
         self._luminance: list[list[float]] = [[] for _ in self.targets]
         self._last_payload: dict[str, object] | None = None
+        self._latest_recognition: IntentResult | None = None
+        self._recognition_count = 0
+        self._accepted_count = 0
         self.set_mode(mode)
 
     @property
     def control_mode(self) -> bool:
         return self._mode == "control"
 
+    @property
+    def test_mode(self) -> bool:
+        return self._mode == "test"
+
+    @property
+    def blocks_hardware_execution(self) -> bool:
+        """Whether this visible research window must suppress flight actions."""
+
+        return self.test_mode and (self._running or self.isVisible())
+
     def set_mode(self, mode: str) -> None:
         normalized = str(mode).strip().lower()
-        if normalized not in {"experiment", "control"}:
+        if normalized not in {"experiment", "control", "test"}:
             raise ValueError(f"unsupported SSVEP window mode: {mode}")
         if self._running and normalized != self._mode:
             self.end_trial()
         self._mode = normalized
-        self._selected_label = "在线控制" if self.control_mode else "空闲"
-        title = "SSVEP 在线驾驶" if self.control_mode else "SSVEP 六频刺激实验"
+        self._selected_label = (
+            "在线控制" if self.control_mode else
+            "指令测试" if self.test_mode else
+            "空闲"
+        )
+        title = (
+            "SSVEP 在线驾驶" if self.control_mode else
+            "SSVEP 指令识别测试" if self.test_mode else
+            "SSVEP 六频刺激实验"
+        )
+        self._clear_recognition_results()
         self.setWindowTitle(f"脑控无人机蜂群作战系统 · {title}")
         self.update()
 
@@ -160,6 +185,7 @@ class SSVEPStimulusWindow(QWidget):
     def begin_trial(self) -> None:
         if self._running:
             return
+        self._clear_recognition_results()
         self._frame_times.clear()
         self._luminance = [[] for _ in self.targets]
         self._clock.restart()
@@ -169,18 +195,21 @@ class SSVEPStimulusWindow(QWidget):
         frequency = self._frequency_for_label(self._selected_label)
         marker = (
             "SSVEP_control_start" if self.control_mode else
+            "SSVEP_command_test_start" if self.test_mode else
             f"SSVEP_{frequency:g}Hz_start" if frequency > 0 else
             "SSVEP_idle_start"
         )
         self.event_marker.emit(marker, self._started_at_unix)
         # An empty label flushes buffered EEG and resets the decoder without
-        # creating a fake labelled training trial during operational control.
-        trial_label = "" if self.control_mode else self._selected_label
+        # creating a fake labelled training trial during online control or the
+        # hardware-isolated research command test.
+        trial_label = "" if self.control_mode or self.test_mode else self._selected_label
         self.trial_started.emit(trial_label, frequency, self._started_at_unix)
         if self.control_mode:
             self.control_started.emit()
         message = (
             "SSVEP 在线驾驶已开始" if self.control_mode else
+            "SSVEP 指令识别测试已开始：仅显示识别结果，不执行无人机" if self.test_mode else
             f"刺激已开始：{self._selected_label}（{frequency:g}Hz）"
         )
         self.status_changed.emit(message)
@@ -197,6 +226,7 @@ class SSVEPStimulusWindow(QWidget):
         frequency = self._frequency_for_label(self._selected_label)
         marker = (
             "SSVEP_control_stop" if self.control_mode else
+            "SSVEP_command_test_stop" if self.test_mode else
             f"SSVEP_{frequency:g}Hz_stop" if frequency > 0 else
             "SSVEP_idle_stop"
         )
@@ -243,7 +273,16 @@ class SSVEPStimulusWindow(QWidget):
                 self._luminance[index].append(luminance)
             gray = int(round(255 * luminance))
             painter.fillRect(rect, QColor(gray, gray, gray))
-            painter.setPen(QPen(QColor("#00e5ff") if target.label == self._selected_label else QColor("#4b5563"), 4))
+            border_color = QColor("#4b5563")
+            if target.label == self._selected_label:
+                border_color = QColor("#00e5ff")
+            if (
+                self.test_mode
+                and self._latest_recognition is not None
+                and target.label == self._latest_recognition.label
+            ):
+                border_color = QColor("#27d17f" if self._latest_recognition.accepted else "#ffb020")
+            painter.setPen(QPen(border_color, 6 if border_color != QColor("#4b5563") else 4))
             painter.drawRect(rect)
             text_color = QColor("#000000") if gray > 150 else QColor("#ffffff")
             painter.setPen(text_color)
@@ -271,6 +310,8 @@ class SSVEPStimulusWindow(QWidget):
             self._draw_cooldown_overlay(painter)
         elif self._running and self.fresh_window_remaining > 0.0:
             self._draw_fresh_window_overlay(painter)
+        elif self.test_mode:
+            self._draw_recognition_test_overlay(painter)
 
         painter.setPen(QColor("#d1d5db"))
         painter.setFont(QFont("PingFang SC", 15))
@@ -279,16 +320,95 @@ class SSVEPStimulusWindow(QWidget):
             "正在建立新的完整窗口" if self.fresh_window_remaining > 0.0 else
             "刺激运行中" if self._running else "等待开始"
         )
-        instructions = (
-            f"{state} ｜在线脑控 ｜移动 {self._move_distance_m:.2f}m/次 ｜"
-            f"CD {self._command_cooldown_seconds:.1f}s ｜J 开始  K 暂停  B 急停  Esc 退出"
-            if self.control_mode else
-            f"{state} ｜真实标签：{self._selected_label} ｜J 开始  K 停止  0 空闲  1-6 切换标签  B 急停  Esc 退出"
-        )
+        if self.control_mode:
+            instructions = (
+                f"{state} ｜在线脑控 ｜移动 {self._move_distance_m:.2f}m/次 ｜"
+                f"CD {self._command_cooldown_seconds:.1f}s ｜J 开始  K 暂停  B 急停  Esc 退出"
+            )
+        elif self.test_mode:
+            instructions = (
+                f"{state} ｜科研指令测试 ｜无人机执行已禁用 ｜"
+                "持续注视一个色块中央十字 ｜J 开始  K 暂停  Esc 退出"
+            )
+        else:
+            instructions = (
+                f"{state} ｜真实标签：{self._selected_label} ｜"
+                "J 开始  K 停止  0 空闲  1-6 切换标签  B 急停  Esc 退出"
+            )
         painter.drawText(
             QRectF(0, 12, self.width(), 42), Qt.AlignCenter,
             instructions,
         )
+
+    def show_recognition_result(self, result: IntentResult) -> None:
+        """Display one decoder decision without forwarding it to execution."""
+
+        if not self.test_mode:
+            return
+        self._latest_recognition = result
+        self._recognition_count += 1
+        if result.accepted:
+            self._accepted_count += 1
+        self.update()
+
+    def _clear_recognition_results(self) -> None:
+        self._latest_recognition = None
+        self._recognition_count = 0
+        self._accepted_count = 0
+
+    def _draw_recognition_test_overlay(self, painter: QPainter) -> None:
+        banner = QRectF(
+            self.width() * 0.13,
+            self.height() * 0.43,
+            self.width() * 0.74,
+            self.height() * 0.15,
+        )
+        painter.fillRect(banner, QColor(8, 15, 28, 245))
+        result = self._latest_recognition
+        border = QColor("#607087")
+        if result is not None:
+            border = QColor("#27d17f" if result.accepted else "#ffb020")
+        painter.setPen(QPen(border, 3))
+        painter.drawRect(banner)
+        painter.setPen(QColor("#ffffff"))
+        painter.setFont(QFont("PingFang SC", max(18, int(self.height() * 0.024)), QFont.Bold))
+        message_rect = QRectF(
+            banner.x() + 10,
+            banner.y() + 3,
+            banner.width() - 20,
+            banner.height() - (32 if result is not None else 6),
+        )
+        if result is None:
+            message = "等待第一个完整 EEG 窗口\n请持续注视一个目标中央十字"
+        else:
+            decision = "通过" if result.accepted else f"拒绝：{result.reason}"
+            used_channels = len(result.used_channels_1based)
+            message = (
+                f"识别：{result.label}  {result.frequency_hz:g} Hz  ｜{decision} ｜"
+                f"分数 {result.best_score:.3f}  差值 {result.margin:.3f}\n"
+                f"本次测试 {self._recognition_count} 窗口 / {self._accepted_count} 通过  ｜"
+                f"可用通道 {used_channels}  ｜只显示结果，不执行无人机"
+            )
+        painter.drawText(message_rect, Qt.AlignCenter, message)
+        if result is not None:
+            score_parts = [
+                f"{target.label} {float(result.scores[target.label]):.3f}"
+                for target in self.targets
+                if target.label in result.scores
+            ]
+            score_text = "各指令分数：" + "  ｜  ".join(score_parts)
+            painter.setPen(QColor("#a8c7fa"))
+            painter.setFont(QFont("PingFang SC", max(11, int(self.height() * 0.015))))
+            painter.drawText(
+                QRectF(
+                    banner.x() + 10,
+                    banner.bottom() - 31,
+                    banner.width() - 20,
+                    26,
+                ),
+                Qt.AlignCenter,
+                score_text,
+            )
 
     def _draw_cooldown_overlay(self, painter: QPainter) -> None:
         remaining = self.cooldown_remaining
@@ -374,13 +494,17 @@ class SSVEPStimulusWindow(QWidget):
             return
         if key == Qt.Key_B:
             self.end_trial()
-            self.emergency_requested.emit()
+            if self.test_mode:
+                self.status_changed.emit("SSVEP 指令测试已停止；未向无人机发送指令")
+            else:
+                self.emergency_requested.emit()
             return
         if key == Qt.Key_Escape:
             self.close()
             return
-        if self.control_mode and (key == Qt.Key_0 or Qt.Key_1 <= key <= Qt.Key_6):
-            self.status_changed.emit("在线驾驶由注视触发，数字键仅用于科研标注")
+        if (self.control_mode or self.test_mode) and (key == Qt.Key_0 or Qt.Key_1 <= key <= Qt.Key_6):
+            mode_label = "在线驾驶" if self.control_mode else "指令测试"
+            self.status_changed.emit(f"{mode_label}由注视触发，数字键仅用于带标签实验")
             return
         if key == Qt.Key_0:
             self._selected_label = "空闲"

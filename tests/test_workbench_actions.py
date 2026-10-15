@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
 from src.adapters.real import CrazyflieSwarmConfig, CrazyflieSwarmGateway
 from src.bci.config import COMMANDS
-from src.domain import Role, User
+from src.domain import IntentResult, Role, User
 from src.services import ExperimentRecorder, WorkbenchService
 from src.views.main_view import MainView
 from src.widgets.scifi_canvas import Canvas, RESEARCH_NAV_ITEMS
@@ -280,6 +280,46 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.view._activate("acquisition-tab:LSL")
         self.assertEqual("采集", self.view.research_page)
         self.assertEqual("LSL", self.view.acquisition_tab)
+
+    def test_research_paradigm_exposes_hardware_free_ssvep_command_test(self) -> None:
+        actions = self._render_page(self.view.research_widget, "_research_paradigm")
+
+        self.assertIn("ssvep-command-test", actions)
+
+    def test_ssvep_command_test_action_is_routed_to_test_window(self) -> None:
+        with patch.object(self.view, "_open_ssvep_test") as opener:
+            self.view._activate("ssvep-command-test")
+
+        opener.assert_called_once_with()
+
+    def test_test_window_recognition_never_reaches_swarm_gateway(self) -> None:
+        result = IntentResult(
+            timestamp=1.0,
+            label="起飞",
+            confidence=0.91,
+            margin=0.25,
+            accepted=True,
+            reason="",
+            frequency_hz=8.0,
+            scores={"起飞": 0.91},
+            sample_rate_hz=250.0,
+            sample_count=500,
+            used_channels_1based=(1, 2, 3),
+            safety_verified=True,
+        )
+        test_window = MagicMock()
+        test_window.blocks_hardware_execution = True
+        self.view._stimulus_window = test_window
+        self.gateway.connect()
+        self.gateway.arm()
+        self.view.actions.set_bci_control_enabled(True, "LSL · obci_eeg1")
+        self.view.actions.bci.start_session("LSL · obci_eeg1", warmup_seconds=0.0)
+        command_count = len(self.gateway.command_log)
+
+        self.view._on_recognition(result)
+
+        test_window.show_recognition_result.assert_called_once_with(result)
+        self.assertEqual(command_count, len(self.gateway.command_log))
 
     def test_research_navigation_uses_one_contiguous_layout_grid(self) -> None:
         for current, following in zip(RESEARCH_NAV_ITEMS, RESEARCH_NAV_ITEMS[1:]):

@@ -62,6 +62,8 @@ class MainActionRouter(QObject):
                 view._open_ssvep_stimulus()
             else:
                 view._notify("MI 采集模式已启用：请用右上角“添加标签”记录下一段 4 秒运动想象 EEG")
+        elif action == "ssvep-command-test":
+            view._open_ssvep_test()
         elif action == "automatic-experiment-config":
             view._configure_automatic_ssvep_experiment()
         elif action == "automatic-experiment-start":

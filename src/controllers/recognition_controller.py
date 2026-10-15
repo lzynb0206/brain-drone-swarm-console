@@ -41,6 +41,15 @@ class RecognitionController:
         stimulus_window = host._stimulus_window
         if (
             stimulus_window is not None
+            and getattr(stimulus_window, "blocks_hardware_execution", False) is True
+        ):
+            show_result = getattr(stimulus_window, "show_recognition_result", None)
+            if callable(show_result):
+                show_result(result)
+            host.update()
+            return
+        if (
+            stimulus_window is not None
             and stimulus_window.control_mode
             and stimulus_window.running
             and not stimulus_window.stimuli_active

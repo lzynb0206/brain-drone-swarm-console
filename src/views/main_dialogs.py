@@ -162,10 +162,20 @@ class MainDialogsMixin:
             return
         self._show_ssvep_window("control")
 
-    def _show_ssvep_window(self, mode: str) -> None:
-        if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
-            self._notify("请先确保 EEG 数据源已经连接")
+    def _open_ssvep_test(self) -> None:
+        """Open live recognition with the hardware execution path disabled."""
+
+        if not self._show_ssvep_window("test"):
             return
+        # The recognition controller also suppresses test-window results, but
+        # explicitly revoke any earlier authorization as a second safety layer.
+        self.actions.bci.disable()
+        self._stimulus_window.begin_trial()
+
+    def _show_ssvep_window(self, mode: str) -> bool:
+        if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
+            self._notify("请先在科研采集页连接并启动 EEG 数据源；指令测试不需要连接无人机")
+            return False
         if self._stimulus_window is not None and self._stimulus_worker is not self._pipeline_worker:
             self._stimulus_window.close()
             self._stimulus_window.deleteLater()
@@ -195,9 +205,14 @@ class MainDialogsMixin:
         self._stimulus_window.raise_()
         self._stimulus_window.activateWindow()
         self._stimulus_window.setFocus(Qt.OtherFocusReason)
+        return True
 
     def _on_ssvep_window_stopped(self, label: str, path: str) -> None:
-        prefix = "SSVEP 在线驾驶已结束" if label == "在线控制" else f"刺激试次已结束：{label}"
+        prefix = (
+            "SSVEP 在线驾驶已结束" if label == "在线控制" else
+            "SSVEP 指令测试已结束（未执行无人机）" if label == "指令测试" else
+            f"刺激试次已结束：{label}"
+        )
         self._notify(prefix + (f"，测频记录：{path}" if path else ""))
 
     def _on_ssvep_control_started(self) -> None:
