@@ -170,6 +170,9 @@ class MainDialogsMixin:
         # The recognition controller also suppresses test-window results, but
         # explicitly revoke any earlier authorization as a second safety layer.
         self.actions.bci.disable()
+        begin_calibration = getattr(self.intent_decoder, "begin_idle_calibration", None)
+        if callable(begin_calibration):
+            begin_calibration()
         self._stimulus_window.begin_trial()
 
     def _show_ssvep_window(self, mode: str) -> bool:

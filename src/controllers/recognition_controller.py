@@ -41,6 +41,24 @@ class RecognitionController:
         stimulus_window = host._stimulus_window
         if (
             stimulus_window is not None
+            and getattr(stimulus_window, "test_mode", False) is True
+        ):
+            if (
+                stimulus_window.running
+                and not stimulus_window.stimuli_active
+                and stimulus_window.calibrating_idle
+            ):
+                observe_idle = getattr(host.intent_decoder, "observe_idle", None)
+                if callable(observe_idle):
+                    observe_idle(result)
+            elif stimulus_window.process_simulated_control_result(result):
+                host._eeg_events.appendleft(
+                    f"SSVEP 模拟指令：{result.label}（未发送无人机）"
+                )
+            host.update()
+            return
+        if (
+            stimulus_window is not None
             and getattr(stimulus_window, "blocks_hardware_execution", False) is True
         ):
             show_result = getattr(stimulus_window, "show_recognition_result", None)

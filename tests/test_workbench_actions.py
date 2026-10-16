@@ -281,8 +281,8 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual("采集", self.view.research_page)
         self.assertEqual("LSL", self.view.acquisition_tab)
 
-    def test_research_paradigm_exposes_hardware_free_ssvep_command_test(self) -> None:
-        actions = self._render_page(self.view.research_widget, "_research_paradigm")
+    def test_research_navigation_exposes_hardware_free_ssvep_command_test(self) -> None:
+        actions = self._render_page(self.view.research_widget, "_paint_research")
 
         self.assertIn("ssvep-command-test", actions)
 
@@ -308,7 +308,12 @@ class MainViewActionRoutingTest(unittest.TestCase):
             safety_verified=True,
         )
         test_window = MagicMock()
+        test_window.test_mode = True
         test_window.blocks_hardware_execution = True
+        test_window.running = True
+        test_window.stimuli_active = True
+        test_window.calibrating_idle = False
+        test_window.process_simulated_control_result.return_value = True
         self.view._stimulus_window = test_window
         self.gateway.connect()
         self.gateway.arm()
@@ -318,7 +323,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
         self.view._on_recognition(result)
 
-        test_window.show_recognition_result.assert_called_once_with(result)
+        test_window.process_simulated_control_result.assert_called_once_with(result)
         self.assertEqual(command_count, len(self.gateway.command_log))
 
     def test_research_navigation_uses_one_contiguous_layout_grid(self) -> None:

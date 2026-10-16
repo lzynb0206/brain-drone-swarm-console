@@ -65,7 +65,7 @@ class StimulusWindowModeTest(unittest.TestCase):
             window._timer.stop()
             window.close()
 
-    def test_command_test_starts_without_authorizing_online_control(self) -> None:
+    def test_command_test_starts_with_same_idle_calibration_as_control(self) -> None:
         window = SSVEPStimulusWindow(mode="test")
         started = []
         control_started = []
@@ -80,14 +80,14 @@ class StimulusWindowModeTest(unittest.TestCase):
             self.assertEqual("", started[0][0])
             self.assertEqual(0.0, started[0][1])
             self.assertEqual([], control_started)
-            self.assertFalse(window.calibrating_idle)
-            self.assertTrue(window.stimuli_active)
+            self.assertTrue(window.calibrating_idle)
+            self.assertFalse(window.stimuli_active)
         finally:
             window._running = False
             window._timer.stop()
             window.close()
 
-    def test_command_test_displays_decoder_evidence(self) -> None:
+    def test_command_test_requires_same_two_window_confirmation_then_starts_cd(self) -> None:
         window = SSVEPStimulusWindow(mode="test")
         result = IntentResult(
             timestamp=1.0,
@@ -103,12 +103,41 @@ class StimulusWindowModeTest(unittest.TestCase):
             used_channels_1based=(1, 2, 3, 4),
         )
         try:
-            window.show_recognition_result(result)
+            window.begin_trial()
+            window._finish_cooldown()
+            window._fresh_window_until = 0.0
 
+            self.assertFalse(window.process_simulated_control_result(result))
+            self.assertTrue(window.process_simulated_control_result(result))
             self.assertIs(result, window._latest_recognition)
-            self.assertEqual(1, window._recognition_count)
-            self.assertEqual(1, window._accepted_count)
+            self.assertEqual(2, window._recognition_count)
+            self.assertEqual(2, window._accepted_count)
+            self.assertGreater(window.cooldown_remaining, 2.0)
+            self.assertFalse(window.stimuli_active)
         finally:
+            window._running = False
+            window._timer.stop()
+            window._cooldown_timer.stop()
+            window.close()
+
+    def test_command_test_cd_finishes_with_same_fresh_window_as_control(self) -> None:
+        window = SSVEPStimulusWindow(mode="test")
+        requested = []
+        window.fresh_window_requested.connect(lambda *args: requested.append(args))
+        try:
+            window.begin_trial()
+            window.begin_cooldown(2.5, "起飞")
+            window._finish_cooldown()
+
+            self.assertEqual(1, len(requested))
+            self.assertAlmostEqual(2.0, requested[0][0])
+            self.assertEqual("起飞", requested[0][1])
+            self.assertGreater(window.fresh_window_remaining, 1.5)
+            self.assertTrue(window.stimuli_active)
+        finally:
+            window._running = False
+            window._timer.stop()
+            window._cooldown_timer.stop()
             window.close()
 
     def test_b_key_stops_command_test_without_requesting_emergency_stop(self) -> None:

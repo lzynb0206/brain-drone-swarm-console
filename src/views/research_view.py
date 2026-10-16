@@ -19,6 +19,9 @@ class ResearchViewMixin(
         c.fill(BG)
         c.top_nav(self.research_page)
         for name, x, width in RESEARCH_NAV_ITEMS:
+            if name == "SSVEP测试":
+                self._hit(x, 0, width, 56, "ssvep-command-test")
+                continue
             if name == "帮助":
                 self._hit(x, 0, width, 56, "openbci-guide")
                 continue
