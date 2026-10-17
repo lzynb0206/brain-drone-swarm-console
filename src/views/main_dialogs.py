@@ -203,6 +203,9 @@ class MainDialogsMixin:
             move_distance_m=self.actions.swarm_move_distance_m(),
             command_cooldown_seconds=self.actions.bci.command_cooldown_seconds,
         )
+        self._stimulus_window.set_idle_calibration_seconds(
+            float(getattr(self.intent_decoder, "idle_calibration_seconds", 12.0))
+        )
         self._stimulus_window.set_mode(mode)
         self._stimulus_window.showFullScreen()
         self._stimulus_window.raise_()

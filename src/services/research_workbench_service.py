@@ -76,6 +76,10 @@ class ResearchWorkbenchService:
         return self._record(f"默认算法已设为 {self.algorithm}")
 
     def benchmark_algorithm(self) -> str:
+        if self.algorithm == "个人模板-SSVEP":
+            return self._record(
+                "18段单目标数据已全部用于个人模板建模；请在SSVEP测试页另采在线结果评估"
+            )
         if self.algorithm == "Transformer-SSVEP":
             return self._record(
                 "Transformer基准应按会话划分，并报告准确率、空闲误触发率和触发延迟"

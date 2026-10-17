@@ -1,0 +1,2653 @@
+{
+  "run_id": "single-20261018-012943-4c95e2",
+  "status": "completed",
+  "layout": "six_target_wide_corners_v1",
+  "config": {
+    "repetitions_per_command": 3,
+    "cue_seconds": 1.0,
+    "stimulus_seconds": 3.0,
+    "discard_seconds": 0.5,
+    "rest_seconds": 1.5,
+    "random_seed": 20261018
+  },
+  "trials": [
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-001",
+      "trial_index": 1,
+      "repetition": 1,
+      "true_label": "右移",
+      "frequency_hz": 22.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 4,
+      "stimulus_started_unix": 1792258185.1068711,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 1,
+        "total_channel_count": 8,
+        "usable_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false
+        ],
+        "redundant_channels": {},
+        "channels": [
+          {
+            "channel": 1,
+            "usable": false,
+            "std_uv": 357.8789398796128,
+            "max_centered_amplitude_uv": 4168.681931640625,
+            "filtered_variance_uv2": 27666.385937236057,
+            "mains_50hz_ratio": 0.13561478252071663,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 2147.578773681659,
+            "max_centered_amplitude_uv": 4795.541737223308,
+            "filtered_variance_uv2": 64994.49699461501,
+            "mains_50hz_ratio": 0.3565895645765543,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 2258.7630736961933,
+            "max_centered_amplitude_uv": 9926.595205446562,
+            "filtered_variance_uv2": 562181.8551165478,
+            "mains_50hz_ratio": 0.38281206229928066,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 538.2239664293619,
+            "max_centered_amplitude_uv": 6183.8737714843755,
+            "filtered_variance_uv2": 70773.97356811445,
+            "mains_50hz_ratio": 0.13506954208364125,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 1442.5096903839128,
+            "max_centered_amplitude_uv": 5088.863514973958,
+            "filtered_variance_uv2": 87224.44733213545,
+            "mains_50hz_ratio": 0.1178886005902165,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 2640.8831015766436,
+            "max_centered_amplitude_uv": 14625.869997052829,
+            "filtered_variance_uv2": 595084.7431258783,
+            "mains_50hz_ratio": 0.35417172497574173,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": true,
+            "std_uv": 332.30873459604305,
+            "max_centered_amplitude_uv": 2061.359638020833,
+            "filtered_variance_uv2": 23573.26977922404,
+            "mains_50hz_ratio": 0.3691823089581486,
+            "issues": []
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 1100.8932182578985,
+            "max_centered_amplitude_uv": 2752.5107239583303,
+            "filtered_variance_uv2": 26313.18767204999,
+            "mains_50hz_ratio": 0.10619887300222684,
+            "issues": [
+              "振幅过大"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258185.9630215,
+      "window_end_timestamp": 1792258188.958983,
+      "saved_unix": 1792258188.0974479,
+      "path": "trial-001-右移.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-002",
+      "trial_index": 2,
+      "repetition": 1,
+      "true_label": "左移",
+      "frequency_hz": 20.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 3,
+      "stimulus_started_unix": 1792258190.624064,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 2,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "4": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 49.06125341412147,
+            "max_centered_amplitude_uv": 121.4354667968746,
+            "filtered_variance_uv2": 74.60102780302995,
+            "mains_50hz_ratio": 0.02195864262793033,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 1131.0572797371406,
+            "max_centered_amplitude_uv": 2815.876879155159,
+            "filtered_variance_uv2": 9524.343427805788,
+            "mains_50hz_ratio": 0.5558841100159606,
+            "issues": [
+              "振幅过大",
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 621.9070453402844,
+            "max_centered_amplitude_uv": 1951.7027903467815,
+            "filtered_variance_uv2": 20611.400546988527,
+            "mains_50hz_ratio": 0.8931206500043986,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 49.299252964070966,
+            "max_centered_amplitude_uv": 122.41694921875023,
+            "filtered_variance_uv2": 74.70869651387882,
+            "mains_50hz_ratio": 0.026675079614784675,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": true,
+            "std_uv": 88.9287971594218,
+            "max_centered_amplitude_uv": 704.7379179687496,
+            "filtered_variance_uv2": 1594.7140808676347,
+            "mains_50hz_ratio": 0.3393668325631581,
+            "issues": []
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 678.1231451280872,
+            "max_centered_amplitude_uv": 1792.2373030598956,
+            "filtered_variance_uv2": 23554.64088351156,
+            "mains_50hz_ratio": 0.9047078021612047,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 101.8572156395033,
+            "max_centered_amplitude_uv": 297.9165156249983,
+            "filtered_variance_uv2": 600.9677398886854,
+            "mains_50hz_ratio": 0.7294084771993529,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 276.6461711808161,
+            "max_centered_amplitude_uv": 602.3910833333357,
+            "filtered_variance_uv2": 603.0599597156715,
+            "mains_50hz_ratio": 0.8505024471091263,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258191.4669507,
+      "window_end_timestamp": 1792258194.462912,
+      "saved_unix": 1792258193.591984,
+      "path": "trial-002-左移.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-003",
+      "trial_index": 3,
+      "repetition": 1,
+      "true_label": "降落",
+      "frequency_hz": 24.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 5,
+      "stimulus_started_unix": 1792258196.157634,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 3,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          true
+        ],
+        "redundant_channels": {
+          "4": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 164.35425343633563,
+            "max_centered_amplitude_uv": 375.3397480468757,
+            "filtered_variance_uv2": 31.35752326564419,
+            "mains_50hz_ratio": 0.007415122305595191,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 1571.5385295791598,
+            "max_centered_amplitude_uv": 3417.010529947917,
+            "filtered_variance_uv2": 6257.914155817582,
+            "mains_50hz_ratio": 0.47890593638258877,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 1006.36085451189,
+            "max_centered_amplitude_uv": 3707.495288116455,
+            "filtered_variance_uv2": 8580.350997974789,
+            "mains_50hz_ratio": 0.4355892248050788,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 162.91783571107825,
+            "max_centered_amplitude_uv": 374.18519856770763,
+            "filtered_variance_uv2": 30.91455941970726,
+            "mains_50hz_ratio": 0.017440386010997618,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": true,
+            "std_uv": 237.90988832143526,
+            "max_centered_amplitude_uv": 1298.1356712239576,
+            "filtered_variance_uv2": 1947.9550495997921,
+            "mains_50hz_ratio": 0.13723699572955764,
+            "issues": []
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 673.6041600415615,
+            "max_centered_amplitude_uv": 1946.5444887695312,
+            "filtered_variance_uv2": 7393.527488577853,
+            "mains_50hz_ratio": 0.8378813722133607,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 159.4793432209389,
+            "max_centered_amplitude_uv": 410.59238281250146,
+            "filtered_variance_uv2": 288.841483467015,
+            "mains_50hz_ratio": 0.6792794010919425,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": true,
+            "std_uv": 224.47874078366468,
+            "max_centered_amplitude_uv": 755.8425260416698,
+            "filtered_variance_uv2": 536.2738063563817,
+            "mains_50hz_ratio": 0.31230448016712054,
+            "issues": []
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258196.9708798,
+      "window_end_timestamp": 1792258199.9668412,
+      "saved_unix": 1792258199.105654,
+      "path": "trial-003-降落.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-004",
+      "trial_index": 4,
+      "repetition": 1,
+      "true_label": "起飞",
+      "frequency_hz": 14.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 0,
+      "stimulus_started_unix": 1792258201.6907132,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 2,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "redundant_channels": {
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 394.54065257298527,
+            "max_centered_amplitude_uv": 655.3776223958339,
+            "filtered_variance_uv2": 13.484519547979946,
+            "mains_50hz_ratio": 0.0011183473242329925,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 877.0506243691544,
+            "max_centered_amplitude_uv": 3089.538827473958,
+            "filtered_variance_uv2": 3320.555442066782,
+            "mains_50hz_ratio": 0.3386822586165676,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 706.4240489517495,
+            "max_centered_amplitude_uv": 1593.6758862304687,
+            "filtered_variance_uv2": 4673.291817653949,
+            "mains_50hz_ratio": 0.8899370026687895,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 393.3547869456494,
+            "max_centered_amplitude_uv": 658.3011562499996,
+            "filtered_variance_uv2": 13.49920817714851,
+            "mains_50hz_ratio": 0.0018481095368751417,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 393.31310857079507,
+            "max_centered_amplitude_uv": 656.4926367187509,
+            "filtered_variance_uv2": 13.481733955913493,
+            "mains_50hz_ratio": 0.0014876819153190873,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 749.6907640334952,
+            "max_centered_amplitude_uv": 1920.8881634114587,
+            "filtered_variance_uv2": 7407.693973784638,
+            "mains_50hz_ratio": 0.8852226847713986,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 88.60655573571051,
+            "max_centered_amplitude_uv": 214.00045052083442,
+            "filtered_variance_uv2": 133.72156863363364,
+            "mains_50hz_ratio": 0.8872714051642953,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": true,
+            "std_uv": 296.5180093840994,
+            "max_centered_amplitude_uv": 754.2597447916633,
+            "filtered_variance_uv2": 81.18918839290455,
+            "mains_50hz_ratio": 0.33338637483633654,
+            "issues": []
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258202.6028073,
+      "window_end_timestamp": 1792258205.5987687,
+      "saved_unix": 1792258204.754125,
+      "path": "trial-004-起飞.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-005",
+      "trial_index": 5,
+      "repetition": 1,
+      "true_label": "后退",
+      "frequency_hz": 18.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 2,
+      "stimulus_started_unix": 1792258207.257321,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 3,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          true
+        ],
+        "redundant_channels": {
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 156.75980253497195,
+            "max_centered_amplitude_uv": 350.2474270833336,
+            "filtered_variance_uv2": 10.057966825329691,
+            "mains_50hz_ratio": 0.0013471652786968115,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 409.76436390161825,
+            "max_centered_amplitude_uv": 1220.98151171875,
+            "filtered_variance_uv2": 2301.4440018598643,
+            "mains_50hz_ratio": 0.9590623931657969,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 548.8242394309964,
+            "max_centered_amplitude_uv": 1054.8997981770835,
+            "filtered_variance_uv2": 5338.977400947545,
+            "mains_50hz_ratio": 0.9645054587330925,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": true,
+            "std_uv": 157.84770531217123,
+            "max_centered_amplitude_uv": 355.5060898437496,
+            "filtered_variance_uv2": 9.7594919781942,
+            "mains_50hz_ratio": 0.007185801671048373,
+            "issues": []
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 157.39219604951074,
+            "max_centered_amplitude_uv": 353.7378164062502,
+            "filtered_variance_uv2": 9.920248501800135,
+            "mains_50hz_ratio": 0.0039453828268912645,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 623.4312123145186,
+            "max_centered_amplitude_uv": 1149.7258580729167,
+            "filtered_variance_uv2": 9359.359102701997,
+            "mains_50hz_ratio": 0.9664798522147752,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 85.10280835985188,
+            "max_centered_amplitude_uv": 155.33404947916642,
+            "filtered_variance_uv2": 99.85722097608961,
+            "mains_50hz_ratio": 0.9644058177926585,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": true,
+            "std_uv": 385.8114885667569,
+            "max_centered_amplitude_uv": 891.1545364583362,
+            "filtered_variance_uv2": 91.66723535709507,
+            "mains_50hz_ratio": 0.38600529678980083,
+            "issues": []
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258208.1067364,
+      "window_end_timestamp": 1792258211.1026978,
+      "saved_unix": 1792258210.26127,
+      "path": "trial-005-后退.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-006",
+      "trial_index": 6,
+      "repetition": 1,
+      "true_label": "前进",
+      "frequency_hz": 16.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 1,
+      "stimulus_started_unix": 1792258212.774071,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 1,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 61.197454930743376,
+            "max_centered_amplitude_uv": 204.08654687499984,
+            "filtered_variance_uv2": 29.800306423024036,
+            "mains_50hz_ratio": 0.010807723809520069,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 956.9528915742279,
+            "max_centered_amplitude_uv": 1943.5162447916664,
+            "filtered_variance_uv2": 7697.146658683142,
+            "mains_50hz_ratio": 0.951128981818507,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 537.6334619393087,
+            "max_centered_amplitude_uv": 1035.1543144531252,
+            "filtered_variance_uv2": 3931.3195450893727,
+            "mains_50hz_ratio": 0.9765285933222354,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 61.33294381382388,
+            "max_centered_amplitude_uv": 206.54422786458417,
+            "filtered_variance_uv2": 28.085760509754735,
+            "mains_50hz_ratio": 0.028375846488045232,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 61.37319423489053,
+            "max_centered_amplitude_uv": 206.24829427083387,
+            "filtered_variance_uv2": 28.039855266099078,
+            "mains_50hz_ratio": 0.020405166537570237,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 676.0783289589125,
+            "max_centered_amplitude_uv": 1297.4052330729164,
+            "filtered_variance_uv2": 6891.183273171582,
+            "mains_50hz_ratio": 0.9684160124964919,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 88.24652989492476,
+            "max_centered_amplitude_uv": 154.46071875000052,
+            "filtered_variance_uv2": 86.60742898710696,
+            "mains_50hz_ratio": 0.9769689269693368,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 153.6700229252043,
+            "max_centered_amplitude_uv": 336.61152604167,
+            "filtered_variance_uv2": 71.48183350116922,
+            "mains_50hz_ratio": 0.8722951698145633,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258213.6106656,
+      "window_end_timestamp": 1792258216.606627,
+      "saved_unix": 1792258215.746177,
+      "path": "trial-006-前进.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-007",
+      "trial_index": 7,
+      "repetition": 2,
+      "true_label": "左移",
+      "frequency_hz": 20.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 3,
+      "stimulus_started_unix": 1792258218.30723,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 1,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {},
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 33.24949212084818,
+            "max_centered_amplitude_uv": 62.96172916666728,
+            "filtered_variance_uv2": 17.007074436035666,
+            "mains_50hz_ratio": 0.2655173810725813,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 484.66166690248065,
+            "max_centered_amplitude_uv": 1216.2372877604175,
+            "filtered_variance_uv2": 2790.681909704231,
+            "mains_50hz_ratio": 0.9703346614826069,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 541.9051055045381,
+            "max_centered_amplitude_uv": 964.742736002604,
+            "filtered_variance_uv2": 5328.474882043207,
+            "mains_50hz_ratio": 0.97333452740223,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 33.49084310352861,
+            "max_centered_amplitude_uv": 67.7058880208333,
+            "filtered_variance_uv2": 17.916814318904454,
+            "mains_50hz_ratio": 0.6606238302984734,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 33.198164666989335,
+            "max_centered_amplitude_uv": 65.16439713541695,
+            "filtered_variance_uv2": 17.221586125413776,
+            "mains_50hz_ratio": 0.5238102706112594,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 669.6598430579467,
+            "max_centered_amplitude_uv": 1340.2381875,
+            "filtered_variance_uv2": 9329.763757228086,
+            "mains_50hz_ratio": 0.9468019128341641,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 79.4165711830988,
+            "max_centered_amplitude_uv": 147.4684427083339,
+            "filtered_variance_uv2": 310.3319651525116,
+            "mains_50hz_ratio": 0.9396090912487846,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 254.6055819702149,
+            "max_centered_amplitude_uv": 590.92642708333,
+            "filtered_variance_uv2": 128.92881368541916,
+            "mains_50hz_ratio": 0.6840954732405032,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258219.1145947,
+      "window_end_timestamp": 1792258222.1105561,
+      "saved_unix": 1792258221.276889,
+      "path": "trial-007-左移.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-008",
+      "trial_index": 8,
+      "repetition": 2,
+      "true_label": "右移",
+      "frequency_hz": 22.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 4,
+      "stimulus_started_unix": 1792258223.857408,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 2,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 49.26920513897893,
+            "max_centered_amplitude_uv": 110.56423177083343,
+            "filtered_variance_uv2": 5.89078926734975,
+            "mains_50hz_ratio": 0.0196184733956221,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 652.1467733266628,
+            "max_centered_amplitude_uv": 1975.1945677083331,
+            "filtered_variance_uv2": 3709.089757821032,
+            "mains_50hz_ratio": 0.8478719336165189,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 480.3428205353194,
+            "max_centered_amplitude_uv": 893.8611728515625,
+            "filtered_variance_uv2": 3322.136379419953,
+            "mains_50hz_ratio": 0.9721359761229827,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": true,
+            "std_uv": 49.91943651194796,
+            "max_centered_amplitude_uv": 114.24880989583289,
+            "filtered_variance_uv2": 5.57539493977354,
+            "mains_50hz_ratio": 0.05765434114425149,
+            "issues": []
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 49.58543707715078,
+            "max_centered_amplitude_uv": 112.62214062500061,
+            "filtered_variance_uv2": 5.577823560344414,
+            "mains_50hz_ratio": 0.03579219341153264,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 673.514194262503,
+            "max_centered_amplitude_uv": 1529.7311435546872,
+            "filtered_variance_uv2": 5994.133401150666,
+            "mains_50hz_ratio": 0.9337694097783402,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 81.63623207897172,
+            "max_centered_amplitude_uv": 170.027244791665,
+            "filtered_variance_uv2": 138.47153814065916,
+            "mains_50hz_ratio": 0.9538828701536498,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 245.48875846823208,
+            "max_centered_amplitude_uv": 790.6759479166649,
+            "filtered_variance_uv2": 248.73205081938332,
+            "mains_50hz_ratio": 0.6714153004444037,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258224.7465222,
+      "window_end_timestamp": 1792258227.7424836,
+      "saved_unix": 1792258226.905448,
+      "path": "trial-008-右移.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-009",
+      "trial_index": 9,
+      "repetition": 2,
+      "true_label": "降落",
+      "frequency_hz": 24.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 5,
+      "stimulus_started_unix": 1792258229.424437,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 2,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "redundant_channels": {
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 396.4608928158473,
+            "max_centered_amplitude_uv": 701.2321393229158,
+            "filtered_variance_uv2": 318.48077752084214,
+            "mains_50hz_ratio": 0.0012584679659181685,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 2745.397908462362,
+            "max_centered_amplitude_uv": 4105.754000976563,
+            "filtered_variance_uv2": 22456.134566381224,
+            "mains_50hz_ratio": 0.24487954485499278,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 1019.7698616680535,
+            "max_centered_amplitude_uv": 3703.3720345052084,
+            "filtered_variance_uv2": 12378.959246678722,
+            "mains_50hz_ratio": 0.5450231183673953,
+            "issues": [
+              "振幅过大",
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 391.47988788973606,
+            "max_centered_amplitude_uv": 697.8130182291661,
+            "filtered_variance_uv2": 306.1187717225658,
+            "mains_50hz_ratio": 0.001300057745460481,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 391.64239494907315,
+            "max_centered_amplitude_uv": 696.8675091145833,
+            "filtered_variance_uv2": 305.84724387111993,
+            "mains_50hz_ratio": 0.0013385680534893465,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 1093.1952443012615,
+            "max_centered_amplitude_uv": 4024.9965654296875,
+            "filtered_variance_uv2": 13193.29323005594,
+            "mains_50hz_ratio": 0.5422448782715439,
+            "issues": [
+              "振幅过大",
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 106.97486692814434,
+            "max_centered_amplitude_uv": 238.87412499999846,
+            "filtered_variance_uv2": 100.00091653711648,
+            "mains_50hz_ratio": 0.9546168176094224,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": true,
+            "std_uv": 737.7227226079941,
+            "max_centered_amplitude_uv": 1870.2061770833316,
+            "filtered_variance_uv2": 9249.993575467597,
+            "mains_50hz_ratio": 0.051319834271436375,
+            "issues": []
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258230.2504513,
+      "window_end_timestamp": 1792258233.2464128,
+      "saved_unix": 1792258232.4139872,
+      "path": "trial-009-降落.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-010",
+      "trial_index": 10,
+      "repetition": 2,
+      "true_label": "后退",
+      "frequency_hz": 18.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 2,
+      "stimulus_started_unix": 1792258234.957372,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 1,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 126.66550350406898,
+            "max_centered_amplitude_uv": 299.5861562499995,
+            "filtered_variance_uv2": 30.443423110729977,
+            "mains_50hz_ratio": 0.002942795638076196,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 448.5525681793394,
+            "max_centered_amplitude_uv": 1801.6574088541674,
+            "filtered_variance_uv2": 2009.966257321616,
+            "mains_50hz_ratio": 0.8250117321683332,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 555.4965240834754,
+            "max_centered_amplitude_uv": 1394.0539208984374,
+            "filtered_variance_uv2": 4469.374552069821,
+            "mains_50hz_ratio": 0.9211284942468226,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 125.48479561369122,
+            "max_centered_amplitude_uv": 299.11148437500015,
+            "filtered_variance_uv2": 30.335349871739542,
+            "mains_50hz_ratio": 0.01394435617557449,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 125.45459158080469,
+            "max_centered_amplitude_uv": 296.8732955729174,
+            "filtered_variance_uv2": 30.634044104552324,
+            "mains_50hz_ratio": 0.007409763573687488,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 949.6715745147789,
+            "max_centered_amplitude_uv": 2855.4139095052083,
+            "filtered_variance_uv2": 7698.616920043943,
+            "mains_50hz_ratio": 0.8047115159024205,
+            "issues": [
+              "振幅过大",
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 89.53222940895029,
+            "max_centered_amplitude_uv": 189.62394270833465,
+            "filtered_variance_uv2": 46.891761764672914,
+            "mains_50hz_ratio": 0.9370448253926111,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 188.55280238235287,
+            "max_centered_amplitude_uv": 382.75593749999825,
+            "filtered_variance_uv2": 204.88118604438938,
+            "mains_50hz_ratio": 0.9451197083860956,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258235.7543805,
+      "window_end_timestamp": 1792258238.750342,
+      "saved_unix": 1792258237.905556,
+      "path": "trial-010-后退.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-011",
+      "trial_index": 11,
+      "repetition": 2,
+      "true_label": "起飞",
+      "frequency_hz": 14.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 0,
+      "stimulus_started_unix": 1792258240.473898,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 1,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 368.2574174264516,
+            "max_centered_amplitude_uv": 616.5721940104158,
+            "filtered_variance_uv2": 62.964427160692466,
+            "mains_50hz_ratio": 0.0013141079207977652,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 2212.732344991866,
+            "max_centered_amplitude_uv": 4251.9389059244795,
+            "filtered_variance_uv2": 6695.049486820236,
+            "mains_50hz_ratio": 0.2834717862255697,
+            "issues": [
+              "振幅过大"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 734.3808318549258,
+            "max_centered_amplitude_uv": 1825.4221607666016,
+            "filtered_variance_uv2": 3087.327869483785,
+            "mains_50hz_ratio": 0.8239153002292094,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 364.23954567858596,
+            "max_centered_amplitude_uv": 611.9655013020838,
+            "filtered_variance_uv2": 61.57432620393366,
+            "mains_50hz_ratio": 0.001895004628319464,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 364.4101367347181,
+            "max_centered_amplitude_uv": 611.1695117187501,
+            "filtered_variance_uv2": 61.793965367238364,
+            "mains_50hz_ratio": 0.0017013248741549018,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 699.5193920751898,
+            "max_centered_amplitude_uv": 1698.4669350585937,
+            "filtered_variance_uv2": 6836.7579722328555,
+            "mains_50hz_ratio": 0.900997516249208,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 95.54822599557264,
+            "max_centered_amplitude_uv": 223.8545390625004,
+            "filtered_variance_uv2": 74.78460502204825,
+            "mains_50hz_ratio": 0.9342022662709655,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 222.0626887633496,
+            "max_centered_amplitude_uv": 485.76400000000285,
+            "filtered_variance_uv2": 939.0089646966264,
+            "mains_50hz_ratio": 0.7931315316423772,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258241.386308,
+      "window_end_timestamp": 1792258244.3822694,
+      "saved_unix": 1792258243.563139,
+      "path": "trial-011-起飞.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-012",
+      "trial_index": 12,
+      "repetition": 2,
+      "true_label": "前进",
+      "frequency_hz": 16.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 1,
+      "stimulus_started_unix": 1792258246.074244,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 2,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 298.4488384831045,
+            "max_centered_amplitude_uv": 572.1583242187498,
+            "filtered_variance_uv2": 18.175871256759457,
+            "mains_50hz_ratio": 0.0008202295987515375,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": true,
+            "std_uv": 717.8468477747135,
+            "max_centered_amplitude_uv": 2367.144802083333,
+            "filtered_variance_uv2": 3158.3663278643744,
+            "mains_50hz_ratio": 0.47315888165142966,
+            "issues": []
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 621.9522808603032,
+            "max_centered_amplitude_uv": 1306.3445975748698,
+            "filtered_variance_uv2": 3221.581166907076,
+            "mains_50hz_ratio": 0.9263222648492833,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 297.27851770456033,
+            "max_centered_amplitude_uv": 575.9525683593747,
+            "filtered_variance_uv2": 17.25684371761975,
+            "mains_50hz_ratio": 0.0018741363793398434,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 297.76839252462725,
+            "max_centered_amplitude_uv": 574.5163372395837,
+            "filtered_variance_uv2": 17.35140527293255,
+            "mains_50hz_ratio": 0.001294776443472162,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 707.1168010823267,
+            "max_centered_amplitude_uv": 1619.5759338175455,
+            "filtered_variance_uv2": 6344.441123941342,
+            "mains_50hz_ratio": 0.8722382184478714,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 85.4427650171662,
+            "max_centered_amplitude_uv": 177.40960677083422,
+            "filtered_variance_uv2": 72.31455214164998,
+            "mains_50hz_ratio": 0.9704078765311919,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 146.3194000678361,
+            "max_centered_amplitude_uv": 347.51786458333663,
+            "filtered_variance_uv2": 233.34278570447384,
+            "mains_50hz_ratio": 0.9072678977932098,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258246.890237,
+      "window_end_timestamp": 1792258249.8861985,
+      "saved_unix": 1792258249.063228,
+      "path": "trial-012-前进.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-013",
+      "trial_index": 13,
+      "repetition": 3,
+      "true_label": "后退",
+      "frequency_hz": 18.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 2,
+      "stimulus_started_unix": 1792258251.623102,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 2,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 368.045890187344,
+            "max_centered_amplitude_uv": 712.2184583333328,
+            "filtered_variance_uv2": 21.235290668547798,
+            "mains_50hz_ratio": 0.0007825337910561397,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": true,
+            "std_uv": 362.85980556930707,
+            "max_centered_amplitude_uv": 910.1263346354172,
+            "filtered_variance_uv2": 1012.3844853497015,
+            "mains_50hz_ratio": 0.3760520141887996,
+            "issues": []
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 648.6998662144507,
+            "max_centered_amplitude_uv": 1313.6064817708334,
+            "filtered_variance_uv2": 2871.3808274759344,
+            "mains_50hz_ratio": 0.8991608116475112,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 368.8708483821712,
+            "max_centered_amplitude_uv": 713.4992799479169,
+            "filtered_variance_uv2": 19.901833335612093,
+            "mains_50hz_ratio": 0.0011920867551944649,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 368.2562475016751,
+            "max_centered_amplitude_uv": 711.6853151041669,
+            "filtered_variance_uv2": 20.238535102725596,
+            "mains_50hz_ratio": 0.0009068650909800844,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 625.3231543226967,
+            "max_centered_amplitude_uv": 1325.2235615234376,
+            "filtered_variance_uv2": 5728.453081066781,
+            "mains_50hz_ratio": 0.9116340281177528,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 94.59525232353467,
+            "max_centered_amplitude_uv": 195.34995572916523,
+            "filtered_variance_uv2": 41.383378320087495,
+            "mains_50hz_ratio": 0.9131287078079833,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 217.41470640951488,
+            "max_centered_amplitude_uv": 693.2741614583356,
+            "filtered_variance_uv2": 151.51775058112239,
+            "mains_50hz_ratio": 0.6402507386801428,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258252.5221646,
+      "window_end_timestamp": 1792258255.518126,
+      "saved_unix": 1792258254.6970189,
+      "path": "trial-013-后退.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-014",
+      "trial_index": 14,
+      "repetition": 3,
+      "true_label": "前进",
+      "frequency_hz": 16.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 1,
+      "stimulus_started_unix": 1792258257.223907,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 3,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          true,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 326.82083207504473,
+            "max_centered_amplitude_uv": 638.071059895834,
+            "filtered_variance_uv2": 4.879364548158174,
+            "mains_50hz_ratio": 0.0014534666020828814,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": true,
+            "std_uv": 310.02361037005903,
+            "max_centered_amplitude_uv": 598.4745976562499,
+            "filtered_variance_uv2": 166.46940002656362,
+            "mains_50hz_ratio": 0.09588645427457737,
+            "issues": []
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 637.6949596422553,
+            "max_centered_amplitude_uv": 1382.8305527343746,
+            "filtered_variance_uv2": 4554.870932409323,
+            "mains_50hz_ratio": 0.9075660695972024,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": true,
+            "std_uv": 327.4608589896273,
+            "max_centered_amplitude_uv": 643.8555299479158,
+            "filtered_variance_uv2": 4.936802366555982,
+            "mains_50hz_ratio": 0.0026957008123786185,
+            "issues": []
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 327.53055491292946,
+            "max_centered_amplitude_uv": 640.027891927084,
+            "filtered_variance_uv2": 4.7251296458352,
+            "mains_50hz_ratio": 0.001870173287244808,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 657.718280857359,
+            "max_centered_amplitude_uv": 1542.1667278645837,
+            "filtered_variance_uv2": 6427.331586037327,
+            "mains_50hz_ratio": 0.8928750142484118,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 126.5609912144485,
+            "max_centered_amplitude_uv": 278.78716927083224,
+            "filtered_variance_uv2": 121.39476906913445,
+            "mains_50hz_ratio": 0.7449414294254444,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 202.72998701999921,
+            "max_centered_amplitude_uv": 640.8342447916657,
+            "filtered_variance_uv2": 287.7797583593047,
+            "mains_50hz_ratio": 0.5091118652306383,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258258.0260937,
+      "window_end_timestamp": 1792258261.0220551,
+      "saved_unix": 1792258260.200813,
+      "path": "trial-014-前进.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-015",
+      "trial_index": 15,
+      "repetition": 3,
+      "true_label": "左移",
+      "frequency_hz": 20.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 3,
+      "stimulus_started_unix": 1792258262.741201,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 2,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 196.10014455804512,
+            "max_centered_amplitude_uv": 377.19852994791654,
+            "filtered_variance_uv2": 8.422502733022238,
+            "mains_50hz_ratio": 0.0009656383880503223,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 215.4123543272435,
+            "max_centered_amplitude_uv": 586.0610065104174,
+            "filtered_variance_uv2": 417.73184123637634,
+            "mains_50hz_ratio": 0.7062623498094743,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 579.9409072104412,
+            "max_centered_amplitude_uv": 1090.8061276041662,
+            "filtered_variance_uv2": 3581.3813297997513,
+            "mains_50hz_ratio": 0.9551375770487759,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": true,
+            "std_uv": 196.65589773736212,
+            "max_centered_amplitude_uv": 381.7842708333337,
+            "filtered_variance_uv2": 8.627377741980888,
+            "mains_50hz_ratio": 0.0035761063075518025,
+            "issues": []
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 196.5787599012596,
+            "max_centered_amplitude_uv": 379.0111861979167,
+            "filtered_variance_uv2": 8.931577489040807,
+            "mains_50hz_ratio": 0.0017188120954460468,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 583.954983707359,
+            "max_centered_amplitude_uv": 1080.3900052083336,
+            "filtered_variance_uv2": 5728.5407480423355,
+            "mains_50hz_ratio": 0.9617195642554704,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 133.79204067050944,
+            "max_centered_amplitude_uv": 272.4300442708336,
+            "filtered_variance_uv2": 110.81456020263246,
+            "mains_50hz_ratio": 0.7193818076430807,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 287.1917101586308,
+            "max_centered_amplitude_uv": 650.9005364583354,
+            "filtered_variance_uv2": 140.63792419430223,
+            "mains_50hz_ratio": 0.5536158810034156,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258263.5300229,
+      "window_end_timestamp": 1792258266.5259843,
+      "saved_unix": 1792258265.71034,
+      "path": "trial-015-左移.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-016",
+      "trial_index": 16,
+      "repetition": 3,
+      "true_label": "起飞",
+      "frequency_hz": 14.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 0,
+      "stimulus_started_unix": 1792258268.274105,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 2,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "redundant_channels": {
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 316.9226137934268,
+            "max_centered_amplitude_uv": 545.5352656249997,
+            "filtered_variance_uv2": 89.4327400928533,
+            "mains_50hz_ratio": 0.000778005905258914,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 677.1063362197418,
+            "max_centered_amplitude_uv": 1458.9099036458338,
+            "filtered_variance_uv2": 1136.9027184992754,
+            "mains_50hz_ratio": 0.6855914895337348,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 733.1965960870659,
+            "max_centered_amplitude_uv": 2579.7047578125002,
+            "filtered_variance_uv2": 6088.769610396899,
+            "mains_50hz_ratio": 0.6751891966750276,
+            "issues": [
+              "振幅过大",
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 316.07938692709496,
+            "max_centered_amplitude_uv": 543.2770260416673,
+            "filtered_variance_uv2": 91.2974632128045,
+            "mains_50hz_ratio": 0.0014200687052120966,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 315.8289241737904,
+            "max_centered_amplitude_uv": 541.8322291666664,
+            "filtered_variance_uv2": 90.53751502721973,
+            "mains_50hz_ratio": 0.0012016836044532124,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 652.3588783981754,
+            "max_centered_amplitude_uv": 1536.1581647135408,
+            "filtered_variance_uv2": 7540.465058764959,
+            "mains_50hz_ratio": 0.8682091358278904,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 108.76289230489421,
+            "max_centered_amplitude_uv": 297.38366666666843,
+            "filtered_variance_uv2": 188.6802635654086,
+            "mains_50hz_ratio": 0.812498078844461,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": true,
+            "std_uv": 286.66534414917487,
+            "max_centered_amplitude_uv": 1602.2000677083342,
+            "filtered_variance_uv2": 3847.1782809627503,
+            "mains_50hz_ratio": 0.20816301359056197,
+            "issues": []
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258269.033952,
+      "window_end_timestamp": 1792258272.0299134,
+      "saved_unix": 1792258271.246631,
+      "path": "trial-016-起飞.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-017",
+      "trial_index": 17,
+      "repetition": 3,
+      "true_label": "右移",
+      "frequency_hz": 22.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 4,
+      "stimulus_started_unix": 1792258273.806605,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 1,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "redundant_channels": {
+          "2": 1,
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 808.4629741090079,
+            "max_centered_amplitude_uv": 1476.8391601562507,
+            "filtered_variance_uv2": 5.280542945341995,
+            "mains_50hz_ratio": 0.0010568916644075577,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 809.0585542066831,
+            "max_centered_amplitude_uv": 1477.977328125,
+            "filtered_variance_uv2": 5.316751637236329,
+            "mains_50hz_ratio": 0.0010322345910038172,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 786.1334214040971,
+            "max_centered_amplitude_uv": 2692.5015716145826,
+            "filtered_variance_uv2": 8714.979669760904,
+            "mains_50hz_ratio": 0.7626067031817293,
+            "issues": [
+              "振幅过大",
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 808.6887813873641,
+            "max_centered_amplitude_uv": 1478.7236914062505,
+            "filtered_variance_uv2": 5.580197730702453,
+            "mains_50hz_ratio": 0.0011138458002796288,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 808.9834677254264,
+            "max_centered_amplitude_uv": 1477.9168541666659,
+            "filtered_variance_uv2": 5.2982598787546715,
+            "mains_50hz_ratio": 0.0010679287973969632,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 823.1284109502808,
+            "max_centered_amplitude_uv": 2661.750701822917,
+            "filtered_variance_uv2": 7184.697354433911,
+            "mains_50hz_ratio": 0.7018623226576943,
+            "issues": [
+              "振幅过大",
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": false,
+            "std_uv": 110.70460288575836,
+            "max_centered_amplitude_uv": 270.3301744791679,
+            "filtered_variance_uv2": 213.7920107816423,
+            "mains_50hz_ratio": 0.7812939899947865,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 8,
+            "usable": false,
+            "std_uv": 357.17635942348426,
+            "max_centered_amplitude_uv": 691.2571874999994,
+            "filtered_variance_uv2": 287.63192594925573,
+            "mains_50hz_ratio": 0.5917017367048018,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258274.6658795,
+      "window_end_timestamp": 1792258277.661841,
+      "saved_unix": 1792258276.84636,
+      "path": "trial-017-右移.npz"
+    },
+    {
+      "run_id": "single-20261018-012943-4c95e2",
+      "trial_id": "single-20261018-012943-4c95e2-trial-018",
+      "trial_index": 18,
+      "repetition": 3,
+      "true_label": "降落",
+      "frequency_hz": 24.0,
+      "duration_seconds": 3.0,
+      "discard_seconds": 0.5,
+      "stimulus_layout": "six_target_wide_corners_v1",
+      "visible_target_count": 1,
+      "target_slot_index": 5,
+      "stimulus_started_unix": 1792258279.373804,
+      "sample_rate_hz": 250.0,
+      "channels": [
+        "O1",
+        "Oz",
+        "O2",
+        "PO3",
+        "POz",
+        "PO4",
+        "P3",
+        "P4"
+      ],
+      "original_channels": [],
+      "channel_units": [
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV",
+        "uV"
+      ],
+      "signal_quality": {
+        "status": "partial",
+        "usable_channel_count": 3,
+        "total_channel_count": 8,
+        "usable_mask": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          true
+        ],
+        "redundant_channels": {
+          "2": 1,
+          "4": 1,
+          "5": 1
+        },
+        "channels": [
+          {
+            "channel": 1,
+            "usable": true,
+            "std_uv": 318.2249221261371,
+            "max_centered_amplitude_uv": 766.5904765624982,
+            "filtered_variance_uv2": 50.33878468485324,
+            "mains_50hz_ratio": 0.0010005607010235486,
+            "issues": []
+          },
+          {
+            "channel": 2,
+            "usable": false,
+            "std_uv": 317.8670108892513,
+            "max_centered_amplitude_uv": 766.0566015625009,
+            "filtered_variance_uv2": 51.09023943372704,
+            "mains_50hz_ratio": 0.0009209623256808977,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 3,
+            "usable": false,
+            "std_uv": 699.4558845406914,
+            "max_centered_amplitude_uv": 1729.2856979166663,
+            "filtered_variance_uv2": 5424.197125755274,
+            "mains_50hz_ratio": 0.9139273907482477,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 4,
+            "usable": false,
+            "std_uv": 317.62955587509197,
+            "max_centered_amplitude_uv": 766.1291276041666,
+            "filtered_variance_uv2": 50.47839029869578,
+            "mains_50hz_ratio": 0.0012963622252448077,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 5,
+            "usable": false,
+            "std_uv": 318.32993738125793,
+            "max_centered_amplitude_uv": 766.5685390625003,
+            "filtered_variance_uv2": 50.627282081558484,
+            "mains_50hz_ratio": 0.0010227851984569622,
+            "issues": [
+              "与通道1近乎重复"
+            ]
+          },
+          {
+            "channel": 6,
+            "usable": false,
+            "std_uv": 591.1181161133785,
+            "max_centered_amplitude_uv": 1357.7165859375,
+            "filtered_variance_uv2": 6369.49358552595,
+            "mains_50hz_ratio": 0.9024751316134516,
+            "issues": [
+              "50Hz工频占比过高"
+            ]
+          },
+          {
+            "channel": 7,
+            "usable": true,
+            "std_uv": 186.6221453834832,
+            "max_centered_amplitude_uv": 424.1429531249996,
+            "filtered_variance_uv2": 192.4720843872891,
+            "mains_50hz_ratio": 0.4983702370038797,
+            "issues": []
+          },
+          {
+            "channel": 8,
+            "usable": true,
+            "std_uv": 507.6479839812869,
+            "max_centered_amplitude_uv": 1433.9896093749994,
+            "filtered_variance_uv2": 1021.2536397472961,
+            "mains_50hz_ratio": 0.11812716073687005,
+            "issues": []
+          }
+        ]
+      },
+      "window_start_timestamp": 1792258280.1698086,
+      "window_end_timestamp": 1792258283.16577,
+      "saved_unix": 1792258282.353472,
+      "path": "trial-018-降落.npz"
+    }
+  ],
+  "summary": {
+    "run_id": "single-20261018-012943-4c95e2",
+    "status": "completed",
+    "reason": "全部单目标试次已保存",
+    "saved_trials": 18,
+    "total_trials": 18,
+    "paths": [
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-001-右移.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-002-左移.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-003-降落.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-004-起飞.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-005-后退.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-006-前进.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-007-左移.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-008-右移.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-009-降落.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-010-后退.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-011-起飞.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-012-前进.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-013-后退.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-014-前进.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-015-左移.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-016-起飞.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-017-右移.npz",
+      "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-012943-4c95e2/trial-018-降落.npz"
+    ]
+  }
+}

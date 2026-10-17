@@ -5,6 +5,7 @@ from __future__ import annotations
 from src.views.research_acquisition_view import ResearchAcquisitionViewMixin
 from src.views.research_collection_view import ResearchCollectionViewMixin
 from src.views.research_configuration_view import ResearchConfigurationViewMixin
+from src.views.research_single_target_view import ResearchSingleTargetViewMixin
 from src.widgets.scifi_canvas import BG, RESEARCH_NAV_ITEMS, Canvas
 
 
@@ -12,6 +13,7 @@ class ResearchViewMixin(
     ResearchCollectionViewMixin,
     ResearchAcquisitionViewMixin,
     ResearchConfigurationViewMixin,
+    ResearchSingleTargetViewMixin,
 ):
     """Dispatch the researcher shell to focused page renderers."""
 
@@ -39,6 +41,7 @@ class ResearchViewMixin(
             "控制": self._research_controller,
             "映射": self._research_mapping,
             "数据": self._research_data,
+            "单目标校准": self._research_single_target_calibration,
         }[self.research_page](c)
 
 

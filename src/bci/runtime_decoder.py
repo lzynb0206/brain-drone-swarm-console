@@ -32,6 +32,12 @@ class RuntimeIntentDecoder:
             decoder = self._decoders[self._active_name]
             return str(getattr(decoder, "backend_status", self._active_name))
 
+    @property
+    def idle_calibration_seconds(self) -> float:
+        with self._lock:
+            decoder = self._decoders[self._active_name]
+        return float(getattr(decoder, "idle_calibration_seconds", 12.0))
+
     def algorithm_statuses(self) -> dict[str, dict[str, object]]:
         statuses = {}
         for name, decoder in self._decoders.items():
@@ -70,6 +76,19 @@ class RuntimeIntentDecoder:
         if callable(reset):
             reset()
 
+    def reload(self, name: str) -> str:
+        normalized = str(name).strip()
+        if normalized not in self._decoders:
+            raise ValueError(f"未知解码算法：{normalized}")
+        decoder = self._decoders[normalized]
+        callback = getattr(decoder, "reload", None)
+        if not callable(callback):
+            return f"{normalized} 不需要重新加载"
+        if callback() is False:
+            reason = str(getattr(decoder, "backend_status", "重新加载失败"))
+            raise RuntimeError(reason)
+        return f"{normalized} 已重新加载"
+
     def begin_idle_calibration(self) -> None:
         with self._lock:
             decoder = self._decoders[self._active_name]
@@ -82,7 +101,7 @@ class RuntimeIntentDecoder:
             decoder = self._decoders[self._active_name]
         callback = getattr(decoder, "observe_idle", None)
         if callable(callback):
-            callback(result.confidence, result.margin)
+            callback(result.confidence, result.margin, scores=result.scores)
 
     def idle_calibration_summary(self) -> str:
         with self._lock:

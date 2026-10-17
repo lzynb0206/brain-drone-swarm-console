@@ -1,0 +1,218 @@
+{
+  "model_name": "Transformer-SSVEP",
+  "model_version": 1,
+  "architecture": "4 temporal patches -> log FFT magnitude -> Transformer encoder",
+  "labels": [
+    "空闲",
+    "起飞",
+    "前进",
+    "后退",
+    "左移",
+    "右移",
+    "降落"
+  ],
+  "channel_names": [
+    "O1",
+    "Oz",
+    "O2",
+    "PO3",
+    "POz",
+    "PO4",
+    "P3",
+    "P4"
+  ],
+  "reference": "SRB2/A1",
+  "bias": "BIAS/A2",
+  "sample_rate": 250.0,
+  "window_seconds": 2.0,
+  "model_args": {
+    "channels": 8,
+    "sample_count": 500,
+    "patch_count": 4,
+    "classes": 7,
+    "embedding_dim": 128,
+    "encoder_layers": 2,
+    "attention_heads": 8,
+    "feedforward_dim": 256,
+    "classifier_hidden_dim": 64,
+    "dropout": 0.1
+  },
+  "gate_thresholds": {
+    "min_confidence": 0.6
+  },
+  "training_report": {
+    "training_trials": 78,
+    "validation_trials": 27,
+    "validation_loss": 1.958871841430664,
+    "validation_accuracy": 0.07407407407407407,
+    "validation_macro_f1": 0.028571428571428574,
+    "idle_false_activation_rate": 1.0,
+    "confusion_matrix": [
+      [
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        2
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        3,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        2,
+        0,
+        2
+      ],
+      [
+        0,
+        0,
+        1,
+        0,
+        2,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        3,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        4,
+        0,
+        0
+      ]
+    ],
+    "split": {
+      "strategy": "within-session-stratified-pilot-only",
+      "warning": "不得作为跨会话泛化结果报告"
+    },
+    "history": [
+      {
+        "epoch": 1,
+        "train_loss": 2.0102874040603638,
+        "validation_loss": 1.958871841430664,
+        "validation_accuracy": 0.07407407407407407
+      },
+      {
+        "epoch": 2,
+        "train_loss": 1.9353376229604085,
+        "validation_loss": 1.9594160318374634,
+        "validation_accuracy": 0.07407407407407407
+      },
+      {
+        "epoch": 3,
+        "train_loss": 1.9409966468811035,
+        "validation_loss": 1.9675654172897339,
+        "validation_accuracy": 0.037037037037037035
+      },
+      {
+        "epoch": 4,
+        "train_loss": 1.9389608303705852,
+        "validation_loss": 1.976314663887024,
+        "validation_accuracy": 0.1111111111111111
+      },
+      {
+        "epoch": 5,
+        "train_loss": 1.9305731455485027,
+        "validation_loss": 1.981026530265808,
+        "validation_accuracy": 0.1111111111111111
+      },
+      {
+        "epoch": 6,
+        "train_loss": 1.928207238515218,
+        "validation_loss": 1.9903395175933838,
+        "validation_accuracy": 0.1111111111111111
+      },
+      {
+        "epoch": 7,
+        "train_loss": 1.9199659029642742,
+        "validation_loss": 2.000877857208252,
+        "validation_accuracy": 0.07407407407407407
+      },
+      {
+        "epoch": 8,
+        "train_loss": 1.9042550722757976,
+        "validation_loss": 2.0181381702423096,
+        "validation_accuracy": 0.07407407407407407
+      },
+      {
+        "epoch": 9,
+        "train_loss": 1.9230334758758545,
+        "validation_loss": 2.040806531906128,
+        "validation_accuracy": 0.07407407407407407
+      },
+      {
+        "epoch": 10,
+        "train_loss": 1.938101847966512,
+        "validation_loss": 2.071035861968994,
+        "validation_accuracy": 0.037037037037037035
+      },
+      {
+        "epoch": 11,
+        "train_loss": 1.8751088380813599,
+        "validation_loss": 2.1089422702789307,
+        "validation_accuracy": 0.07407407407407407
+      },
+      {
+        "epoch": 12,
+        "train_loss": 1.8720184961954753,
+        "validation_loss": 2.1272950172424316,
+        "validation_accuracy": 0.0
+      },
+      {
+        "epoch": 13,
+        "train_loss": 1.8884137471516926,
+        "validation_loss": 2.1376543045043945,
+        "validation_accuracy": 0.0
+      },
+      {
+        "epoch": 14,
+        "train_loss": 1.849098761876424,
+        "validation_loss": 2.1378912925720215,
+        "validation_accuracy": 0.07407407407407407
+      },
+      {
+        "epoch": 15,
+        "train_loss": 1.7899752855300903,
+        "validation_loss": 2.165027379989624,
+        "validation_accuracy": 0.07407407407407407
+      },
+      {
+        "epoch": 16,
+        "train_loss": 1.8176653782526653,
+        "validation_loss": 2.209719657897949,
+        "validation_accuracy": 0.037037037037037035
+      }
+    ]
+  }
+}

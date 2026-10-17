@@ -11,10 +11,14 @@ def target_rectangles(width: int, height: int) -> tuple[QRectF, ...]:
 
     width_f = max(1.0, float(width))
     height_f = max(1.0, float(height))
-    block_width = max(150.0, width_f * 0.21)
-    block_height = max(110.0, height_f * 0.25)
-    centers_x = (width_f * 0.17, width_f * 0.50, width_f * 0.83)
-    centers_y = (height_f * 0.30, height_f * 0.73)
+    # Keep every target small and separated by a wide black field. The four
+    # outer targets sit close to the screen corners; forward/backward retain
+    # their intuitive upper/lower centre positions. Calibration uses this
+    # exact function, so train and online geometry cannot drift apart again.
+    block_width = max(140.0, width_f * 0.14)
+    block_height = max(100.0, height_f * 0.18)
+    centers_x = (width_f * 0.09, width_f * 0.50, width_f * 0.91)
+    centers_y = (height_f * 0.18, height_f * 0.82)
     slots = tuple(
         QRectF(
             center_x - block_width / 2.0,

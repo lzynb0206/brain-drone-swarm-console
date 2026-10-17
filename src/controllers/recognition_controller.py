@@ -45,7 +45,6 @@ class RecognitionController:
         ):
             if (
                 stimulus_window.running
-                and not stimulus_window.stimuli_active
                 and stimulus_window.calibrating_idle
             ):
                 observe_idle = getattr(host.intent_decoder, "observe_idle", None)
@@ -70,7 +69,7 @@ class RecognitionController:
             stimulus_window is not None
             and stimulus_window.control_mode
             and stimulus_window.running
-            and not stimulus_window.stimuli_active
+            and (stimulus_window.calibrating_idle or not stimulus_window.stimuli_active)
         ):
             if stimulus_window.calibrating_idle:
                 observe_idle = getattr(host.intent_decoder, "observe_idle", None)

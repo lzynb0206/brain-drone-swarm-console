@@ -102,6 +102,9 @@ class StimulusSessionRecorder:
         luminance_by_target: Sequence[Sequence[float]],
         true_label: str,
         started_at_unix: float,
+        *,
+        display_refresh_rate_hz: float | None = None,
+        timing_source: str = "paint-callback",
     ) -> dict[str, object]:
         session_id = f"stim-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
         measurements: list[dict[str, float | int]] = []
@@ -116,7 +119,8 @@ class StimulusSessionRecorder:
                     "target_hz": measurement.target_hz,
                     "measured_hz": measurement.measured_hz,
                     "error_hz": measurement.error_hz,
-                    "refresh_rate_hz": measurement.refresh_rate_hz,
+                    "render_rate_hz": measurement.refresh_rate_hz,
+                    "display_refresh_rate_hz": display_refresh_rate_hz,
                     "frame_jitter_ms": measurement.frame_jitter_ms,
                     "sample_count": measurement.sample_count,
                 }
@@ -138,6 +142,8 @@ class StimulusSessionRecorder:
             "true_label": true_label,
             "frame_count": len(frame_times),
             "measurements": measurements,
+            "timing_source": timing_source,
+            "physical_frequency_verified": False,
             "raw_timing_path": npz_path.name,
         }
         json_path = self.root / f"{session_id}.json"

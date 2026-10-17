@@ -10,8 +10,6 @@ import numpy as np
 
 from src.bci.config import (
     COMMANDS,
-    FBCCA_AUTO_MAX_MARGIN,
-    FBCCA_AUTO_MAX_SCORE,
     SSVEP_CHANNELS_1BASED,
     TARGET_FREQUENCIES_HZ,
 )
@@ -25,7 +23,9 @@ def _orthonormal_basis(values: np.ndarray) -> np.ndarray:
     u, singular_values, _ = np.linalg.svd(centered, full_matrices=False)
     if not singular_values.size:
         return np.empty((centered.shape[0], 0))
-    tolerance = max(centered.shape) * np.finfo(float).eps * singular_values[0]
+    # Near-duplicate electrodes must not turn ADC rounding/noise into additional
+    # full-strength CCA dimensions. Retain at most 100:1 singular-value range.
+    tolerance = max(max(centered.shape) * np.finfo(float).eps, 0.01) * singular_values[0]
     return u[:, singular_values > tolerance]
 
 
@@ -71,6 +71,9 @@ class FBCCADecoder:
         self._base_min_margin = float(self.safety_service.min_margin)
         self._idle_scores: list[float] = []
         self._idle_margins: list[float] = []
+        self._idle_class_scores: list[np.ndarray] = []
+        self._background = np.zeros(len(self.labels), dtype=float)
+        self._class_thresholds = np.full(len(self.labels), self._base_min_score)
 
     def decode(self, samples, sample_rate_hz: float) -> IntentResult:
         fs = float(sample_rate_hz)
@@ -84,19 +87,28 @@ class FBCCADecoder:
                 correlation = _canonical_correlation(filtered, reference)
                 raw_scores[index] += weight * correlation * correlation
 
-        order = np.argsort(raw_scores)[::-1]
-        best_index = int(order[0])
-        confidence = float(raw_scores[best_index])
-        margin = confidence - float(raw_scores[int(order[1])])
         with self._threshold_lock:
+            evidence = raw_scores - self._background
+            order = np.argsort(evidence)[::-1]
+            best_index = int(order[0])
+            confidence = float(raw_scores[best_index])
+            margin = float(evidence[best_index] - evidence[int(order[1])])
             decision = self.safety_service.evaluate(confidence, margin)
+            class_threshold = float(self._class_thresholds[best_index])
+            accepted = decision.accepted and confidence >= class_threshold
+            reason = decision.reason if confidence >= class_threshold else "未超过该频率空闲背景"
+        quality.update({
+            "score_threshold": max(float(self.safety_service.min_confidence), class_threshold),
+            "margin_threshold": float(self.safety_service.min_margin),
+            "background_corrected_scores": {label: float(evidence[i]) for i, label in enumerate(self.labels)},
+        })
         return IntentResult(
             timestamp=time.time(),
             label=self.labels[best_index],
             confidence=confidence,
             margin=margin,
-            accepted=decision.accepted,
-            reason=decision.reason,
+            accepted=accepted,
+            reason=reason,
             frequency_hz=self.frequencies_hz[best_index],
             scores={label: float(raw_scores[index]) for index, label in enumerate(self.labels)},
             sample_rate_hz=fs,
@@ -114,15 +126,17 @@ class FBCCADecoder:
         with self._threshold_lock:
             self._idle_scores.clear()
             self._idle_margins.clear()
+            self._idle_class_scores.clear()
+            self._background.fill(0.0)
+            self._class_thresholds.fill(self._base_min_score)
             self.safety_service.min_confidence = self._base_min_score
             self.safety_service.min_margin = self._base_min_margin
 
-    def observe_idle(self, confidence: float, margin: float) -> None:
-        """Adapt rejection thresholds from an explicitly dark/idle interval.
+    def observe_idle(self, confidence: float, margin: float, scores=None) -> None:
+        """Estimate per-frequency backgrounds from unattended, flickering targets.
 
-        Only the upper quartile is used and both thresholds have modest caps.
-        Calibration therefore reduces obvious false positives without turning a
-        noisy three-second baseline into an impossible command threshold.
+        Quantiles are a short-session estimate, not a claimed false-positive
+        probability. Keep the conservative default floor and never cap noise down.
         """
 
         score = float(confidence)
@@ -132,34 +146,45 @@ class FBCCADecoder:
         with self._threshold_lock:
             self._idle_scores.append(score)
             self._idle_margins.append(gap)
-            # Two windows are enough for a best-effort update.  If fewer arrive,
-            # the original permissive defaults remain active.
-            if len(self._idle_scores) < 2:
+            if scores is not None and all(label in scores for label in self.labels):
+                vector = np.asarray([scores[label] for label in self.labels], dtype=float)
+                if np.isfinite(vector).all():
+                    self._idle_class_scores.append(vector)
+            if len(self._idle_scores) < 8:
                 return
-            score_q75 = float(np.percentile(self._idle_scores, 75.0))
-            margin_q75 = float(np.percentile(self._idle_margins, 75.0))
-            self.safety_service.min_confidence = min(
-                max(self._base_min_score, score_q75 + 0.005),
-                max(self._base_min_score, FBCCA_AUTO_MAX_SCORE),
-            )
-            self.safety_service.min_margin = min(
-                max(self._base_min_margin, margin_q75 + 0.003),
-                max(self._base_min_margin, FBCCA_AUTO_MAX_MARGIN),
-            )
+            if len(self._idle_class_scores) >= 8:
+                matrix = np.asarray(self._idle_class_scores)
+                self._background = np.median(matrix, axis=0)
+                self._class_thresholds = np.maximum(
+                    self._base_min_score, np.percentile(matrix, 99.0, axis=0) + 0.03,
+                )
+                ordered = np.sort(matrix - self._background, axis=1)
+                gaps = ordered[:, -1] - ordered[:, -2]
+                self.safety_service.min_margin = max(
+                    self._base_min_margin, float(np.percentile(gaps, 99.0)) + 0.02,
+                )
+            else:
+                self.safety_service.min_confidence = max(
+                    self._base_min_score, float(np.percentile(self._idle_scores, 99.0)) + 0.03,
+                )
+                self.safety_service.min_margin = max(
+                    self._base_min_margin, float(np.percentile(self._idle_margins, 99.0)) + 0.02,
+                )
 
     def idle_calibration_summary(self) -> str:
         with self._threshold_lock:
             count = len(self._idle_scores)
             score = float(self.safety_service.min_confidence)
             margin = float(self.safety_service.min_margin)
-        if count < 2:
+            class_scores = self._class_thresholds.copy()
+        if count < 8:
             return (
-                "FBCCA 空闲校准样本不足，继续使用宽松默认阈值："
+                "FBCCA 空闲校准样本不足，使用保守默认阈值："
                 f"分数 {score:.3f}、差值 {margin:.3f}"
             )
         return (
-            f"FBCCA 已按当前操作者的 {count} 个空闲窗口轻量校准："
-            f"分数阈值 {score:.3f}、差值阈值 {margin:.3f}"
+            f"FBCCA 已按当前操作者的 {count} 个空闲窗口校准（窗口存在重叠）："
+            f"分频阈值 {max(score, min(class_scores)):.3f}–{max(score, max(class_scores)):.3f}、差值 {margin:.3f}"
         )
 
     def _reference_signals(self, sample_rate_hz: float, sample_count: int) -> list[np.ndarray]:

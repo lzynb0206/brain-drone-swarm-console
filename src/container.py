@@ -29,7 +29,12 @@ from src.adapters.mock import (
     MockSwarmGateway,
     MockSystemMonitor,
 )
-from src.bci import ConsecutiveWindowGate, FBCCADecoder, RuntimeIntentDecoder
+from src.bci import (
+    ConsecutiveWindowGate,
+    FBCCADecoder,
+    RuntimeIntentDecoder,
+)
+from src.bci.personal_template_decoder import PersonalTemplateSSVEPDecoder
 from src.bci.config import (
     EEG_BACKEND,
     EEG_CSV_PATH,
@@ -43,6 +48,8 @@ from src.bci.config import (
     FB_EEGNET_METADATA_PATH,
     FB_EEGNET_MODEL_PATH,
     INTENT_DECODER,
+    PERSONAL_TEMPLATE_METADATA_PATH,
+    PERSONAL_TEMPLATE_MODEL_PATH,
     TRANSFORMER_COOLDOWN_SECONDS,
     TRANSFORMER_METADATA_PATH,
     TRANSFORMER_MIN_CONFIDENCE,
@@ -166,18 +173,30 @@ def create_default_container() -> ApplicationContainer:
         required_windows=TRANSFORMER_REQUIRED_WINDOWS,
         cooldown_seconds=TRANSFORMER_COOLDOWN_SECONDS,
     )
+    from src.ml.personal_template_model import PersonalTemplateModel
+
+    personal_template_decoder = PersonalTemplateSSVEPDecoder(
+        PersonalTemplateModel(
+            PERSONAL_TEMPLATE_MODEL_PATH,
+            PERSONAL_TEMPLATE_METADATA_PATH,
+        )
+    )
     decoder_aliases = {
         "fbcca": "FBCCA",
+        "personal": "个人模板-SSVEP",
+        "personal-template": "个人模板-SSVEP",
+        "template": "个人模板-SSVEP",
         "transformer": "Transformer-SSVEP",
         "transformer-ssvep": "Transformer-SSVEP",
     }
     if INTENT_DECODER not in decoder_aliases:
         raise ValueError(
-            "BDS_INTENT_DECODER must be one of: fbcca, transformer, transformer-ssvep"
+            "BDS_INTENT_DECODER must be one of: fbcca, personal-template, transformer"
         )
     intent_decoder: IntentDecoder = RuntimeIntentDecoder(
         {
             "FBCCA": baseline_decoder,
+            "个人模板-SSVEP": personal_template_decoder,
             "Transformer-SSVEP": transformer_decoder,
         },
         initial=decoder_aliases[INTENT_DECODER],

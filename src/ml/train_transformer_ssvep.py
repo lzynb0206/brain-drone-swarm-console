@@ -21,7 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
-from src.bci.config import SSVEP_CHANNEL_NAMES, TRUE_LABELS
+from src.bci.config import SSVEP_CHANNEL_NAMES, SSVEP_PROFILE_NAME, TARGET_FREQUENCIES_HZ, TRUE_LABELS
+from src.ml.frequency_profile import record_matches_current_profile
 from src.ml.preprocessing import preprocess_transformer_trial
 
 
@@ -53,13 +54,15 @@ def read_records(index_path: Path, labels: tuple[str, ...]) -> list[dict[str, st
             trial_id = str(row.get("trial_id", "")).strip()
             if label not in labels or not relative or trial_id in rejected_trial_ids:
                 continue
+            if not record_matches_current_profile(row):
+                continue
             path = Path(relative)
             path = path if path.is_absolute() else data_root / path
             if path.is_file():
                 row["absolute_path"] = str(path)
                 records.append(row)
     if not records:
-        raise ValueError("索引中没有可用的 Transformer-SSVEP 带标签试次")
+        raise ValueError("索引中没有符合当前频率配置的 Transformer-SSVEP 带标签试次，请重新采集")
     counts = Counter(record["true_label"] for record in records)
     missing = [label for label in labels if counts[label] < 2]
     if missing:
@@ -398,6 +401,8 @@ def train(args) -> dict[str, object]:
         "model_version": 1,
         "architecture": "4 temporal patches -> log FFT magnitude -> Transformer encoder",
         "labels": list(labels),
+        "stimulus_profile": SSVEP_PROFILE_NAME,
+        "target_frequencies_hz": list(TARGET_FREQUENCIES_HZ),
         "channel_names": list(SSVEP_CHANNEL_NAMES),
         "reference": "SRB2/A1",
         "bias": "BIAS/A2",

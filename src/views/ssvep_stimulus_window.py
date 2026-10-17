@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QKeyEvent, QPainter, QPen
-from PySide6.QtWidgets import QWidget
 
 from src.bci.config import (
     COMMANDS,
@@ -20,9 +19,10 @@ from src.bci.config import (
 from src.bci.stimulus import StimulusSessionRecorder, StimulusTarget, luminance_at
 from src.domain import IntentResult
 from src.views.ssvep_rendering import draw_fixation_cross, target_rectangles
+from src.views.stimulus_canvas import StimulusCanvas, StimulusFrameDriver
 
 
-class SSVEPStimulusWindow(QWidget):
+class SSVEPStimulusWindow(StimulusCanvas):
     """Render all configured targets for experiments, tests or control.
 
     Experiment mode accepts 0/1..6 ground-truth labels.  Control mode never
@@ -58,9 +58,7 @@ class SSVEPStimulusWindow(QWidget):
         )
         self._recorder = StimulusSessionRecorder(recording_root)
         self._clock = QElapsedTimer()
-        self._timer = QTimer(self)
-        self._timer.setTimerType(Qt.PreciseTimer)
-        self._timer.setInterval(0)
+        self._timer = StimulusFrameDriver(self)
         self._timer.timeout.connect(self.update)
         self._timer.start()
         self._cooldown_timer = QTimer(self)
@@ -73,6 +71,7 @@ class SSVEPStimulusWindow(QWidget):
         self._cooldown_label = ""
         self._move_distance_m = 0.05
         self._command_cooldown_seconds = 2.5
+        self._idle_calibration_seconds = FBCCA_IDLE_CALIBRATION_SECONDS
         self._fresh_window_until = 0.0
         self._started_at_unix = 0.0
         self._frame_times: list[float] = []
@@ -134,7 +133,7 @@ class SSVEPStimulusWindow(QWidget):
 
     @property
     def stimuli_active(self) -> bool:
-        return self._running and self.cooldown_remaining <= 0.0
+        return self._running and (self.cooldown_remaining <= 0.0 or self.calibrating_idle)
 
     @property
     def calibrating_idle(self) -> bool:
@@ -155,6 +154,11 @@ class SSVEPStimulusWindow(QWidget):
         self._move_distance_m = max(0.0, float(move_distance_m))
         self._command_cooldown_seconds = max(0.0, float(command_cooldown_seconds))
         self.update()
+
+    def set_idle_calibration_seconds(self, seconds: float) -> None:
+        """Use decoder-specific startup behavior without changing the page."""
+
+        self._idle_calibration_seconds = max(0.0, float(seconds))
 
     def begin_cooldown(self, seconds: float | None = None, label: str = "") -> None:
         """Pause every visual target after one command has been admitted."""
@@ -177,7 +181,7 @@ class SSVEPStimulusWindow(QWidget):
         command = f"（{self._cooldown_label}）" if self._cooldown_label else ""
         if self._cooldown_label == "空闲校准":
             self.status_changed.emit(
-                f"正在进行 {duration:.1f}s 空闲校准：全部刺激保持关闭，请自然看向屏幕中央"
+                f"正在进行 {duration:.1f}s 空闲校准：六块持续闪烁，请只看屏幕中央文字"
             )
         else:
             self.status_changed.emit(
@@ -217,7 +221,14 @@ class SSVEPStimulusWindow(QWidget):
         )
         self.status_changed.emit(message)
         if self.control_mode or self.test_mode:
-            self.begin_cooldown(FBCCA_IDLE_CALIBRATION_SECONDS, "空闲校准")
+            if self._idle_calibration_seconds > 0.0:
+                self.begin_cooldown(self._idle_calibration_seconds, "空闲校准")
+            else:
+                self._fresh_window_until = time.monotonic() + WINDOW_SECONDS
+                self.fresh_window_requested.emit(WINDOW_SECONDS, "个人模板就绪")
+                self.status_changed.emit(
+                    f"个人模板已加载：请注视目标，先采集完整 {WINDOW_SECONDS:g}s 新窗口"
+                )
         self.update()
 
     def end_trial(self) -> None:
@@ -245,6 +256,8 @@ class SSVEPStimulusWindow(QWidget):
                 self._luminance,
                 self._selected_label,
                 self._started_at_unix,
+                display_refresh_rate_hz=float(self.screen().refreshRate()),
+                timing_source=self.presentation_source,
             )
             self._last_payload = payload
             png_paths = self._save_spectrum_images(payload)
@@ -252,7 +265,7 @@ class SSVEPStimulusWindow(QWidget):
                 f"{item['label']} {float(item['measured_hz']):.2f}Hz"
                 for item in payload["measurements"]
             )
-            message = f"刺激已停止；实测 {summary}；频谱图 {len(png_paths)} 张"
+            message = f"刺激已停止；绘制时序估计 {summary}（非光电实测）；频谱图 {len(png_paths)} 张"
             self.status_changed.emit(message)
             self.trial_stopped.emit(self._selected_label, str(payload["metadata_path"]))
         except Exception as exc:
@@ -260,11 +273,11 @@ class SSVEPStimulusWindow(QWidget):
             self.trial_stopped.emit(self._selected_label, "")
         self.update()
 
-    def paintEvent(self, event) -> None:  # type: ignore[override]
+    def paint_stimulus(self) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)
         painter.fillRect(self.rect(), QColor("#000000"))
-        elapsed = self._clock.elapsed() / 1000.0 if self._running else 0.0
+        elapsed = self._clock.nsecsElapsed() / 1_000_000_000.0 if self._running else 0.0
         stimuli_active = self.stimuli_active
         if self._running:
             self._frame_times.append(elapsed)
@@ -303,10 +316,12 @@ class SSVEPStimulusWindow(QWidget):
                 "#000000",
             )
 
-        if self._running and not stimuli_active:
+        if self._running and self.cooldown_remaining > 0.0:
             self._draw_cooldown_overlay(painter)
         elif self._running and self.fresh_window_remaining > 0.0:
             self._draw_fresh_window_overlay(painter)
+        elif self._running and self.test_mode:
+            self._draw_test_result(painter)
 
         painter.setPen(QColor("#d1d5db"))
         painter.setFont(QFont("PingFang SC", 15))
@@ -353,6 +368,7 @@ class SSVEPStimulusWindow(QWidget):
             not self.test_mode
             or not self._running
             or not self.stimuli_active
+            or self.calibrating_idle
             or self.fresh_window_remaining > 0.0
         ):
             return False
@@ -399,7 +415,7 @@ class SSVEPStimulusWindow(QWidget):
         painter.drawRect(banner)
         painter.setFont(QFont("PingFang SC", max(22, int(self.height() * 0.030)), QFont.Bold))
         if self._cooldown_label == "空闲校准":
-            message = f"空闲校准 {remaining:.1f}s\n刺激已关闭 · 自然看向屏幕中央"
+            message = f"空闲校准 {remaining:.1f}s\n只看这里 · 不注视周围色块"
         elif self.test_mode:
             command = f" · 模拟 {self._cooldown_label}" if self._cooldown_label else ""
             message = (
@@ -414,6 +430,37 @@ class SSVEPStimulusWindow(QWidget):
             Qt.AlignCenter,
             message,
         )
+
+    def _draw_test_result(self, painter: QPainter) -> None:
+        result = self._latest_recognition
+        accepted = result is not None and result.accepted
+        if result is None:
+            title = "正在分析 · 请持续注视一个色块"
+            detail = "正在等待完整脑电窗口"
+        else:
+            quality = result.signal_quality or {}
+            score_threshold = float(quality.get("score_threshold", 0.0) or 0.0)
+            margin_threshold = float(quality.get("margin_threshold", 0.0) or 0.0)
+            used_count = len(result.used_channels_1based)
+            total_count = int(quality.get("total_channel_count", used_count) or used_count)
+            title = (
+                f"已确认：{result.label}"
+                if accepted else
+                f"实时候选：{result.label}（未通过门限）"
+            )
+            detail = (
+                f"分数 {result.confidence:.3f}/{score_threshold:.3f} · "
+                f"差值 {result.margin:.3f}/{margin_threshold:.3f} · "
+                f"可用通道 {used_count}/{total_count}"
+            )
+            if not accepted and used_count <= 2:
+                detail += " · 通道不足/工频干扰，暂不确认"
+        banner = QRectF(self.width() * 0.28, self.height() * 0.455,
+                       self.width() * 0.44, self.height() * 0.105)
+        painter.fillRect(banner, QColor("#080f1c"))
+        painter.setPen(QColor("#00e5ff") if accepted else QColor("#cbd5e1"))
+        painter.setFont(QFont("PingFang SC", max(16, int(self.height() * 0.025))))
+        painter.drawText(banner, Qt.AlignCenter, title + "\n" + detail)
 
     def _draw_fresh_window_overlay(self, painter: QPainter) -> None:
         remaining = self.fresh_window_remaining

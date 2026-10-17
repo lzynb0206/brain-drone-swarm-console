@@ -68,6 +68,12 @@ class MainActionRouter(QObject):
             view._configure_automatic_ssvep_experiment()
         elif action == "automatic-experiment-start":
             view.experiment.start_automatic()
+        elif action == "single-target-calibration-start":
+            view.single_target_calibration.start("isolated")
+        elif action == "guided-calibration-start":
+            view.single_target_calibration.start("guided")
+        elif action == "single-target-calibration-analyze":
+            view.single_target_calibration.analyze_latest()
         elif action == "soldier-ssvep-control":
             view._open_ssvep_control()
         elif action.startswith("collector-source:"):

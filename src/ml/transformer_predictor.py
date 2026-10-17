@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from src.bci.config import SSVEP_CHANNEL_NAMES, TRUE_LABELS
+from src.ml.frequency_profile import matches_current_profile
 
 
 class TransformerSSVEPPredictor:
@@ -43,11 +44,13 @@ class TransformerSSVEPPredictor:
             )
             return False
         try:
+            metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
+            if not matches_current_profile(metadata.get("target_frequencies_hz")):
+                raise ValueError("旧频率或未标明频率的模型不能用于当前六频，请用新频率重新采集训练")
             import torch
 
             from src.ml.transformer_ssvep import TransformerSSVEP
 
-            metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
             model_args = dict(metadata["model_args"])
             labels = tuple(str(value) for value in metadata["labels"])
             if len(labels) != int(model_args["classes"]):

@@ -121,8 +121,15 @@ class ResearchConfigurationViewMixin:
             x += 101
         c.rect(48, 189, 1184, 171, PANEL, BORDER, 3)
         transformer_selected = self.actions.algorithm == "Transformer-SSVEP"
-        selected_name = "Transformer-SSVEP" if transformer_selected else "纯 FBCCA"
-        selected_type = "监督训练模型" if transformer_selected else "无训练模型"
+        template_selected = self.actions.algorithm == "个人模板-SSVEP"
+        selected_name = (
+            "Transformer-SSVEP" if transformer_selected else
+            "个人模板-SSVEP" if template_selected else "纯 FBCCA"
+        )
+        selected_type = (
+            "监督训练模型" if transformer_selected else
+            "个人多试次模板" if template_selected else "无训练模型"
+        )
         metadata = [("名称:", selected_name, 73, 207), ("类型:", selected_type, 356, 207),
                     ("数据源:", "硬件 / LSL / CSV", 640, 207), ("准确率:", "待真实标签评估", 922, 207),
                     ("识别窗:", f"{WINDOW_SECONDS:g}秒", 73, 256),
@@ -134,7 +141,7 @@ class ResearchConfigurationViewMixin:
         c.line(73, 310, 1207, 310, "#283752")
         c.rect(48, 376, 1184, 295, PANEL, BORDER, 3)
         c.text(73, 394, 200, 37, "算法库", 17, TEXT, True)
-        algorithms = ["FBCCA", "Transformer-SSVEP"]
+        algorithms = ["FBCCA", "个人模板-SSVEP", "Transformer-SSVEP"]
         status_reader = getattr(self.intent_decoder, "algorithm_statuses", None)
         statuses = status_reader() if callable(status_reader) else {}
         for i, name in enumerate(algorithms):

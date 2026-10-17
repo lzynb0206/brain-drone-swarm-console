@@ -25,6 +25,7 @@ from src.controllers import (
     LSLCollectionController,
     ManualFlightController,
     RecognitionController,
+    SingleTargetCalibrationController,
     SoldierBCIController,
 )
 from src.domain import EEGFrame, IntentResult, Role, User
@@ -124,6 +125,7 @@ class MainView(
         )
         self.soldier_bci = SoldierBCIController(self)
         self.experiment = ExperimentController(self)
+        self.single_target_calibration = SingleTargetCalibrationController(self)
         self.recognition = RecognitionController(self)
         self.manual_flight = ManualFlightController(self)
         self.action_router = MainActionRouter(self)
@@ -287,6 +289,7 @@ class MainView(
 
     def deactivate(self) -> None:
         self.experiment.deactivate()
+        self.single_target_calibration.deactivate()
         if self._stimulus_window is not None:
             self._stimulus_window.close()
         if self.acquisition.raw_recorder.is_recording:
@@ -303,6 +306,7 @@ class MainView(
         self.soldier_bci.reset_state()
 
     def _on_eeg_frame(self, frame: EEGFrame) -> None:
+        self.single_target_calibration.ingest_frame(frame)
         self.soldier_bci.complete_after_frame(frame)
         self.acquisition.handle_frame(
             frame,
@@ -367,6 +371,7 @@ class MainView(
         if self._pipeline_worker is not worker:
             return
         self.experiment.handle_worker_finished()
+        self.single_target_calibration.handle_worker_finished()
         self.acquisition.close_recording_after_worker()
         self.soldier_bci.handle_worker_finished()
         self.update()

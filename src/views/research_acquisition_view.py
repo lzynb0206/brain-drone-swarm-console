@@ -267,7 +267,7 @@ class ResearchAcquisitionViewMixin:
             c.text(946, 482, 290, 54, "等待完整解码窗口…", 12, sub)
         else:
             result = self._latest_recognition
-            label = result.label if result.accepted else f"候选：{result.label}"
+            label = result.label if result.accepted else "未识别"
             c.text(946, 478, 290, 38, label, 20, "#2d8a57", True)
             c.text(946, 518, 290, 23, f"Score {result.best_score:.3f}  Margin {result.margin:.3f}", 10, sub)
             c.text(946, 545, 290, 38, result.reason, 10, ink)

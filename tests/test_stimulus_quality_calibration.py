@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from PySide6.QtCore import Qt
@@ -12,6 +13,7 @@ from src.bci.stimulus import measure_frequency
 from src.domain import IntentResult
 from src.views.ssvep_rendering import target_rectangles
 from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
+from src.views.stimulus_canvas import StimulusFrameDriver
 
 
 class StimulusMeasurementTest(unittest.TestCase):
@@ -44,6 +46,27 @@ class StimulusWindowModeTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_frame_driver_caps_repeated_swap_callbacks_and_stops_cleanly(self) -> None:
+        from PySide6.QtWidgets import QWidget
+        canvas = QWidget()
+        driver = StimulusFrameDriver(canvas)
+        emitted = []
+        driver.timeout.connect(lambda: emitted.append(True))
+        try:
+            with patch("src.views.stimulus_canvas.time.monotonic", return_value=10.0):
+                driver.start()
+                for _ in range(10):
+                    driver._frame()
+                self.assertEqual(1, len(emitted))
+                self.assertGreater(driver._next_frame, 10.0)
+                driver.stop()
+                self.assertFalse(driver._request_timer.isActive())
+                driver._frame()
+                self.assertEqual(1, len(emitted))
+        finally:
+            driver.stop()
+            canvas.close()
+
     def test_control_mode_flushes_decoder_without_creating_true_label(self) -> None:
         window = SSVEPStimulusWindow(mode="control")
         started = []
@@ -59,7 +82,7 @@ class StimulusWindowModeTest(unittest.TestCase):
             self.assertEqual(0.0, started[0][1])
             self.assertEqual([True], control_started)
             self.assertTrue(window.calibrating_idle)
-            self.assertFalse(window.stimuli_active)
+            self.assertTrue(window.stimuli_active)
         finally:
             window._running = False
             window._timer.stop()
@@ -81,7 +104,7 @@ class StimulusWindowModeTest(unittest.TestCase):
             self.assertEqual(0.0, started[0][1])
             self.assertEqual([], control_started)
             self.assertTrue(window.calibrating_idle)
-            self.assertFalse(window.stimuli_active)
+            self.assertTrue(window.stimuli_active)
         finally:
             window._running = False
             window._timer.stop()
@@ -118,6 +141,35 @@ class StimulusWindowModeTest(unittest.TestCase):
             window._running = False
             window._timer.stop()
             window._cooldown_timer.stop()
+            window.close()
+
+    def test_command_test_keeps_rejected_candidate_visible_for_diagnosis(self) -> None:
+        window = SSVEPStimulusWindow(mode="test")
+        result = IntentResult(
+            timestamp=1.0,
+            label="前进",
+            confidence=0.07,
+            margin=0.01,
+            accepted=False,
+            reason="未超过该频率空闲背景",
+            frequency_hz=16.0,
+            scores={"前进": 0.07},
+            sample_rate_hz=250.0,
+            sample_count=500,
+            used_channels_1based=(4,),
+            signal_quality={
+                "score_threshold": 0.35,
+                "margin_threshold": 0.177,
+                "total_channel_count": 8,
+            },
+        )
+        try:
+            window.show_recognition_result(result)
+            self.assertIs(result, window._latest_recognition)
+            self.assertEqual(1, window._recognition_count)
+            self.assertEqual(0, window._accepted_count)
+        finally:
+            window._timer.stop()
             window.close()
 
     def test_command_test_cd_finishes_with_same_fresh_window_as_control(self) -> None:
@@ -184,6 +236,10 @@ class StimulusWindowModeTest(unittest.TestCase):
         self.assertLess(forward.center().y(), backward.center().y())
         self.assertGreater(forward.left() - takeoff.right(), 0.10 * 1920)
         self.assertGreater(backward.top() - forward.bottom(), 0.15 * 1080)
+        self.assertLess(takeoff.left(), 0.03 * 1920)
+        self.assertGreater(land.right(), 0.97 * 1920)
+        self.assertLess(takeoff.top(), 0.10 * 1080)
+        self.assertGreater(right.bottom(), 0.90 * 1080)
 
     def test_control_cooldown_pauses_all_stimuli(self) -> None:
         window = SSVEPStimulusWindow(mode="control")

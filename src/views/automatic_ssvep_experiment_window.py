@@ -5,11 +5,15 @@ from __future__ import annotations
 import time
 import uuid
 
-from PySide6.QtCore import QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPen
-from PySide6.QtWidgets import QWidget
 
-from src.bci.config import COMMANDS, LABEL_TO_FREQUENCY, TARGET_FREQUENCIES_HZ
+from src.bci.config import (
+    COMMANDS,
+    LABEL_TO_FREQUENCY,
+    SSVEP_PROFILE_NAME,
+    TARGET_FREQUENCIES_HZ,
+)
 from src.bci.stimulus import StimulusTarget, luminance_at
 from src.services.ssvep_experiment_protocol import (
     AutomaticExperimentConfig,
@@ -18,9 +22,10 @@ from src.services.ssvep_experiment_protocol import (
     ProtocolTransition,
 )
 from src.views.ssvep_rendering import draw_fixation_cross, target_rectangles
+from src.views.stimulus_canvas import StimulusCanvas, StimulusFrameDriver
 
 
-class AutomaticSSVEPExperimentWindow(QWidget):
+class AutomaticSSVEPExperimentWindow(StimulusCanvas):
     """Present a reproducible protocol and wait for each raw file to be saved."""
 
     capture_requested = Signal(object)
@@ -46,9 +51,7 @@ class AutomaticSSVEPExperimentWindow(QWidget):
         self._early_saved_ack: tuple[str, str, str] | None = None
         self._terminal_emitted = False
         self._deferred_action = ""
-        self._timer = QTimer(self)
-        self._timer.setTimerType(Qt.PreciseTimer)
-        self._timer.setInterval(16)
+        self._timer = StimulusFrameDriver(self)
         self._timer.timeout.connect(self._tick)
         self.setWindowTitle("SSVEP 自动随机带标签采集")
         self.setStyleSheet("background: #050914;")
@@ -190,7 +193,7 @@ class AutomaticSSVEPExperimentWindow(QWidget):
                 }
             )
             self.capture_requested.emit(payload)
-            mode = "真实空闲负样本（目标停止闪烁）" if self.current_label == "空闲" else "视觉刺激"
+            mode = "真实空闲负样本（六块闪烁，只看中央）" if self.current_label == "空闲" else "视觉刺激"
             self.status_changed.emit(f"正在采集 {self.current_label} · {mode}")
         elif transition.phase == ExperimentPhase.SAVING:
             self.status_changed.emit("刺激结束，正在等待原始 EEG 安全保存…")
@@ -224,6 +227,9 @@ class AutomaticSSVEPExperimentWindow(QWidget):
             "retry_of_trial_index": trial.retry_of_trial_index,
             "total_trials": self.protocol.total_trials,
             "true_label": trial.label,
+            "stimulus_profile": SSVEP_PROFILE_NAME,
+            "target_frequencies_hz": list(TARGET_FREQUENCIES_HZ),
+            "idle_targets_flicker": True,
             "random_seed": int(self.config.random_seed),
             "phase_timestamps": dict(self._phase_timestamps_wall),
             "phase_timestamps_unix": dict(self._phase_timestamps_wall),
@@ -291,7 +297,7 @@ class AutomaticSSVEPExperimentWindow(QWidget):
         self.status_changed.emit(self._deferred_action)
         self.update()
 
-    def paintEvent(self, event) -> None:  # type: ignore[override]
+    def paint_stimulus(self) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)
         painter.fillRect(self.rect(), QColor("#050914"))
@@ -302,7 +308,6 @@ class AutomaticSSVEPExperimentWindow(QWidget):
         active_stimulus = (
             phase == ExperimentPhase.STIMULUS
             and not self.protocol.paused
-            and label != "空闲"
         )
         elapsed = max(0.0, now - self._phase_started_monotonic)
 
@@ -390,7 +395,7 @@ class AutomaticSSVEPExperimentWindow(QWidget):
                 + ("请自然注视中央提示区，避免看六个目标" if label == "空闲" else f"刺激开始后持续注视“{label}”中央十字")
             )
         elif phase == ExperimentPhase.STIMULUS and label == "空闲":
-            text = f"空闲负样本采集中  ·  {remaining:.1f}s\n全部目标保持静止，请自然注视中央"
+            text = f"空闲负样本采集中  ·  {remaining:.1f}s\n六块持续闪烁，请只注视中央文字"
         elif phase == ExperimentPhase.SAVING:
             text = "正在保存完整原始 EEG 与逐样本时间戳…\n保存确认后才会进入下一试次"
         elif phase == ExperimentPhase.REST:

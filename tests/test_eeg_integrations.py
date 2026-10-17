@@ -186,16 +186,15 @@ class FBCCADecoderTest(unittest.TestCase):
             self.assertTrue(result.accepted, result)
             self.assertEqual(expected_label, result.prediction)
 
-    def test_idle_calibration_is_session_local_and_mildly_capped(self) -> None:
+    def test_idle_calibration_is_session_local_and_does_not_cap_noise_down(self) -> None:
         decoder = FBCCADecoder(min_score=0.06, min_margin=0.01)
 
         decoder.begin_idle_calibration()
-        decoder.observe_idle(0.45, 0.20)
-        decoder.observe_idle(0.50, 0.25)
-        decoder.observe_idle(0.55, 0.30)
+        for _ in range(8):
+            decoder.observe_idle(0.55, 0.30)
 
-        self.assertAlmostEqual(0.12, decoder.safety_service.min_confidence)
-        self.assertAlmostEqual(0.03, decoder.safety_service.min_margin)
+        self.assertAlmostEqual(0.58, decoder.safety_service.min_confidence)
+        self.assertAlmostEqual(0.32, decoder.safety_service.min_margin)
         self.assertIn("当前操作者", decoder.idle_calibration_summary())
 
         decoder.begin_idle_calibration()
