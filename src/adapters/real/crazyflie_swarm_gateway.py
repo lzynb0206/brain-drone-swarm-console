@@ -22,8 +22,8 @@ from src.adapters.real.crazyflie_command_executor import CrazyflieCommandExecuto
 from src.adapters.real.crazyflie_command_queue import CrazyflieCommandQueue
 from src.adapters.real.crazyflie_event_journal import CrazyflieEventJournal
 from src.adapters.real.crazyflie_emergency import CrazyflieEmergencyCoordinator
+from src.adapters.real.crazyflie_manual_control import CrazyflieManualControlCoordinator
 from src.adapters.real.crazyflie_formation_state import (
-    formation_targets,
     lighthouse_targets_from_telemetry,
     rebase_formation_plan,
 )
@@ -61,6 +61,7 @@ class CrazyflieSwarmGateway:
         self._landing_requested = False
         self._telemetry_safety = CrazyflieTelemetrySafetyMonitor()
         self._emergency_coordinator = CrazyflieEmergencyCoordinator(self)
+        self._manual_control = CrazyflieManualControlCoordinator(self)
         self._state = "disconnected"
         self._message = "尚未连接"
         self._connected = False
@@ -360,134 +361,7 @@ class CrazyflieSwarmGateway:
         self._emergency_coordinator.stop_motors()
 
     def set_manual_input(self, vertical: float, forward: float, lateral: float) -> None:
-        """Drive Flow velocity or Lighthouse absolute targets with one stick API."""
-        values = tuple(max(-1.0, min(1.0, float(value))) for value in (vertical, forward, lateral))
-        with self._lock:
-            if not self._connected:
-                raise RuntimeError("无人机尚未连接")
-            if self._emergency:
-                raise RuntimeError("系统处于急停锁定状态")
-            if not self._armed:
-                raise RuntimeError("请先点击“启动操控”")
-            if self._motor_stop_in_progress:
-                raise RuntimeError("电机正在停止")
-            if self._landing_requested:
-                raise RuntimeError("正在受控降落，摇杆输入已禁用")
-            if self._taking_off_uris:
-                raise RuntimeError("正在等待 Flow 起飞高度确认，暂不接受摇杆输入")
-            if not self._airborne_uris:
-                raise RuntimeError("无人机尚未确认离地")
-            if math.hypot(values[1], values[2]) > 1e-6:
-                not_ready = []
-                for uri in self._airborne_uris:
-                    telemetry = self._uavs.get(uri)
-                    target = (
-                        self.config.flow_min_height_m
-                        if uri in self._horizontal_ready_uris
-                        else self.config.default_height_m
-                    )
-                    tolerance = max(0.02, min(0.05, target * 0.1))
-                    if telemetry is None or telemetry.position.z < target - tolerance:
-                        not_ready.append(telemetry.uav_id if telemetry is not None else uri)
-                    else:
-                        self._horizontal_ready_uris.add(uri)
-                if not_ready:
-                    raise RuntimeError(
-                        "等待起飞高度达到目标范围：" + ", ".join(not_ready)
-                    )
-            formation_plan = self._formation_plan
-            formation_mode = (
-                formation_plan is not None
-                and self._airborne_uris
-                and self._airborne_uris.issubset(self._lighthouse_hold_uris)
-            )
-            lighthouse_mode = (
-                not formation_mode
-                and bool(self._airborne_uris)
-                and self._airborne_uris.issubset(self._lighthouse_hold_uris)
-            )
-            if formation_mode:
-                now = time.monotonic()
-                elapsed = max(0.0, min(0.10, now - self._last_formation_manual_at))
-                self._last_formation_manual_at = now
-                speed_xy = self.config.flow_max_horizontal_speed_mps
-                speed_z = self.config.flow_max_vertical_speed_mps
-                dx = values[1] * speed_xy * elapsed
-                dy = -values[2] * speed_xy * elapsed
-                dz = values[0] * speed_z * elapsed
-                minimum_z = min(item.slot.position.z + dz for item in formation_plan.assignments)
-                maximum_z = max(item.slot.position.z + dz for item in formation_plan.assignments)
-                if minimum_z < self.config.flow_min_height_m or maximum_z > self.config.flow_max_height_m:
-                    dz = 0.0
-                translated_plan = formation_plan.translated(dx, dy, dz)
-                targets = formation_targets(
-                    translated_plan,
-                    self._uavs,
-                    self._resolve_uri,
-                )
-                self._formation_plan = translated_plan
-            elif lighthouse_mode:
-                now = time.monotonic()
-                elapsed = max(0.0, min(0.10, now - self._last_lighthouse_manual_at))
-                self._last_lighthouse_manual_at = now
-                speed_xy = self.config.flow_max_horizontal_speed_mps
-                speed_z = self.config.flow_max_vertical_speed_mps
-                targets = {}
-                for uri in self._airborne_uris:
-                    telemetry = self._uavs.get(uri)
-                    if telemetry is None:
-                        raise RuntimeError(f"{uri} 尚未收到 Lighthouse 位置遥测")
-                    current = self._lighthouse_targets_by_uri.get(uri, (
-                        telemetry.position.x,
-                        telemetry.position.y,
-                        telemetry.position.z,
-                        telemetry.yaw_deg,
-                    ))
-                    x, y, z, yaw = current
-                    yaw_rad = math.radians(yaw)
-                    # Keep the same body-frame convention as Flow Hover:
-                    # +forward follows the nose and +lateral moves right.
-                    dx = (
-                        values[1] * math.cos(yaw_rad)
-                        + values[2] * math.sin(yaw_rad)
-                    ) * speed_xy * elapsed
-                    dy = (
-                        values[1] * math.sin(yaw_rad)
-                        - values[2] * math.cos(yaw_rad)
-                    ) * speed_xy * elapsed
-                    z = max(
-                        self.config.flow_min_height_m,
-                        min(self.config.flow_max_height_m, z + values[0] * speed_z * elapsed),
-                    )
-                    targets[uri] = (x + dx, y + dy, z, yaw)
-                self._lighthouse_targets_by_uri.update(targets)
-            else:
-                targets = None
-        if targets is not None:
-            self._backend.set_lighthouse_targets(targets)
-        else:
-            self._backend.set_manual_input(*values)
-        with self._lock:
-            self._airborne = bool(self._airborne_uris)
-            if self._telemetry_safety.battery_low_latched:
-                voltage = self._telemetry_safety.last_low_voltage or 0.0
-                self._state = "battery_low"
-                self._message = f"电量过低：{voltage:.2f}V，请立即受控降落"
-            else:
-                self._state = (
-                    "formation_hold" if formation_mode else
-                    "lighthouse_hold" if lighthouse_mode else
-                    "manual_flight"
-                )
-                self._message = (
-                    (
-                        "Lighthouse 编队：" if formation_mode else
-                        "Lighthouse 单机：" if lighthouse_mode else
-                        "Flow Hover："
-                    )
-                    + "升降 {:+.0f}% / 前后 {:+.0f}% / 左右 {:+.0f}%"
-                    .format(values[0] * 100, values[1] * 100, values[2] * 100)
-                )
+        self._manual_control.set_input(vertical, forward, lateral)
 
     def emergency_stop(self) -> None:
         self._emergency_coordinator.emergency_stop()

@@ -11,6 +11,20 @@ from src.widgets.scifi_canvas import (
 )
 
 
+DISPLAY_SCALE_UV = 200.0
+
+
+def _resample_for_pixels(data: np.ndarray, pixel_width: float) -> np.ndarray:
+    """Limit a band-limited trace to roughly one vertex per screen pixel."""
+
+    target_count = max(2, int(round(pixel_width)))
+    if data.size <= target_count:
+        return data
+    source_positions = np.arange(data.size, dtype=float)
+    target_positions = np.linspace(0.0, float(data.size - 1), target_count)
+    return np.interp(target_positions, source_positions, data)
+
+
 class ResearchAcquisitionViewMixin:
     """Rendering behavior extracted from the researcher page shell."""
     def _research_acquisition(self, c: Canvas) -> None:
@@ -177,14 +191,14 @@ class ResearchAcquisitionViewMixin:
 
         c.rect(32, 218, 736, 478, PANEL, BORDER, 4)
         c.text(50, 226, 230, 30, "8 通道实时波形", 13, TEXT, True)
-        c.text(496, 226, 252, 30, "自动量程  ·  最近 5 秒", 9, MUTED, False, Qt.AlignRight)
+        c.text(420, 226, 328, 30, "显示滤波 5–50 Hz  ·  ±200 μV  ·  最近 5 秒", 9, MUTED, False, Qt.AlignRight)
         c.line(50, 260, 750, 260, BORDER)
         self._draw_light_eeg(c, 50, 270, 700, 388)
         c.text(50, 664, 700, 20, "-5s                                  时间                                  0s", 8, MUTED, False, Qt.AlignCenter)
 
         c.rect(784, 218, 464, 224, PANEL, BORDER, 4)
         c.text(802, 226, 180, 30, "实时频谱", 13, TEXT, True)
-        c.text(1024, 226, 206, 30, "0–60 Hz  ·  Log 平滑", 9, MUTED, False, Qt.AlignRight)
+        c.text(1024, 226, 206, 30, "0–60 Hz  ·  Filtered · Log", 9, MUTED, False, Qt.AlignRight)
         c.line(802, 260, 1230, 260, BORDER)
         self._acquisition_fft(c, 802, 266, 428, 162)
 
@@ -282,17 +296,24 @@ class ResearchAcquisitionViewMixin:
         c.text(x, y, w, h, label, 10, TEXT if active else QColor(accent).lighter(150), active, Qt.AlignCenter)
 
     def _draw_light_eeg(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
-        histories = [list(values) for values in self._eeg_history]
+        display_history = getattr(self, "_eeg_display_history", self._eeg_history)
+        histories = [list(values) for values in display_history]
         if not histories:
             histories = [[] for _ in range(8)]
         waiting = not any(histories)
         palette = ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")
         row_height = h / max(1, len(histories))
+        plot_x = x + 83
+        plot_w = w - 86
         c.p.save()
         c.p.setClipRect(QRectF(x, y, w, h))
         for index, values in enumerate(histories):
             baseline = y + row_height * (index + 0.5)
-            c.line(x + 83, baseline, x + w, baseline, "#243452")
+            row_top = y + row_height * index
+            c.line(plot_x, row_top, x + w, row_top, "#243452")
+            c.line(plot_x, baseline, x + w, baseline, "#1d2c45")
+            if index == len(histories) - 1:
+                c.line(plot_x, y + h - 1, x + w, y + h - 1, "#243452")
             label = self._eeg_channel_names[index] if index < len(self._eeg_channel_names) else f"CH{index + 1}"
             c.circle(x + 15, baseline, 11, palette[index % len(palette)])
             c.text(x + 4, baseline - 10, 22, 20, str(index + 1), 9, "#ffffff", True, Qt.AlignCenter)
@@ -302,46 +323,73 @@ class ResearchAcquisitionViewMixin:
             if len(values) < 2:
                 continue
             data = np.asarray(values, dtype=float)
-            center = float(np.median(data))
-            amplitude = max(float(np.percentile(np.abs(data - center), 95)), 1e-9)
+            data = np.nan_to_num(data)
+            data -= float(np.median(data))
+            data = _resample_for_pixels(data, plot_w)
+            rms_uv = float(np.sqrt(np.mean(np.square(data))))
             path = QPainterPath()
             for sample_index, value in enumerate(data):
-                px = x + 83 + sample_index / max(1, len(data) - 1) * (w - 86)
-                py = baseline - (float(value) - center) / amplitude * row_height * 0.34
+                px = plot_x + sample_index / max(1, len(data) - 1) * plot_w
+                normalized = float(np.clip(value / DISPLAY_SCALE_UV, -1.0, 1.0))
+                py = baseline - normalized * row_height * 0.43
                 path.moveTo(px, py) if sample_index == 0 else path.lineTo(px, py)
             c.p.setPen(QPen(QColor(palette[index % len(palette)]), 1.05))
             c.p.setBrush(Qt.NoBrush)
             c.p.drawPath(path)
+            c.text(
+                x + w - 88,
+                row_top + 2,
+                80,
+                16,
+                f"{rms_uv:.1f} μVrms",
+                7,
+                MUTED,
+                False,
+                Qt.AlignRight | Qt.AlignVCenter,
+            )
         c.p.restore()
 
     def _acquisition_time_series(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
         c.text(x, y, 350, 28, "Time Series", 16, "#24313d", True)
-        c.text(x + w - 270, y, 270, 28, "Vert Scale  Auto   ·   Window  5 sec", 10, "#64717e", False, Qt.AlignRight)
+        c.text(x + w - 350, y, 350, 28, "Display 5–50 Hz   ·   Vert Scale ±200 μV   ·   Window 5 sec", 10, "#64717e", False, Qt.AlignRight)
         self._draw_light_eeg(c, x, y + 38, w, h - 42)
 
     def _acquisition_fft(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
         plot_x, plot_y, plot_w, plot_h = x + 42, y + 8, w - 50, h - 42
         c.rect(plot_x, plot_y, plot_w, plot_h, "#071020", BORDER)
+        for amplitude_uv in (0.1, 1.0, 10.0, 100.0):
+            normalized = (np.log10(amplitude_uv) + 1.0) / 3.0
+            gy = plot_y + plot_h - normalized * plot_h
+            c.line(plot_x, gy, plot_x + plot_w, gy, "#1c2b45")
+            c.text(x, gy - 8, 36, 16, f"{amplitude_uv:g}", 7, MUTED, False, Qt.AlignRight | Qt.AlignVCenter)
         for index in range(1, 6):
             gx = plot_x + plot_w * index / 6
             c.line(gx, plot_y, gx, plot_y + plot_h, "#1c2b45")
             c.text(gx - 18, plot_y + plot_h + 3, 36, 18, f"{index * 10}", 8, MUTED, False, Qt.AlignCenter)
-        histories = [np.asarray(values, dtype=float) for values in self._eeg_history if len(values) >= 32]
+        display_history = getattr(self, "_eeg_display_history", self._eeg_history)
+        histories = [np.asarray(values, dtype=float) for values in display_history]
         palette = ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")
         for index, values in enumerate(histories[:8]):
+            if len(values) < 32:
+                continue
             centered = values - np.mean(values)
-            spectrum = np.abs(np.fft.rfft(centered * np.hanning(len(centered))))
+            window = np.hanning(len(centered))
+            spectrum = np.abs(np.fft.rfft(centered * window)) * 2.0 / max(float(np.sum(window)), 1.0)
             frequencies = np.fft.rfftfreq(len(centered), 1.0 / max(self._eeg_sample_rate, 1.0))
             mask = frequencies <= 60.0
-            spectrum = np.log1p(spectrum[mask])
+            spectrum = spectrum[mask]
             frequencies = frequencies[mask]
-            if not len(spectrum) or float(np.max(spectrum)) <= 0:
+            if not len(spectrum):
                 continue
-            spectrum = spectrum / float(np.max(spectrum))
+            normalized_spectrum = np.clip(
+                (np.log10(np.maximum(spectrum, 0.1)) + 1.0) / 3.0,
+                0.0,
+                1.0,
+            )
             path = QPainterPath()
-            for point, (frequency, amplitude) in enumerate(zip(frequencies, spectrum)):
+            for point, (frequency, amplitude) in enumerate(zip(frequencies, normalized_spectrum)):
                 px = plot_x + float(frequency) / 60.0 * plot_w
-                py = plot_y + plot_h - float(amplitude) * plot_h * 0.9
+                py = plot_y + plot_h - float(amplitude) * plot_h
                 path.moveTo(px, py) if point == 0 else path.lineTo(px, py)
             c.p.setPen(QPen(QColor(palette[index]), 1.2))
             c.p.setBrush(Qt.NoBrush)
@@ -457,7 +505,8 @@ class ResearchAcquisitionViewMixin:
         self._light_button(c, x + w - 180, y + 374, 160, 38, "发送（待验证）", False, "#69758a")
 
     def _draw_live_eeg(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
-        histories = [list(values) for values in self._eeg_history]
+        display_history = getattr(self, "_eeg_display_history", self._eeg_history)
+        histories = [list(values) for values in display_history]
         if not histories or not any(histories):
             c.text(x, y, w, h, "等待 EEG 数据…", 15, MUTED, False, Qt.AlignCenter)
             return
@@ -476,12 +525,15 @@ class ResearchAcquisitionViewMixin:
             c.text(x, baseline - 11, 38, 20, label[:7], 8, MUTED)
             if len(values) < 2:
                 continue
-            center = sum(values) / len(values)
-            amplitude = max(max(abs(value - center) for value in values), 1e-9)
+            data = np.asarray(values, dtype=float)
+            data = np.nan_to_num(data)
+            data -= float(np.median(data))
+            data = _resample_for_pixels(data, w - 42)
             path = QPainterPath()
-            for sample_index, value in enumerate(values):
-                px = x + 40 + sample_index / max(1, len(values) - 1) * (w - 42)
-                py = baseline - (value - center) / amplitude * row_height * 0.39
+            for sample_index, value in enumerate(data):
+                px = x + 40 + sample_index / max(1, len(data) - 1) * (w - 42)
+                normalized = float(np.clip(value / DISPLAY_SCALE_UV, -1.0, 1.0))
+                py = baseline - normalized * row_height * 0.43
                 if sample_index == 0:
                     path.moveTo(px, py)
                 else:

@@ -20,5 +20,8 @@ data/recognition_logs/
 data/stimulus_logs/
 data/calibration/
 data/exports/
+data/csv_sessions/
+data/single_target_calibration/
+data/sessions/*.jsonl
 models/*.pt
 models/*.pth

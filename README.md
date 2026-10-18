@@ -19,13 +19,15 @@
 - 士兵脑控页提供一键“启动 SSVEP 驾驶”：自动连接 ExpandableEEG、发布 `obci_eeg1`、由独立 LSL 接收线程运行 FBCCA，并在收到首帧后才开放脑控授权；不需要进入科研页面。地面授权不会启动电机，只有识别到“起飞”才进入现有 Flow Hover 起飞与悬停链路。
 - 脑控执行默认关闭；只允许实时硬件或 LSL 数据源，且同一意图连续确认两次、经过冷却并在每次动作后检测到注视释放才可再次提交。
 - 科研导航按真实数据链拆成三个连续页面：`采集`用 ExpandableEEG 原生数据包协议直连蓝牙虚拟 COM/串口（固定8通道、250 Hz）；macOS 自动绕过失效的伪串口并直连 RFCOMM channel 1，Windows 使用传出 COM 口；`LSL收集`独立接收 EEG 流、显示波形/时间戳质量并保存 CSV；`实验`专门回放 CSV。
-- `采集`页采用 OpenBCI GUI 的 System Control Panel 与 Time Series + FFT + Accelerometer 结构，但只保留本项目实际使用的 Cyton 兼容配置，避免实验人员误选 Ganglion、Synthetic 或 Playback。
+- `采集`页采用 OpenBCI GUI 的 System Control Panel 与 Time Series + FFT + Accelerometer 结构；监视器单独使用 5–50 Hz 四阶 Butterworth、50/60 Hz 工频抑制和固定 ±200 μV 量程，原始 CSV、LSL 与解码输入不受显示滤波影响。
 - “实验”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
 - `start-1.csv` 与 LSL采集上位机 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
 - 纯 FBCCA 六频基线，以及可训练的 Transformer-SSVEP：2秒/250 Hz八通道输入、
   频谱分片、自注意力分类、0.60置信度、连续双窗口确认和0.50秒冷却。
 - 解码器可在科研“算法”页真实切换；缺少 Transformer 权重时明确拒绝加载，不静默伪装。
+- 解码器安全默认固定为 FBCCA。个人模板和 Transformer 即使文件存在也不会自动成为默认模型；
+  metadata 未明确标记 `production_approved=true` 时只能做科研识别，不能派发实机命令。
 - 包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
 - 可选 FB-EEGNet 训练/验证/实时推理；没有匹配权重时自动保留真实 FBCCA，不伪造模型结果。
 - 识别日志、命令提交/完成/失败日志、连续原始 EEG 分块，以及包含真实标签和质量信息的同步 SSVEP 4秒/MI 4秒 `.npz` 试次。
@@ -35,7 +37,8 @@
 - 单架 Crazyflie URI、Flow Deck/固件参数和实机安全验收。
 - 目标识别/跟踪、生命体征和避障服务的协议、地址及数据字典。
 - 实验元数据 PostgreSQL 接口（当前原始 EEG 和索引保存在本地文件）。
-- 足量、平衡且由实验人员确认的六频加空闲训练数据；训练程序已实现，但仓库不附带可冒充有效模型的权重。
+- 足量、平衡且由实验人员确认的六频加空闲训练数据。仓库保留最新的 60 轮个人实验模板，
+  但其留一试次一致性只有 38.3%，已明确标记为非生产模型，不代表在线准确率。
 - 生产级 RBAC、审计、服务端身份授权和真实设备安全仲裁。
 
 正常启动默认等待实时 `LSL · obci_eeg1`，不会自动播放任何 CSV。本地 `data/samples/start-1.csv` 只作为“实验”页主动导入后的回放文件；CSV 回放不会出现在实时“采集”链路，也不能驱动实机。蜂群后端默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
@@ -47,7 +50,7 @@ ExpandableEEG（原生串口直连） / LSL / CSV
     ↓
 EEGWorker（后台采集、4秒窗口化、记录）
     ↓
-FBCCA / Transformer-SSVEP → 连续窗口安全门 → BCIExecutionService
+FBCCA / 个人模板 / Transformer-SSVEP → 模型准入与连续窗口安全门 → BCIExecutionService
                                                ↓
 角色 QWidget → WorkbenchService 应用门面 → SwarmControlService
                                                ↓
@@ -66,7 +69,8 @@ obci_eeg1 → EEGWorker → FBCCA/Transformer`。科研页仍可独立选择直�
 
 - `CrazyflieSwarmGateway` 只保留应用侧蜂群状态机；配置、命令队列、飞行动作执行、
   遥测转换、遥测安全判定、紧急停机协调、事件日志、编队状态转换、Flow 控制循环和
-  cflib 连接分别放在独立模块中。
+  cflib 连接分别放在独立模块中；Flow/Lighthouse/编队摇杆目标更新由
+  `CrazyflieManualControlCoordinator` 单独负责。
 - `WorkbenchService` 保留原有界面调用方式，内部组合科研配置、蜂群控制、脑控执行、
   管理操作和导出服务。
 - 科研、作战、管理员和工程画布页面都是独立 `QWidget`，通过 Qt Signal/Slot
@@ -77,14 +81,17 @@ obci_eeg1 → EEGWorker → FBCCA/Transformer`。科研页仍可独立选择直�
   CSV 回放、独立 LSL 收集、士兵脑控安全链路和自动实验分别由
   `EEGAcquisitionController`、`CSVReplayController`、`LSLCollectionController`、
   `SoldierBCIController`、`ExperimentController`、`RecognitionController` 和
-  `ManualFlightController` 管理，不再在视图中维护重复状态。
+  `ManualFlightController` 管理；Toast 的计时、滚动绘制和清理由 `ToastController` 管理。
 - `EEGWorker` 专注读流、窗口化和调度；连续 EEG 的缓存/10 秒分块由
   `ContinuousEEGRecorder` 处理，刺激时间戳对齐、标注试次解码与保存由
   `LabeledTrialRecorder` 处理。
-- `ExperimentRecorder` 保留实验记录门面；Marker、连续 EEG 索引和飞行命令审计分别由
-  独立 repository 负责。
+- `ExperimentRecorder` 保留实验记录门面；Marker、连续 EEG 索引、飞行命令审计和高频
+  识别日志分别由独立 repository 负责。识别日志只写紧凑质量摘要，并在 16 MiB 时轮转；
+  标注试次的 NPZ 仍保存完整质量信息和原始 EEG。
 - 实验记录字段与数据清洗规则位于独立 schema 模块；两个 SSVEP 窗口共用目标几何和
   注视点绘制，避免实验模式与在线控制模式产生布局偏差。
+- 个人模型按 `personal_template_features.py`、`personal_template_training.py`、
+  `personal_template_runtime.py` 拆分；`personal_template_model.py` 仅保留兼容导出。
 
 ## 运行
 
@@ -287,6 +294,7 @@ src/adapters/real/
 ├── crazyflie_swarm_gateway.py    # 应用侧状态机和命令执行编排
 ├── crazyflie_contracts.py        # 配置和底层驱动协议
 ├── crazyflie_command_queue.py    # 串行队列与代际取消
+├── crazyflie_manual_control.py   # Flow/Lighthouse/编队摇杆目标计算
 ├── crazyflie_telemetry.py        # cflib 日志到领域遥测的纯转换
 ├── crazyflie_safety.py           # 飞行参数安全校验
 ├── crazyflie_flow_control.py     # Flow/Lighthouse 连续控制循环
@@ -305,8 +313,12 @@ src/services/
 └── export_service.py              # 工作台配置和报告导出
 ```
 
-运行时实验数据默认写入 `data/`。原始 EEG、识别日志、模型权重和预览图片已在
-`.gitignore` 中排除，不应当作普通源码提交；重要实验数据需要另行备份。
+运行时实验数据默认写入 `data/`。`csv_sessions/`、`single_target_calibration/`、
+`sessions/*.jsonl`、原始 EEG、识别日志和预览图片均已移出 Git 并由 `.gitignore`
+排除；这只是停止版本跟踪，不会删除本机文件。最新个人模型
+`models/personal_template_ssvep_experimental.npz` 及 metadata 保留，来源 60 轮数据仍在
+本机 `data/single_target_calibration/single-20261018-210353-640369/`。重要实验数据应备份
+到受控存储，不能把 Git 当作实验数据仓库。
 
 ## 测试
 
@@ -328,4 +340,6 @@ python -m compileall -q src tests
 
 ## 安全说明
 
-FBCCA 已具备通往 `SwarmGateway` 的受控路径，但默认关闭，CSV 回放永远不能开启实机执行。桌面端的安全门控不能替代飞控固件、物理急停、现场监护和实验室审批。
+FBCCA 已具备通往 `SwarmGateway` 的受控路径，但实机脑控默认关闭，CSV 回放永远不能开启
+实机执行。个人/神经网络模型只有在 metadata 明确通过独立验证后才具备实机资格；“可加载”
+不等于“可飞行”。桌面端的安全门控不能替代飞控固件、物理急停、现场监护和实验室审批。

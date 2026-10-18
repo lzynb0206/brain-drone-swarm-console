@@ -14,12 +14,13 @@ from PySide6.QtWidgets import QInputDialog, QWidget
 
 from src.bci.config import SSVEP_CHANNEL_NAMES
 from src.domain import EEGFrame, EEGStreamDescriptor
-from src.services import LSLEEGOutlet, RawEEGCsvRecorder
+from src.services import EEGDisplayProcessor, LSLEEGOutlet, RawEEGCsvRecorder
 
 
 class EEGAcquisitionHost(Protocol):
     _pipeline_worker: object | None
     _eeg_history: list
+    _eeg_display_history: list
     _eeg_sample_rate: float
     _eeg_channel_names: tuple[str, ...]
     _eeg_original_channel_names: tuple[str, ...]
@@ -69,6 +70,8 @@ class EEGAcquisitionController(QObject):
             {"gain": "x24", "input": "Normal", "bias": "Yes", "srb2": "On", "srb1": "Off"}
             for _ in range(8)
         ]
+        self.display_processor = EEGDisplayProcessor()
+        self._display_filter_failed = False
         self._lsl_discovery_in_progress = False
         self.lsl_discovery_completed.connect(self._finish_lsl_discovery)
 
@@ -338,10 +341,41 @@ class EEGAcquisitionController(QObject):
 
     def handle_frame(self, frame: EEGFrame, *, publish_outlet: bool) -> None:
         self.last_frame_monotonic = time.monotonic()
-        if len(self.host._eeg_history) != len(frame.samples):
-            self.host._eeg_history = [deque(maxlen=1250) for _ in frame.samples]
+        history_size = max(1, round(float(frame.sample_rate_hz) * 5.0))
+        history_shape_changed = (
+            len(self.host._eeg_history) != len(frame.samples)
+            or any(history.maxlen != history_size for history in self.host._eeg_history)
+            or len(self.host._eeg_display_history) != len(frame.samples)
+            or any(
+                history.maxlen != history_size
+                for history in self.host._eeg_display_history
+            )
+        )
+        if history_shape_changed:
+            self.host._eeg_history = [deque(maxlen=history_size) for _ in frame.samples]
+            self.host._eeg_display_history = [
+                deque(maxlen=history_size) for _ in frame.samples
+            ]
+            self.display_processor.reset()
+        try:
+            display_samples = self.display_processor.process(
+                frame.samples,
+                frame.sample_rate_hz,
+            )
+            self._display_filter_failed = False
+        except Exception as exc:
+            # Display conditioning must never interrupt raw acquisition,
+            # recording, LSL publishing or decoding.
+            display_samples = frame.samples
+            if not self._display_filter_failed:
+                self.host._eeg_events.appendleft(
+                    f"{datetime.now():%H:%M:%S}  WARN  显示滤波已旁路：{exc}"
+                )
+            self._display_filter_failed = True
         if not self.waveform_paused:
             for history, values in zip(self.host._eeg_history, frame.samples):
+                history.extend(float(value) for value in values)
+            for history, values in zip(self.host._eeg_display_history, display_samples):
                 history.extend(float(value) for value in values)
         self.host._eeg_sample_rate = frame.sample_rate_hz
         self.host._eeg_channel_names = tuple(frame.channel_names)
@@ -416,6 +450,9 @@ class EEGAcquisitionController(QObject):
 
     def _reset_live_state(self) -> None:
         self.host._eeg_history = [deque(maxlen=1250) for _ in range(8)]
+        self.host._eeg_display_history = [deque(maxlen=1250) for _ in range(8)]
+        self.display_processor.reset()
+        self._display_filter_failed = False
         self.host._eeg_sample_rate = 0.0
         self.host._eeg_channel_names = tuple(SSVEP_CHANNEL_NAMES)
         self.host._eeg_channel_units = ("uV",) * 8

@@ -41,6 +41,12 @@ class PersonalTemplateSSVEPDecoder:
         return self.model.enabled
 
     @property
+    def hardware_control_allowed(self) -> bool:
+        """Only independently approved metadata may drive real aircraft."""
+
+        return bool(self.model.metadata.get("production_approved", False))
+
+    @property
     def backend_status(self) -> str:
         if not self.available:
             return self.model.error
@@ -49,7 +55,8 @@ class PersonalTemplateSSVEPDecoder:
             channels = "/".join(
                 str(value) for value in self.model.metadata.get("channel_names", [])
             )
-            return f"实验个人模型已就绪（{count}段；{channels}；门槛已放宽）"
+            suffix = "允许实机" if self.hardware_control_allowed else "仅科研测试，禁止实机"
+            return f"实验个人模型已就绪（{count}段；{channels}；门槛已放宽；{suffix}）"
         return f"个人模板＋FBCCA已就绪（{count}段，未做独立准确率评估）"
 
     def decode(self, samples, sample_rate_hz: float) -> IntentResult:

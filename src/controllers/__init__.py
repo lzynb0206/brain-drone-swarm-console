@@ -8,6 +8,7 @@ from src.controllers.main_action_router import MainActionRouter
 from src.controllers.manual_flight_controller import ManualFlightController
 from src.controllers.recognition_controller import RecognitionController
 from src.controllers.soldier_bci_controller import SoldierBCIController
+from src.controllers.toast_controller import ToastController
 from src.controllers.single_target_calibration_controller import SingleTargetCalibrationController
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "ManualFlightController",
     "RecognitionController",
     "SoldierBCIController",
+    "ToastController",
     "SingleTargetCalibrationController",
 ]

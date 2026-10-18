@@ -2,6 +2,7 @@
 
 from src.services.admin_operations_service import AdminOperationsService
 from src.services.bci_execution_service import BCIExecutionService
+from src.services.eeg_display_processor import EEGDisplayProcessor
 from src.services.export_service import WorkbenchExportService
 from src.services.experiment_recorder import ExperimentRecorder
 from src.services.experiment_timing import (
@@ -26,7 +27,7 @@ from src.services.ssvep_experiment_protocol import (
 from src.services.workbench_service import MappingEntry, WorkbenchService
 
 __all__ = [
-    "AdminOperationsService", "BCIExecutionService", "ExperimentClock", "ExperimentMarkerOutlet",
+    "AdminOperationsService", "BCIExecutionService", "EEGDisplayProcessor", "ExperimentClock", "ExperimentMarkerOutlet",
     "ExperimentRecorder", "ExperimentTimestamp",
     "IntentSafetyDecision", "IntentSafetyService", "LSLEEGOutlet", "MappingEntry", "MissionPlanningError",
     "RawEEGCsvRecorder", "ResearchWorkbenchService", "StructuredMissionService",

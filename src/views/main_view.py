@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetricsF, QPainter
+from PySide6.QtCore import Qt, QTimer, Signal, QUrl
+from PySide6.QtGui import QDesktopServices, QPainter
 from PySide6.QtWidgets import QStackedWidget, QWidget
 from src.bci.preprocessing import assess_signal_quality
 from src.bci.config import (
@@ -27,6 +26,7 @@ from src.controllers import (
     RecognitionController,
     SingleTargetCalibrationController,
     SoldierBCIController,
+    ToastController,
 )
 from src.domain import EEGFrame, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
@@ -41,7 +41,7 @@ from src.controllers.main_action_router import MainActionRouter
 from src.views.main_dialogs import MainDialogsMixin
 from src.views.role_pages import AdminPage, EngineerCanvasPage, ResearchPage, SoldierPage
 from src.workers import EEGWorker
-from src.widgets.scifi_canvas import CYAN, TEXT, Canvas
+from src.widgets.scifi_canvas import Canvas
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QDialog, QDoubleSpinBox, QPlainTextEdit
@@ -88,10 +88,10 @@ class MainView(
         self.engineer_page = "系统监控"
         self.soldier_root = "作战地图"
         self.soldier_page = "脑控"
-        self._toast = ""
-        self._toast_generation = 0
-        self._toast_scroll_started = 0.0
+        self.toast = ToastController(self)
+        self._toast_scroll_timer = self.toast.timer
         self._eeg_history = [deque(maxlen=360) for _ in range(8)]
+        self._eeg_display_history = [deque(maxlen=360) for _ in range(8)]
         self._eeg_sample_rate = 0.0
         self._eeg_channel_names: tuple[str, ...] = tuple(SSVEP_CHANNEL_NAMES)
         self._eeg_original_channel_names: tuple[str, ...] = ()
@@ -174,9 +174,6 @@ class MainView(
         self._runtime_refresh_timer = QTimer(self)
         self._runtime_refresh_timer.timeout.connect(self._refresh_runtime)
         self._runtime_refresh_timer.start(300)
-        self._toast_scroll_timer = QTimer(self)
-        self._toast_scroll_timer.setInterval(33)
-        self._toast_scroll_timer.timeout.connect(self._animate_toast)
         self.setMouseTracking(True)
 
     def set_user(self, user: User) -> None:
@@ -389,32 +386,7 @@ class MainView(
         c.fill("#071020")
 
     def _paint_toast(self, c: Canvas) -> None:
-        c.rect(390, 655, 500, 45, "#15243a", CYAN, 7, 1.5)
-        viewport = QRectF(410, 655, 460, 45)
-        font = QFont(c.p.font())
-        font.setPixelSize(12)
-        font.setWeight(QFont.Bold)
-        metrics = QFontMetricsF(font)
-        text_width = metrics.horizontalAdvance(self._toast)
-        if text_width <= viewport.width():
-            c.text(410, 655, 460, 45, self._toast, 12, TEXT, True, Qt.AlignCenter)
-            return
-
-        elapsed = max(0.0, time.monotonic() - self._toast_scroll_started)
-        offset = max(0.0, elapsed - 0.8) * 45.0
-        gap = 90.0
-        cycle = text_width + gap
-        x = viewport.left() - (offset % cycle)
-        baseline = viewport.top() + (viewport.height() - metrics.height()) / 2 + metrics.ascent()
-        c.p.save()
-        try:
-            c.p.setClipRect(viewport)
-            c.p.setFont(font)
-            c.p.setPen(QColor(TEXT))
-            c.p.drawText(QPointF(x, baseline), self._toast)
-            c.p.drawText(QPointF(x + cycle, baseline), self._toast)
-        finally:
-            c.p.restore()
+        self.toast.paint(c)
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         self._role_stack.setGeometry(self.rect())
@@ -499,23 +471,22 @@ class MainView(
             role_stack.currentWidget().update()
 
     def _notify(self, message: str) -> None:
-        self._toast = message
-        self._toast_generation += 1
-        self._toast_scroll_started = time.monotonic()
-        self._toast_scroll_timer.start()
-        generation = self._toast_generation
-        display_ms = max(2600, min(18000, 2200 + max(0, len(message) - 28) * 260))
-        QTimer.singleShot(display_ms, lambda: self._clear_toast(generation))
-        self.update()
+        self.toast.notify(message)
 
     def _animate_toast(self) -> None:
-        if self._toast:
-            self.update()
-        else:
-            self._toast_scroll_timer.stop()
+        self.toast.animate()
 
     def _clear_toast(self, generation: int) -> None:
-        if generation == self._toast_generation:
-            self._toast = ""
-            self._toast_scroll_timer.stop()
-            self.update()
+        self.toast.clear(generation)
+
+    @property
+    def _toast(self) -> str:
+        return self.toast.message
+
+    @property
+    def _toast_generation(self) -> int:
+        return self.toast.generation
+
+    @property
+    def _toast_scroll_started(self) -> float:
+        return self.toast.scroll_started

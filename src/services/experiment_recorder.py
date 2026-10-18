@@ -35,6 +35,7 @@ from src.services.experiment_record_schema import (
     validated_timestamps,
 )
 from src.services.experiment_marker_store import ExperimentMarkerStore
+from src.services.recognition_log_repository import RecognitionLogRepository
 
 
 class ExperimentRecorder:
@@ -54,7 +55,12 @@ class ExperimentRecorder:
     _normalized_labels = staticmethod(normalized_labels)
     _data_row_count = staticmethod(data_row_count)
 
-    def __init__(self, root: Path | str) -> None:
+    def __init__(
+        self,
+        root: Path | str,
+        *,
+        recognition_log_max_bytes: int = RecognitionLogRepository.DEFAULT_MAX_BYTES,
+    ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.raw_trial_dir = self.root / "raw_trials"
         self.session_dir = self.root / "sessions"
@@ -86,6 +92,10 @@ class ExperimentRecorder:
             self._lock,
         )
         self._command_audit = CommandAuditRepository(self.command_log_path, self._lock)
+        self._recognition_logs = RecognitionLogRepository(
+            self.recognition_log_dir,
+            max_bytes=recognition_log_max_bytes,
+        )
 
     def record(
         self,
@@ -125,6 +135,9 @@ class ExperimentRecorder:
         timestamp = datetime.now().astimezone().isoformat(timespec="milliseconds")
         start_time = start_time or timestamp
         quality_json = json.dumps(result.signal_quality, ensure_ascii=False, sort_keys=True)
+        compact_quality_json = self._recognition_logs.compact_quality_json(
+            result.signal_quality
+        )
         scores_json = json.dumps(result.scores, ensure_ascii=False, sort_keys=True)
         trial_id = ""
         relative_trial_path = ""
@@ -258,9 +271,7 @@ class ExperimentRecorder:
                 )
 
             if log_recognition:
-                self._append_csv(
-                    self.recognition_log_path,
-                    self.RECOGNITION_FIELDS,
+                self._recognition_logs.append(
                     {
                         "timestamp": timestamp,
                         "subject_id": subject_id,
@@ -277,7 +288,7 @@ class ExperimentRecorder:
                         "sample_rate_hz": result.sample_rate_hz,
                         "sample_count": result.sample_count,
                         "used_channels": ",".join(str(value) for value in result.used_channels_1based),
-                        "signal_quality_json": quality_json,
+                        "signal_quality_json": compact_quality_json,
                         "scores_json": scores_json,
                         "raw_trial_id": trial_id,
                         "raw_trial_path": relative_trial_path,
@@ -379,7 +390,7 @@ class ExperimentRecorder:
 
     def stats(self) -> dict[str, int]:
         return {
-            "recognitions": self._data_row_count(self.recognition_log_path),
+            "recognitions": self._recognition_logs.row_count(),
             "labeled_trials": self._data_row_count(self.raw_trial_index_path),
         }
 

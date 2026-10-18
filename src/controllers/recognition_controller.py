@@ -85,6 +85,13 @@ class RecognitionController:
             show_result = getattr(stimulus_window, "show_recognition_result", None)
             if callable(show_result):
                 show_result(result)
+        if result.accepted and not bool(
+            getattr(host.intent_decoder, "hardware_control_allowed", True)
+        ):
+            message = "当前模型尚未通过独立实机验证；仅显示识别结果，不派发飞控命令"
+            host._eeg_events.appendleft(message)
+            host.update()
+            return
         if host.actions.is_single_uav_mission(result):
             self.handle_single_uav_mission(result)
             host.update()

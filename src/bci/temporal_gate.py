@@ -47,6 +47,10 @@ class ConsecutiveWindowGate:
     def backend_status(self) -> str:
         return str(getattr(self.decoder, "backend_status", type(self.decoder).__name__))
 
+    @property
+    def hardware_control_allowed(self) -> bool:
+        return bool(getattr(self.decoder, "hardware_control_allowed", True))
+
     def reset(self) -> None:
         self._candidate_label = ""
         self._candidate_count = 0

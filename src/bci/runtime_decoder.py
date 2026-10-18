@@ -38,6 +38,12 @@ class RuntimeIntentDecoder:
             decoder = self._decoders[self._active_name]
         return float(getattr(decoder, "idle_calibration_seconds", 12.0))
 
+    @property
+    def hardware_control_allowed(self) -> bool:
+        with self._lock:
+            decoder = self._decoders[self._active_name]
+        return bool(getattr(decoder, "hardware_control_allowed", True))
+
     def algorithm_statuses(self) -> dict[str, dict[str, object]]:
         statuses = {}
         for name, decoder in self._decoders.items():
@@ -46,6 +52,9 @@ class RuntimeIntentDecoder:
                 "available": available,
                 "status": str(getattr(decoder, "backend_status", "可用")),
                 "active": name == self.active_name,
+                "hardware_control_allowed": bool(
+                    getattr(decoder, "hardware_control_allowed", True)
+                ),
             }
         return statuses
 

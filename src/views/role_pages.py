@@ -164,6 +164,10 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
         return self.context._eeg_history
 
     @property
+    def _eeg_display_history(self):
+        return self.context._eeg_display_history
+
+    @property
     def _eeg_quality(self):
         return self.context._eeg_quality
 

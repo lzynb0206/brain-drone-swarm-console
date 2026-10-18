@@ -91,7 +91,7 @@ Type-C 连接只在供电；应更换确认支持数据传输的线或 USB 口�
 采集中心可以完成：
 
 - 刷新并选择蓝牙映射出的 COM/串口，建立、启动、停止和释放 ExpandableEEG 会话；
-- 在白色 OpenBCI 风格运行页同时查看 `Time Series / FFT Plot / Accelerometer`，并切换 `Focus / Networking / Packet Loss / Hardware`；
+- 在运行页查看经过独立显示滤波的 `Time Series / FFT Plot / Accelerometer`，并切换 `Focus / Networking / Packet Loss / Hardware`；显示使用 5–50 Hz、50/60 Hz 工频抑制与固定 ±200 μV 量程，CSV、LSL 和算法仍接收原始样本；
 - 查看通道标签、实际采样率、逐通道信号质量和时间戳连续性；
 - 从 Networking 开关标准 `name=obci_eeg1, type=EEG` 的 LSL 广播；
 - 给下一段 SSVEP 2秒试次或 MI 4秒试次添加真实标签。

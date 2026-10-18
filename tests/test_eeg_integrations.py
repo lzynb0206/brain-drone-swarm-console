@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -266,6 +267,46 @@ class ExperimentRecorderTest(unittest.TestCase):
             self.assertEqual("uV", str(payload["channel_units"][0]))
             self.assertTrue((Path(directory) / "sessions" / "session-1.json").is_file())
         self.assertEqual({"recognitions": 2, "labeled_trials": 1}, stats)
+
+    def test_recognition_log_compacts_quality_and_rotates_without_losing_counts(self) -> None:
+        result = IntentResult(
+            timestamp=1.0,
+            label="前进",
+            confidence=0.8,
+            margin=0.4,
+            accepted=True,
+            reason="通过",
+            frequency_hz=9.0,
+            scores={"前进": 0.8},
+            sample_rate_hz=250.0,
+            sample_count=500,
+            used_channels_1based=(2, 4, 6),
+            signal_quality={
+                "status": "partial",
+                "usable_mask": [False, True, False, True, False, True, False, False],
+                "channels": [
+                    {"channel": 1, "issues": ["接触不良"], "debug_values": list(range(500))},
+                ],
+                "full_debug_spectrum": list(range(2000)),
+            },
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = ExperimentRecorder(directory, recognition_log_max_bytes=1024)
+            for _ in range(12):
+                recorder.record(result, np.ones((8, 500)), source="test")
+            paths = sorted((Path(directory) / "recognition_logs").glob("recognition_log*.csv"))
+            rows = []
+            for path in paths:
+                with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                    rows.extend(csv.DictReader(handle))
+            stats = recorder.stats()
+
+        quality = json.loads(rows[0]["signal_quality_json"])
+        self.assertGreater(len(paths), 1)
+        self.assertEqual(12, len(rows))
+        self.assertEqual({"recognitions": 12, "labeled_trials": 0}, stats)
+        self.assertNotIn("full_debug_spectrum", quality)
+        self.assertEqual({"1": ["接触不良"]}, quality["channel_issues"])
 
     def test_mi_trial_is_saved_without_calling_fbcca_or_logging_a_decision(self) -> None:
         class DecoderThatMustNotRun:

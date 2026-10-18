@@ -19,6 +19,10 @@ class TransformerIntentDecoder:
         return self.predictor.enabled
 
     @property
+    def hardware_control_allowed(self) -> bool:
+        return bool(self.predictor.metadata.get("production_approved", False))
+
+    @property
     def backend_status(self) -> str:
         return "Transformer-SSVEP" if self.available else self.predictor.error
 
@@ -51,4 +55,3 @@ class TransformerIntentDecoder:
             used_channels_1based=used,
             signal_quality=quality,
         )
-

@@ -140,6 +140,8 @@ class SingleTargetTemplateAnalysisTest(unittest.TestCase):
             self.assertGreaterEqual(len(result.used_channels_1based), 1)
             self.assertTrue(set(result.used_channels_1based).issubset(set(range(1, 9))))
             self.assertFalse(result.safety_verified)
+            self.assertFalse(metadata["production_approved"])
+            self.assertFalse(decoder.hardware_control_allowed)
 
             experimental_model_path = root / "personal-experimental.npz"
             experimental_metadata_path = root / "personal-experimental.json"
@@ -165,6 +167,7 @@ class SingleTargetTemplateAnalysisTest(unittest.TestCase):
             self.assertAlmostEqual(0.015, experimental_model.margin_threshold, places=6)
             self.assertTrue(experimental_result.accepted)
             self.assertTrue(experimental_result.signal_quality["experimental_override"])
+            self.assertFalse(experimental_metadata["production_approved"])
 
     def test_guided_multi_target_run_is_not_accepted_as_isolated_template(self) -> None:
         fs = 250.0

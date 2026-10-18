@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
@@ -48,27 +47,10 @@ PERSONAL_TEMPLATE_METADATA_PATH = Path(
         str(PROJECT_ROOT / "models" / "personal_template_ssvep_experimental_metadata.json"),
     )
 ).expanduser()
-
-
-def _personal_template_matches_layout() -> bool:
-    if not PERSONAL_TEMPLATE_MODEL_PATH.is_file() or not PERSONAL_TEMPLATE_METADATA_PATH.is_file():
-        return False
-    try:
-        metadata = json.loads(PERSONAL_TEMPLATE_METADATA_PATH.read_text(encoding="utf-8"))
-        return (
-            metadata.get("model_version") == "personal_template_ssvep_v5"
-            and metadata.get("stimulus_layout") == SSVEP_STIMULUS_LAYOUT
-            and metadata.get("calibration_condition") == "isolated_single_target_v1"
-        )
-    except Exception:
-        return False
-
-
-# Only a template collected with the exact current target geometry becomes the
-# local default. Older full-screen calibration remains on disk but is never
-# silently applied to the new six-target layout.
-_DEFAULT_INTENT_DECODER = "personal-template" if _personal_template_matches_layout() else "fbcca"
-INTENT_DECODER = os.getenv("BDS_INTENT_DECODER", _DEFAULT_INTENT_DECODER).strip().lower()
+# A local model file must never silently become the flight-control default.
+# Personal/neural models remain selectable for research, but require explicit
+# operator selection and independent production approval before hardware use.
+INTENT_DECODER = os.getenv("BDS_INTENT_DECODER", "fbcca").strip().lower()
 TRANSFORMER_MODEL_PATH = Path(
     os.getenv(
         "BDS_TRANSFORMER_MODEL",
@@ -86,7 +68,7 @@ TRANSFORMER_REQUIRED_WINDOWS = int(os.getenv("BDS_TRANSFORMER_REQUIRED_WINDOWS",
 TRANSFORMER_COOLDOWN_SECONDS = float(os.getenv("BDS_TRANSFORMER_COOLDOWN_SECONDS", "0.50"))
 
 SAMPLE_RATE_HZ = float(os.getenv("BDS_EEG_SAMPLE_RATE", "250"))
-FRAME_SIZE = int(os.getenv("BDS_EEG_FRAME_SIZE", "32"))
+FRAME_SIZE = int(os.getenv("BDS_EEG_FRAME_SIZE", "8"))
 WINDOW_SECONDS = float(os.getenv("BDS_EEG_WINDOW_SECONDS", "4"))
 DECISION_STEP_SECONDS = float(os.getenv("BDS_EEG_DECISION_STEP_SECONDS", "0.25"))
 

@@ -106,6 +106,18 @@ class RuntimeDecoderTest(unittest.TestCase):
             manager.select("Transformer-SSVEP")
         self.assertEqual("FBCCA", manager.active_name)
 
+    def test_reports_active_decoder_hardware_policy(self) -> None:
+        class ResearchOnly(SequenceDecoder):
+            hardware_control_allowed = False
+
+        manager = RuntimeIntentDecoder(
+            {"FBCCA": SequenceDecoder([result()]), "实验模型": ResearchOnly([result()])},
+            initial="实验模型",
+        )
+
+        self.assertFalse(manager.hardware_control_allowed)
+        self.assertFalse(manager.algorithm_statuses()["实验模型"]["hardware_control_allowed"])
+
     def test_missing_assets_are_reported_without_importing_torch(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

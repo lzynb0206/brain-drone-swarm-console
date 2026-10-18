@@ -16,7 +16,16 @@ class HybridIntentDecoder:
 
     @property
     def backend_status(self) -> str:
-        return "FB-EEGNet" if self.predictor.enabled else f"FBCCA（模型不可用：{self.predictor.error}）"
+        if not self.predictor.enabled:
+            return f"FBCCA（模型不可用：{self.predictor.error}）"
+        suffix = "允许实机" if self.hardware_control_allowed else "仅科研测试，禁止实机"
+        return f"FB-EEGNet（{suffix}）"
+
+    @property
+    def hardware_control_allowed(self) -> bool:
+        if not self.predictor.enabled:
+            return True
+        return bool(self.predictor.metadata.get("production_approved", False))
 
     def decode(self, samples, sample_rate_hz: float) -> IntentResult:
         if not self.predictor.enabled:

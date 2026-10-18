@@ -123,11 +123,12 @@
   "confidence_threshold": 0.21,
   "margin_threshold": 0.015,
   "experimental_override": true,
+  "production_approved": false,
   "prediction_mode": "kernel_ridge_trial_retrieval",
   "kernel_gamma": 0.3,
   "kernel_regularization": 0.003,
   "model_temperature": 1.0,
   "fusion_template_weight": 0.975,
   "fbcca_temperature": 0.02,
-  "note": "这是按用户要求强制生成的可删除实验模型；留一试次一致性不是在线准确率，门槛已故意放宽，必须在六目标测试页实测。"
+  "note": "这是保留的最新个人实验模型；留一试次一致性不是在线准确率，门槛已故意放宽，只能用于科研测试，完成独立在线验证前禁止驱动实机。"
 }
