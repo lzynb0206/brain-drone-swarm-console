@@ -77,6 +77,14 @@ class RecognitionController:
                     observe_idle(result)
             host.update()
             return
+        if (
+            stimulus_window is not None
+            and stimulus_window.control_mode
+            and stimulus_window.running
+        ):
+            show_result = getattr(stimulus_window, "show_recognition_result", None)
+            if callable(show_result):
+                show_result(result)
         if host.actions.is_single_uav_mission(result):
             self.handle_single_uav_mission(result)
             host.update()

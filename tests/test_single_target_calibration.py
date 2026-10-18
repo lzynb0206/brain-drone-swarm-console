@@ -11,6 +11,7 @@ from src.bci.config import COMMANDS, SSVEP_STIMULUS_LAYOUT, TARGET_FREQUENCIES_H
 from src.bci.personal_template_decoder import PersonalTemplateSSVEPDecoder
 from src.ml.personal_template_model import (
     GUIDED_CALIBRATION_CONDITION,
+    ISOLATED_CALIBRATION_CONDITION,
     PersonalTemplateModel,
     extract_template_feature,
     train_personal_template_model,
@@ -23,6 +24,15 @@ from src.services.single_target_template_analysis import evaluate_single_target_
 
 
 class SingleTargetPlanTest(unittest.TestCase):
+    def test_default_plan_collects_ten_trials_for_each_command(self) -> None:
+        plan = build_single_target_plan(SingleTargetCalibrationConfig())
+
+        self.assertEqual(60, len(plan))
+        self.assertEqual(
+            {label: 10 for label in COMMANDS},
+            dict(Counter(trial.label for trial in plan)),
+        )
+
     def test_plan_is_balanced_seeded_and_has_no_adjacent_duplicates(self) -> None:
         config = SingleTargetCalibrationConfig(repetitions_per_command=3)
         first = build_single_target_plan(config)
@@ -41,7 +51,7 @@ class SingleTargetTemplateAnalysisTest(unittest.TestCase):
     def test_synthetic_single_frequency_trials_are_separated_by_personal_templates(self) -> None:
         rng = np.random.default_rng(18)
         fs = 250.0
-        timeline = np.arange(750) / fs
+        timeline = np.arange(1250) / fs
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             trial_index = 0
@@ -60,7 +70,7 @@ class SingleTargetTemplateAnalysisTest(unittest.TestCase):
                         eeg=eeg,
                         fs=np.asarray(fs, dtype=np.float32),
                         true_label=np.asarray(label),
-                        discard_seconds=np.asarray(0.5, dtype=np.float32),
+                        discard_seconds=np.asarray(1.0, dtype=np.float32),
                     )
 
             report = evaluate_single_target_run(root)
@@ -86,7 +96,7 @@ class SingleTargetTemplateAnalysisTest(unittest.TestCase):
     def test_builds_runtime_model_from_all_trials_without_claiming_accuracy(self) -> None:
         rng = np.random.default_rng(24)
         fs = 250.0
-        timeline = np.arange(750) / fs
+        timeline = np.arange(1250) / fs
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             run = root / "run"
@@ -105,10 +115,10 @@ class SingleTargetTemplateAnalysisTest(unittest.TestCase):
                         eeg=eeg,
                         fs=np.asarray(fs, dtype=np.float32),
                         true_label=np.asarray(label),
-                        discard_seconds=np.asarray(0.5, dtype=np.float32),
+                        discard_seconds=np.asarray(1.0, dtype=np.float32),
                         stimulus_layout=np.asarray(SSVEP_STIMULUS_LAYOUT),
-                        calibration_condition=np.asarray(GUIDED_CALIBRATION_CONDITION),
-                        visible_target_count=np.asarray(len(COMMANDS), dtype=np.int32),
+                        calibration_condition=np.asarray(ISOLATED_CALIBRATION_CONDITION),
+                        visible_target_count=np.asarray(1, dtype=np.int32),
                         signal_quality=np.asarray(
                             '{"usable_mask": [true, true, true, true, true, true, true, true]}'
                         ),
@@ -119,7 +129,7 @@ class SingleTargetTemplateAnalysisTest(unittest.TestCase):
             metadata = train_personal_template_model(run, model_path, metadata_path)
             model = PersonalTemplateModel(model_path, metadata_path)
             decoder = PersonalTemplateSSVEPDecoder(model)
-            result = decoder.decode(eeg[:, 125:625], fs)
+            result = decoder.decode(eeg[:, 250:1250], fs)
 
             self.assertTrue(model.enabled)
             self.assertEqual(18, metadata["trial_count"])
@@ -131,9 +141,34 @@ class SingleTargetTemplateAnalysisTest(unittest.TestCase):
             self.assertTrue(set(result.used_channels_1based).issubset(set(range(1, 9))))
             self.assertFalse(result.safety_verified)
 
-    def test_isolated_single_target_run_is_not_accepted_as_online_template(self) -> None:
+            experimental_model_path = root / "personal-experimental.npz"
+            experimental_metadata_path = root / "personal-experimental.json"
+            experimental_metadata = train_personal_template_model(
+                run,
+                experimental_model_path,
+                experimental_metadata_path,
+                experimental_override=True,
+                experimental_channels_1based=(2, 4, 6, 7),
+            )
+            experimental_model = PersonalTemplateModel(
+                experimental_model_path, experimental_metadata_path,
+            )
+            experimental_result = PersonalTemplateSSVEPDecoder(
+                experimental_model,
+            ).decode(eeg[:, 250:1250], fs)
+
+            self.assertTrue(experimental_model.enabled)
+            self.assertTrue(experimental_model.experimental_override)
+            self.assertEqual("kernel_ridge_trial_retrieval", experimental_model.prediction_mode)
+            self.assertEqual(["Oz", "PO3", "PO4", "P3"], experimental_metadata["channel_names"])
+            self.assertAlmostEqual(0.21, experimental_model.confidence_threshold, places=6)
+            self.assertAlmostEqual(0.015, experimental_model.margin_threshold, places=6)
+            self.assertTrue(experimental_result.accepted)
+            self.assertTrue(experimental_result.signal_quality["experimental_override"])
+
+    def test_guided_multi_target_run_is_not_accepted_as_isolated_template(self) -> None:
         fs = 250.0
-        timeline = np.arange(750) / fs
+        timeline = np.arange(1250) / fs
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for trial_index, (label, frequency) in enumerate(
@@ -147,13 +182,13 @@ class SingleTargetTemplateAnalysisTest(unittest.TestCase):
                     eeg=eeg,
                     fs=np.asarray(fs),
                     true_label=np.asarray(label),
-                    discard_seconds=np.asarray(0.5),
+                    discard_seconds=np.asarray(1.0),
                     stimulus_layout=np.asarray(SSVEP_STIMULUS_LAYOUT),
-                    calibration_condition=np.asarray("isolated_single_target_v1"),
-                    visible_target_count=np.asarray(1),
+                    calibration_condition=np.asarray(GUIDED_CALIBRATION_CONDITION),
+                    visible_target_count=np.asarray(len(COMMANDS)),
                 )
 
-            with self.assertRaisesRegex(ValueError, "单目标独闪数据不能泛化"):
+            with self.assertRaisesRegex(ValueError, "单目标独闪"):
                 train_personal_template_model(
                     root, root / "model.npz", root / "metadata.json",
                 )

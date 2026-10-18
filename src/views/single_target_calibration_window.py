@@ -10,7 +10,10 @@ from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPen
 
 from src.bci.config import COMMANDS, LABEL_TO_FREQUENCY, SSVEP_STIMULUS_LAYOUT
 from src.bci.stimulus import luminance_at
-from src.ml.personal_template_model import GUIDED_CALIBRATION_CONDITION
+from src.ml.personal_template_model import (
+    GUIDED_CALIBRATION_CONDITION,
+    ISOLATED_CALIBRATION_CONDITION,
+)
 from src.services.single_target_calibration_protocol import (
     SingleTargetCalibrationConfig,
     SingleTargetTrial,
@@ -55,7 +58,7 @@ class SingleTargetCalibrationWindow(StimulusCanvas):
         self._timer = StimulusFrameDriver(self)
         self._timer.timeout.connect(self._tick)
         self.setWindowTitle(
-            "SSVEP 六目标引导校准" if self.mode == "guided" else "SSVEP 单目标诊断采集"
+            "SSVEP 六目标引导校准" if self.mode == "guided" else "SSVEP 单目标个人模板采集"
         )
         self.setStyleSheet("background: #050914;")
         self.setFocusPolicy(Qt.StrongFocus)
@@ -77,7 +80,7 @@ class SingleTargetCalibrationWindow(StimulusCanvas):
         self.current_index = 0
         self._timer.start()
         self._enter("cue")
-        name = "六目标引导校准" if self.mode == "guided" else "单目标诊断"
+        name = "六目标引导校准" if self.mode == "guided" else "单目标个人模板采集"
         self.status_changed.emit(f"{name}开始：共 {len(self.plan)} 轮")
 
     def notify_trial_saved(
@@ -119,7 +122,7 @@ class SingleTargetCalibrationWindow(StimulusCanvas):
                 self._finish(
                     "completed",
                     "全部六目标引导试次已保存"
-                    if self.mode == "guided" else "全部单目标诊断试次已保存",
+                    if self.mode == "guided" else "全部单目标个人模板试次已保存",
                 )
             else:
                 self.current_index += 1
@@ -155,7 +158,7 @@ class SingleTargetCalibrationWindow(StimulusCanvas):
                 "discard_seconds": float(self.config.discard_seconds),
                 "stimulus_layout": SSVEP_STIMULUS_LAYOUT,
                 "calibration_condition": (
-                    GUIDED_CALIBRATION_CONDITION if guided else "isolated_single_target_v1"
+                    GUIDED_CALIBRATION_CONDITION if guided else ISOLATED_CALIBRATION_CONDITION
                 ),
                 "visible_target_count": len(COMMANDS) if guided else 1,
                 "target_slot_index": COMMANDS.index(trial.label),
@@ -191,7 +194,7 @@ class SingleTargetCalibrationWindow(StimulusCanvas):
             "total_trials": len(self.plan),
             "paths": list(self._saved_paths),
         }
-        name = "六目标引导校准" if self.mode == "guided" else "单目标诊断"
+        name = "六目标引导校准" if self.mode == "guided" else "单目标个人模板采集"
         self.status_changed.emit(
             f"{name}{'完成' if status == 'completed' else '中止'}："
             f"{len(self._saved_paths)}/{len(self.plan)}"
@@ -255,6 +258,20 @@ class SingleTargetCalibrationWindow(StimulusCanvas):
                 )
         if not active:
             self._draw_overlay(painter, trial)
+        painter.setPen(QColor("#d1d5db"))
+        painter.setFont(QFont("PingFang SC", 15))
+        phase_name = {
+            "cue": "准备",
+            "stimulus": "正在采集",
+            "saving": "正在保存",
+            "rest": "休息",
+        }.get(self.phase, self.phase)
+        painter.drawText(
+            QRectF(0, 12, self.width(), 42),
+            Qt.AlignCenter,
+            f"{phase_name} ｜单目标个人模板 ｜{trial.trial_index}/{len(self.plan)} ｜"
+            f"{trial.label} {LABEL_TO_FREQUENCY[trial.label]:g} Hz ｜Esc 中止",
+        )
         painter.end()
 
     def _draw_overlay(self, painter: QPainter, trial: SingleTargetTrial) -> None:

@@ -47,7 +47,7 @@ class FBCCADecoder:
         frequencies_hz: Sequence[float] = TARGET_FREQUENCIES_HZ,
         labels: Sequence[str] = COMMANDS,
         channels_1based: Iterable[int] = SSVEP_CHANNELS_1BASED,
-        harmonics: int = 2,
+        harmonics: int = 4,
         safety_service: IntentSafetyService | None = None,
         min_score: float | None = None,
         min_margin: float | None = None,

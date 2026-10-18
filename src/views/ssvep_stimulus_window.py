@@ -289,10 +289,8 @@ class SSVEPStimulusWindow(StimulusCanvas):
                 self._luminance[index].append(luminance)
             gray = int(round(255 * luminance))
             painter.fillRect(rect, QColor(gray, gray, gray))
-            border_color = QColor("#4b5563")
-            if target.label == self._selected_label:
-                border_color = QColor("#00e5ff")
-            painter.setPen(QPen(border_color, 6 if border_color != QColor("#4b5563") else 4))
+            border_color, border_width, border_style = self._target_frame_style(target.label)
+            painter.setPen(QPen(border_color, border_width, border_style))
             painter.drawRect(rect)
             text_color = QColor("#000000") if gray > 150 else QColor("#ffffff")
             painter.setPen(text_color)
@@ -320,8 +318,8 @@ class SSVEPStimulusWindow(StimulusCanvas):
             self._draw_cooldown_overlay(painter)
         elif self._running and self.fresh_window_remaining > 0.0:
             self._draw_fresh_window_overlay(painter)
-        elif self._running and self.test_mode:
-            self._draw_test_result(painter)
+        elif self._running and (self.control_mode or self.test_mode):
+            self._draw_online_result(painter)
 
         painter.setPen(QColor("#d1d5db"))
         painter.setFont(QFont("PingFang SC", 15))
@@ -351,15 +349,33 @@ class SSVEPStimulusWindow(StimulusCanvas):
         )
 
     def show_recognition_result(self, result: IntentResult) -> None:
-        """Retain test statistics without changing the control-mode visuals."""
+        """Show the same live candidate frame in control and safe test modes."""
 
-        if not self.test_mode:
+        if not (self.control_mode or self.test_mode):
             return
         self._latest_recognition = result
         self._recognition_count += 1
         if result.accepted:
             self._accepted_count += 1
         self.update()
+
+    def _target_frame_style(self, label: str) -> tuple[QColor, int, Qt.PenStyle]:
+        """Return the visible frame used to point out the decoder's candidate."""
+
+        result = self._latest_recognition
+        if (
+            (self.control_mode or self.test_mode)
+            and self._running
+            and result is not None
+            and result.label == label
+            and result.label != "空闲"
+        ):
+            if result.accepted:
+                return QColor("#39f39b"), 11, Qt.SolidLine
+            return QColor("#ffb020"), 8, Qt.DashLine
+        if label == self._selected_label:
+            return QColor("#00e5ff"), 6, Qt.SolidLine
+        return QColor("#4b5563"), 4, Qt.SolidLine
 
     def process_simulated_control_result(self, result: IntentResult) -> bool:
         """Mirror command admission and cooldown without touching a gateway."""
@@ -431,11 +447,11 @@ class SSVEPStimulusWindow(StimulusCanvas):
             message,
         )
 
-    def _draw_test_result(self, painter: QPainter) -> None:
+    def _draw_online_result(self, painter: QPainter) -> None:
         result = self._latest_recognition
         accepted = result is not None and result.accepted
         if result is None:
-            title = "正在分析 · 请持续注视一个色块"
+            title = "请持续注视一个目标框"
             detail = "正在等待完整脑电窗口"
         else:
             quality = result.signal_quality or {}
@@ -444,7 +460,7 @@ class SSVEPStimulusWindow(StimulusCanvas):
             used_count = len(result.used_channels_1based)
             total_count = int(quality.get("total_channel_count", used_count) or used_count)
             title = (
-                f"已确认：{result.label}"
+                f"已通过识别门限：{result.label}"
                 if accepted else
                 f"实时候选：{result.label}（未通过门限）"
             )
@@ -455,12 +471,33 @@ class SSVEPStimulusWindow(StimulusCanvas):
             )
             if not accepted and used_count <= 2:
                 detail += " · 通道不足/工频干扰，暂不确认"
-        banner = QRectF(self.width() * 0.28, self.height() * 0.455,
-                       self.width() * 0.44, self.height() * 0.105)
-        painter.fillRect(banner, QColor("#080f1c"))
-        painter.setPen(QColor("#00e5ff") if accepted else QColor("#cbd5e1"))
-        painter.setFont(QFont("PingFang SC", max(16, int(self.height() * 0.025))))
-        painter.drawText(banner, Qt.AlignCenter, title + "\n" + detail)
+        if self.test_mode:
+            detail += " · 测试模式不发送无人机指令"
+        banner = QRectF(
+            self.width() * 0.18,
+            self.height() * 0.44,
+            self.width() * 0.64,
+            self.height() * 0.12,
+        )
+        painter.fillRect(banner, QColor(8, 15, 28, 238))
+        frame_color = QColor("#39f39b") if accepted else QColor("#cbd5e1")
+        painter.setPen(QPen(frame_color, 3))
+        painter.drawRect(banner)
+        painter.setPen(frame_color)
+        title_rect = QRectF(
+            banner.left(), banner.top() + banner.height() * 0.08,
+            banner.width(), banner.height() * 0.43,
+        )
+        detail_rect = QRectF(
+            banner.left() + banner.width() * 0.02,
+            banner.top() + banner.height() * 0.50,
+            banner.width() * 0.96,
+            banner.height() * 0.40,
+        )
+        painter.setFont(QFont("PingFang SC", max(18, int(self.height() * 0.025)), QFont.Bold))
+        painter.drawText(title_rect, Qt.AlignCenter, title)
+        painter.setFont(QFont("PingFang SC", max(13, int(self.height() * 0.017))))
+        painter.drawText(detail_rect, Qt.AlignCenter, detail)
 
     def _draw_fresh_window_overlay(self, painter: QPainter) -> None:
         remaining = self.fresh_window_remaining

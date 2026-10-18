@@ -47,7 +47,7 @@ class BalancedPlanTest(unittest.TestCase):
             ).validate()
 
     def test_config_rejects_window_too_short_for_current_decoder(self) -> None:
-        with self.assertRaisesRegex(ValueError, "2 秒"):
+        with self.assertRaisesRegex(ValueError, "4 秒"):
             AutomaticExperimentConfig(
                 stimulus_seconds=2.0,
                 discard_seconds=0.5,
@@ -59,8 +59,8 @@ class ProtocolStateMachineTest(unittest.TestCase):
         self.config = AutomaticExperimentConfig(
             repetitions_per_label=1,
             cue_seconds=1.0,
-            stimulus_seconds=3.0,
-            discard_seconds=0.5,
+            stimulus_seconds=5.0,
+            discard_seconds=1.0,
             rest_seconds=1.5,
             random_seed=4,
         )
@@ -73,15 +73,15 @@ class ProtocolStateMachineTest(unittest.TestCase):
 
         transition = self.protocol.tick(11.0)
         self.assertEqual(ExperimentPhase.STIMULUS, transition.phase)
-        transition = self.protocol.tick(14.0)
+        transition = self.protocol.tick(16.0)
         self.assertEqual(ExperimentPhase.SAVING, transition.phase)
 
         # No amount of timer advancement can skip an unfinished disk save.
         self.assertIsNone(self.protocol.tick(999.0))
-        transition = self.protocol.trial_saved(15.0)
+        transition = self.protocol.trial_saved(17.0)
         self.assertEqual(ExperimentPhase.REST, transition.phase)
-        self.assertIsNone(self.protocol.tick(16.49))
-        transition = self.protocol.tick(16.5)
+        self.assertIsNone(self.protocol.tick(18.49))
+        transition = self.protocol.tick(18.5)
         self.assertEqual(ExperimentPhase.CUE, transition.phase)
         self.assertEqual(2, transition.trial.trial_index)
 
@@ -91,8 +91,8 @@ class ProtocolStateMachineTest(unittest.TestCase):
 
         self.assertFalse(self.protocol.request_pause(1.2))
         self.assertFalse(self.protocol.paused)
-        self.protocol.tick(4.0)
-        transition = self.protocol.trial_saved(4.1)
+        self.protocol.tick(6.0)
+        transition = self.protocol.trial_saved(6.1)
 
         self.assertEqual(ExperimentPhase.REST, transition.phase)
         self.assertTrue(self.protocol.paused)
@@ -106,8 +106,8 @@ class ProtocolStateMachineTest(unittest.TestCase):
         self.protocol.tick(1.0)
 
         self.assertIsNone(self.protocol.request_abort(1.5))
-        self.protocol.tick(4.0)
-        transition = self.protocol.trial_saved(4.2)
+        self.protocol.tick(6.0)
+        transition = self.protocol.trial_saved(6.2)
 
         self.assertEqual(ExperimentPhase.ABORTED, transition.phase)
         self.assertIn("保存后中止", transition.reason)
@@ -116,9 +116,9 @@ class ProtocolStateMachineTest(unittest.TestCase):
         original_total = self.protocol.total_trials
         self.protocol.start(0.0)
         self.protocol.tick(1.0)
-        self.protocol.tick(4.0)
+        self.protocol.tick(6.0)
         rejected = self.protocol.current_trial
-        self.protocol.trial_saved(4.1)
+        self.protocol.trial_saved(6.1)
 
         retry = self.protocol.reject_current_trial()
 

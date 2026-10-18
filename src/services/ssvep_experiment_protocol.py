@@ -32,8 +32,8 @@ class AutomaticExperimentConfig:
 
     repetitions_per_label: int = 15
     cue_seconds: float = 1.0
-    stimulus_seconds: float = 3.0
-    discard_seconds: float = 0.5
+    stimulus_seconds: float = 5.0
+    discard_seconds: float = 1.0
     rest_seconds: float = 1.5
     random_seed: int = 20261014
     labels: tuple[str, ...] = tuple(TRUE_LABELS)

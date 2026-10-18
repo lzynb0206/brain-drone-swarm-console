@@ -172,6 +172,45 @@ class StimulusWindowModeTest(unittest.TestCase):
             window._timer.stop()
             window.close()
 
+    def test_control_and_test_use_the_same_recognition_prompt_and_target_frame(self) -> None:
+        result = IntentResult(
+            timestamp=1.0,
+            label="前进",
+            confidence=0.72,
+            margin=0.18,
+            accepted=True,
+            reason="",
+            frequency_hz=9.0,
+            scores={"前进": 0.72},
+            sample_rate_hz=250.0,
+            sample_count=1000,
+            used_channels_1based=(2, 3),
+        )
+        windows = [
+            SSVEPStimulusWindow(mode="control"),
+            SSVEPStimulusWindow(mode="test"),
+        ]
+        try:
+            styles = []
+            for window in windows:
+                window.set_idle_calibration_seconds(0.0)
+                window.begin_trial()
+                window._fresh_window_until = 0.0
+                window.show_recognition_result(result)
+                styles.append(window._target_frame_style("前进"))
+                self.assertIs(result, window._latest_recognition)
+                self.assertEqual(1, window._recognition_count)
+
+            self.assertEqual(styles[0], styles[1])
+            self.assertEqual("#39f39b", styles[0][0].name())
+            self.assertEqual(11, styles[0][1])
+            self.assertEqual(Qt.SolidLine, styles[0][2])
+        finally:
+            for window in windows:
+                window._running = False
+                window._timer.stop()
+                window.close()
+
     def test_command_test_cd_finishes_with_same_fresh_window_as_control(self) -> None:
         window = SSVEPStimulusWindow(mode="test")
         requested = []
@@ -182,7 +221,7 @@ class StimulusWindowModeTest(unittest.TestCase):
             window._finish_cooldown()
 
             self.assertEqual(1, len(requested))
-            self.assertAlmostEqual(2.0, requested[0][0])
+            self.assertAlmostEqual(4.0, requested[0][0])
             self.assertEqual("起飞", requested[0][1])
             self.assertGreater(window.fresh_window_remaining, 1.5)
             self.assertTrue(window.stimuli_active)
@@ -240,6 +279,8 @@ class StimulusWindowModeTest(unittest.TestCase):
         self.assertGreater(land.right(), 0.97 * 1920)
         self.assertLess(takeoff.top(), 0.10 * 1080)
         self.assertGreater(right.bottom(), 0.90 * 1080)
+        self.assertAlmostEqual(0.24 * 1920, takeoff.width())
+        self.assertAlmostEqual(0.28 * 1080, takeoff.height())
 
     def test_control_cooldown_pauses_all_stimuli(self) -> None:
         window = SSVEPStimulusWindow(mode="control")
@@ -264,7 +305,7 @@ class StimulusWindowModeTest(unittest.TestCase):
             window._finish_cooldown()
 
             self.assertEqual(1, len(requested))
-            self.assertAlmostEqual(2.0, requested[0][0])
+            self.assertAlmostEqual(4.0, requested[0][0])
             self.assertEqual("空闲校准", requested[0][1])
             self.assertGreater(window.fresh_window_remaining, 1.5)
             self.assertTrue(window.stimuli_active)

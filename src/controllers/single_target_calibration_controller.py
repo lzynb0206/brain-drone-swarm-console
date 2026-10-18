@@ -51,7 +51,7 @@ class SingleTargetCalibrationController:
         self.config = SingleTargetCalibrationConfig()
         self.window: SingleTargetCalibrationWindow | None = None
         self.status = "尚未开始"
-        self.progress = "0/18"
+        self.progress = f"0/{self.config.trial_count}"
         self.latest_run_id = ""
         self.latest_run_directory = ""
         self.latest_accuracy: float | None = None
@@ -73,7 +73,7 @@ class SingleTargetCalibrationController:
         normalized_mode = str(mode).strip().lower()
         if normalized_mode not in {"isolated", "guided"}:
             raise ValueError("calibration mode must be isolated or guided")
-        display_name = "六目标引导校准" if normalized_mode == "guided" else "单目标诊断"
+        display_name = "六目标引导校准" if normalized_mode == "guided" else "单目标个人模板采集"
         worker = self.host._pipeline_worker
         if worker is None or not worker.isRunning():
             self.host._notify(f"{display_name}无法开始：请先在“采集”页启动实时 EEG 数据流")
@@ -235,21 +235,18 @@ class SingleTargetCalibrationController:
         self._active_timestamps = []
         self._write_manifest(status, summary if isinstance(summary, dict) else {})
         if status == "completed":
-            if self._mode == "guided":
-                try:
-                    metadata = self._build_runtime_model()
-                    consistency = float(metadata["leave_one_trial_consistency"]) * 100.0
-                    channels = "/".join(str(value) for value in metadata["channel_names"])
-                    self.status = (
-                        f"引导校准完成；模板已生成（内部一致性 {consistency:.1f}%；"
-                        f"稳定通道 {channels}），待独立测试"
-                    )
-                except Exception as exc:
-                    self.status = f"引导校准完成，但拒绝启用坏模板：{exc}"
-            else:
-                self.status = "单目标诊断完成；数据已保存，不用于六目标在线模板"
+            try:
+                metadata = self._build_runtime_model()
+                consistency = float(metadata["leave_one_trial_consistency"]) * 100.0
+                channels = "/".join(str(value) for value in metadata["channel_names"])
+                self.status = (
+                    f"单目标采集完成；个人模板+FBCCA已启用（内部一致性 {consistency:.1f}%；"
+                    f"稳定通道 {channels}），待六目标独立测试"
+                )
+            except Exception as exc:
+                self.status = f"采集完成，但拒绝启用坏模板：{exc}"
         else:
-            name = "六目标引导校准" if self._mode == "guided" else "单目标诊断"
+            name = "六目标引导校准" if self._mode == "guided" else "单目标个人模板采集"
             self.status = f"{name}已中止：{dict(summary).get('reason', '') if isinstance(summary, dict) else ''}"
         self.host._notify(self.status)
         self.host.update()

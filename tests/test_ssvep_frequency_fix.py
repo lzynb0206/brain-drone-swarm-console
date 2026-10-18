@@ -17,26 +17,26 @@ from src.ml.transformer_predictor import TransformerSSVEPPredictor
 
 class FrequencyFixTest(unittest.TestCase):
     def test_new_targets_are_decoded_with_default_rejection_gate(self):
-        self.assertEqual((14., 16., 18., 20., 22., 24.), TARGET_FREQUENCIES_HZ)
+        self.assertEqual((8., 9., 10., 11., 12., 13.), TARGET_FREQUENCIES_HZ)
         rng = np.random.default_rng(20261017)
-        t = np.arange(500) / 250.0
+        t = np.arange(1000) / 250.0
         decoder = FBCCADecoder()
         for label, frequency in zip(COMMANDS, TARGET_FREQUENCIES_HZ):
             with self.subTest(label=label):
-                eeg = rng.normal(0, 5, (8, 500))
+                eeg = rng.normal(0, 5, (8, 1000))
                 eeg += 5 * np.sin(2 * np.pi * frequency * t)
                 eeg += 2 * np.sin(4 * np.pi * frequency * t)
                 result = decoder.decode(eeg, 250.)
                 self.assertEqual(label, result.label)
                 self.assertTrue(result.accepted)
 
-    def test_white_noise_and_11hz_are_not_commands(self):
+    def test_white_noise_and_out_of_profile_17hz_are_not_commands(self):
         rng = np.random.default_rng(20261017)
         decoder = FBCCADecoder()
         for _ in range(200):
-            self.assertFalse(decoder.decode(rng.normal(0, 10, (8, 500)), 250.).accepted)
-        t = np.arange(500) / 250.
-        eeg = rng.normal(0, 3, (8, 500)) + 10 * np.sin(2 * np.pi * 11 * t)
+            self.assertFalse(decoder.decode(rng.normal(0, 10, (8, 1000)), 250.).accepted)
+        t = np.arange(1000) / 250.
+        eeg = rng.normal(0, 3, (8, 1000)) + 10 * np.sin(2 * np.pi * 17 * t)
         self.assertFalse(decoder.decode(eeg, 250.).accepted)
 
     def test_drift_and_mains_are_rejected(self):
@@ -65,12 +65,12 @@ class FrequencyFixTest(unittest.TestCase):
         np.testing.assert_array_equal(decoder._background, np.zeros(6))
 
     def test_training_records_require_matching_profile_and_idle_condition(self):
-        row = {"true_label": "起飞", "target_frequency_hz": "14"}
+        row = {"true_label": "起飞", "target_frequency_hz": "8"}
         self.assertFalse(record_matches_current_profile(row))
         metadata = {"target_frequencies_hz": list(TARGET_FREQUENCIES_HZ)}
         row["trial_metadata_json"] = json.dumps(metadata)
         self.assertTrue(record_matches_current_profile(row))
-        row["target_frequency_hz"] = "11"
+        row["target_frequency_hz"] = "16"
         self.assertFalse(record_matches_current_profile(row))
         row["true_label"] = "空闲"
         self.assertFalse(record_matches_current_profile(row))

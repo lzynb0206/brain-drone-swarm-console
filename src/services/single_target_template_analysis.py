@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from scipy.signal import butter, detrend, sosfiltfilt
 
-from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ
+from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ, WINDOW_SECONDS
 
 
 def _unit(values: np.ndarray) -> np.ndarray:
@@ -22,7 +22,7 @@ def _representation(
     eeg: np.ndarray,
     sample_rate_hz: float,
     discard_seconds: float,
-    analysis_seconds: float = 2.0,
+    analysis_seconds: float = WINDOW_SECONDS,
 ) -> np.ndarray:
     data = np.asarray(eeg, dtype=np.float64)
     if data.ndim != 2 or data.shape[0] == 0:

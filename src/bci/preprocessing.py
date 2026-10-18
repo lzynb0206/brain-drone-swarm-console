@@ -7,8 +7,11 @@ from typing import Iterable
 import numpy as np
 
 
-FILTER_BANK_LOW_EDGES_HZ = (6.0, 10.0, 14.0, 18.0)
-FILTER_BANK_WEIGHTS = (1.0, 0.25, 0.11, 0.06)
+# Parameters from the inherited FBCCA implementation: three sub-bands starting
+# at 6/14/22 Hz and w(n)=n^-1.25+0.25.  The upper edge of 80 Hz preserves the
+# four harmonics used by its 8-13 Hz reference signals.
+FILTER_BANK_LOW_EDGES_HZ = (6.0, 14.0, 22.0)
+FILTER_BANK_WEIGHTS = tuple(index ** -1.25 + 0.25 for index in range(1, 4))
 
 
 def remove_linear_drift(data: np.ndarray) -> np.ndarray:
@@ -132,8 +135,7 @@ def fft_bandpass(data: np.ndarray, sample_rate_hz: float, low_hz: float, high_hz
 
 
 def filter_bank(data: np.ndarray, sample_rate_hz: float):
-    # Include the second harmonic of the new 24 Hz target, excluding 50 Hz.
-    high_hz = min(48.0, sample_rate_hz * 0.48)
+    high_hz = min(80.0, sample_rate_hz * 0.48)
     for low_hz, weight in zip(FILTER_BANK_LOW_EDGES_HZ, FILTER_BANK_WEIGHTS):
         if low_hz < high_hz:
             yield fft_bandpass(data, sample_rate_hz, low_hz, high_hz), weight

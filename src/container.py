@@ -179,7 +179,8 @@ def create_default_container() -> ApplicationContainer:
         PersonalTemplateModel(
             PERSONAL_TEMPLATE_MODEL_PATH,
             PERSONAL_TEMPLATE_METADATA_PATH,
-        )
+        ),
+        FBCCADecoder(),
     )
     decoder_aliases = {
         "fbcca": "FBCCA",

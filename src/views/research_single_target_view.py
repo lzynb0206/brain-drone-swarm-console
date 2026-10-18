@@ -13,19 +13,19 @@ from src.widgets.scifi_canvas import (
 class ResearchSingleTargetViewMixin:
     def _research_single_target_calibration(self, c: Canvas) -> None:
         controller = self.context.single_target_calibration
-        c.text(42, 76, 760, 38, "六目标引导校准与单目标诊断", 21, TEXT, True)
+        c.text(42, 76, 760, 38, "单目标个人模板采集", 21, TEXT, True)
         c.text(
             42, 112, 910, 28,
-            "正式模板：六块与测试页同时闪烁并提示注视目标；单目标独闪仅保留作硬件诊断。",
+            "与正式六目标测试使用相同尺寸和位置；每轮只闪一个目标，其余五个位置保持纯黑。",
             11, CYAN,
         )
 
         c.panel(42, 158, 360, 420, "采集流程")
         steps = (
             ("01", "准备", "先在“采集”页启动8通道实时数据流"),
-            ("02", "六块同时闪烁", "蓝框提示目标；场景与正式测试一致"),
-            ("03", "筛选稳定通道", "跨试次通过率不足80%的通道不进模板"),
-            ("04", "先验证再启用", "留一试次一致性不足50%会拒绝坏模板"),
+            ("02", "单目标独闪", "每类10次；只盯唯一色块内十字"),
+            ("03", "三枕区通道", "使用 Oz/PO3/PO4；坏通道自动剔除"),
+            ("04", "模板＋FBCCA", "相似度检索与固定频率参考必须一致"),
         )
         for index, (number, title, body) in enumerate(steps):
             y = 205 + index * 79
@@ -35,17 +35,20 @@ class ResearchSingleTargetViewMixin:
             c.text(105, y + 23, 260, 36, body, 9, MUTED)
         c.text(64, 526, 315, 34, "Esc 可随时中止；已完成的试次仍保留", 10, YELLOW, True)
 
-        c.panel(424, 158, 814, 245, "本次六目标引导校准")
+        c.panel(424, 158, 814, 245, "本次单目标模板采集")
         for index, (label, frequency) in enumerate(zip(COMMANDS, TARGET_FREQUENCIES_HZ)):
             x = 448 + (index % 3) * 252
             y = 206 + (index // 3) * 72
             c.rect(x, y, 228, 54, "#0c1729", "#2d4668", 4)
             c.text(x + 13, y + 4, 110, 25, label, 13, TEXT, True)
             c.text(x + 129, y + 4, 82, 25, f"{frequency:g} Hz", 12, CYAN, True, Qt.AlignRight)
-            c.text(x + 13, y + 29, 198, 18, "六块同闪 · 蓝框提示 × 3轮", 9, MUTED)
+            c.text(x + 13, y + 29, 198, 18, "固定位置独闪 × 10轮", 9, MUTED)
         c.text(
             448, 354, 744, 28,
-            "共18轮 · 提示1.0s · 闪烁/记录3.0s · 丢弃前0.5s · 休息1.5s",
+            f"共{controller.config.trial_count}轮 · 提示{controller.config.cue_seconds:g}s · "
+            f"闪烁/记录{controller.config.stimulus_seconds:g}s · "
+            f"丢弃前{controller.config.discard_seconds:g}s · "
+            f"休息{controller.config.rest_seconds:g}s",
             10, MUTED, False, Qt.AlignCenter,
         )
 
@@ -61,15 +64,13 @@ class ResearchSingleTargetViewMixin:
         c.text(449, 535, 744, 24, f"最近数据：{run_text}", 9, MUTED)
 
         start_disabled = controller.running
-        c.button(424, 603, 390, 62, "正在采集…" if start_disabled else "开始18轮六目标引导校准", not start_disabled, start_disabled, GREEN)
-        c.button(832, 603, 196, 62, "单目标诊断", False, start_disabled, CYAN)
+        c.button(424, 603, 604, 62, "正在采集…" if start_disabled else "开始60轮单目标模板采集", not start_disabled, start_disabled, GREEN)
         c.button(1038, 603, 200, 62, "重新生成模板", False, not bool(controller.latest_run_directory), CYAN)
-        self._hit(424, 603, 390, 62, "guided-calibration-start")
-        self._hit(832, 603, 196, 62, "single-target-calibration-start")
+        self._hit(424, 603, 604, 62, "single-target-calibration-start")
         self._hit(1038, 603, 200, 62, "single-target-calibration-analyze")
         c.text(
             424, 673, 814, 22,
-            "单目标独闪数据不会再生成正式模板；内部一致性不是准确率，准确率仍由独立测试产生。",
+            "留一试次内部一致性只用于筛掉坏模板；真实准确率仍以采集完成后的六目标独立测试为准。",
             9, YELLOW, False, Qt.AlignCenter,
         )
 

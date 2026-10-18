@@ -78,7 +78,7 @@ class ResearchWorkbenchService:
     def benchmark_algorithm(self) -> str:
         if self.algorithm == "个人模板-SSVEP":
             return self._record(
-                "18段单目标数据已全部用于个人模板建模；请在SSVEP测试页另采在线结果评估"
+                "60段单目标数据已用于个人模板＋FBCCA一致性识别；请在SSVEP测试页另采在线结果评估"
             )
         if self.algorithm == "Transformer-SSVEP":
             return self._record(

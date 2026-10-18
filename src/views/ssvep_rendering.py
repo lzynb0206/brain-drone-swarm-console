@@ -11,14 +11,14 @@ def target_rectangles(width: int, height: int) -> tuple[QRectF, ...]:
 
     width_f = max(1.0, float(width))
     height_f = max(1.0, float(height))
-    # Keep every target small and separated by a wide black field. The four
-    # outer targets sit close to the screen corners; forward/backward retain
-    # their intuitive upper/lower centre positions. Calibration uses this
-    # exact function, so train and online geometry cannot drift apart again.
-    block_width = max(140.0, width_f * 0.14)
-    block_height = max(100.0, height_f * 0.18)
-    centers_x = (width_f * 0.09, width_f * 0.50, width_f * 0.91)
-    centers_y = (height_f * 0.18, height_f * 0.82)
+    # Match the large, widely separated visual targets used by the inherited
+    # PsychoPy experiment, scaled to the current display instead of assuming a
+    # fixed 1920x1080/2560x1600 canvas.  Both calibration and online testing
+    # call this function, so target size and retinal position stay identical.
+    block_width = max(240.0, width_f * 0.24)
+    block_height = max(180.0, height_f * 0.28)
+    centers_x = (width_f * 0.14, width_f * 0.50, width_f * 0.86)
+    centers_y = (height_f * 0.20, height_f * 0.80)
     slots = tuple(
         QRectF(
             center_x - block_width / 2.0,
