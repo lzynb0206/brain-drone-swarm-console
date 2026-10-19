@@ -1,0 +1,2021 @@
+{
+  "schema": "openai.presentation.layout/v5",
+  "unit": "px",
+  "slide": {
+    "id": "sl/i107q5of",
+    "index": 4,
+    "layout": {
+      "id": "ly/pc76pona",
+      "name": "1_标题和内容"
+    },
+    "masterLayoutId": "ly/ob2pw7at",
+    "backgroundColor": "rgba(255,255,255,1)",
+    "position": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ly/pc76pona",
+      "name": "1_标题和内容",
+      "parentLayoutId": "ly/ob2pw7at",
+      "elements": [
+        {
+          "order": 1,
+          "kind": "shape",
+          "scope": "layout",
+          "id": "sh/twjqxgri",
+          "editable": false,
+          "name": "矩形 7",
+          "position": {
+            "left": 0.04,
+            "top": 23.97,
+            "width": 23.62,
+            "height": 61.59
+          },
+          "geometry": "rect",
+          "fillColor": "#1F2096",
+          "lineWidth": 0,
+          "style": {
+            "anchor": 2,
+            "verticalAlignment": "middle",
+            "insets": {
+              "top": 5.06,
+              "right": 10.12,
+              "bottom": 5.06,
+              "left": 10.12
+            }
+          }
+        },
+        {
+          "order": 2,
+          "kind": "image",
+          "scope": "layout",
+          "id": "im/94zuhsfa",
+          "editable": false,
+          "name": "Picture 2",
+          "position": {
+            "left": 964.21,
+            "top": 23.97,
+            "width": 315.75,
+            "height": 61.59
+          },
+          "contentType": "image/jpeg",
+          "crop": {
+            "left": 0,
+            "top": 0.36516,
+            "right": 0,
+            "bottom": 0.36465
+          },
+          "asset": {
+            "contentType": "image/jpeg",
+            "byteLength": 39630
+          },
+          "fillImage": {
+            "contentType": "image/jpeg",
+            "byteLength": 39630
+          }
+        }
+      ]
+    },
+    {
+      "scope": "master",
+      "id": "ly/ob2pw7at",
+      "type": "master",
+      "backgroundColor": "lt2",
+      "elements": [
+        {
+          "order": 1,
+          "kind": "textbox",
+          "scope": "master",
+          "id": "sh/qtg32lwb",
+          "editable": false,
+          "name": "标题占位符 1",
+          "position": {
+            "left": 70.33,
+            "top": 46.53,
+            "width": 1139.34,
+            "height": 46.4
+          },
+          "geometry": "rect",
+          "text": "单击此处编辑母版标题样式",
+          "style": {
+            "anchor": 2,
+            "vertical": 1,
+            "verticalAlignment": "middle",
+            "wrap": "square",
+            "autoFit": "shrinkText",
+            "insets": {
+              "top": 4.93,
+              "right": 9.47,
+              "bottom": 4.93,
+              "left": 9.47
+            }
+          },
+          "paragraphs": [
+            {
+              "index": 1,
+              "text": "单击此处编辑母版标题样式",
+              "runs": [
+                {
+                  "index": 1,
+                  "text": "单击此处编辑母版标题样式",
+                  "anchor": 2,
+                  "vertical": 1,
+                  "verticalAlignment": "middle",
+                  "wrap": "square",
+                  "autoFit": "shrinkText",
+                  "insets": {
+                    "top": 4.93,
+                    "right": 9.47,
+                    "bottom": 4.93,
+                    "left": 9.47
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "order": 2,
+          "kind": "textbox",
+          "scope": "master",
+          "id": "sh/rupkbqdw",
+          "editable": false,
+          "name": "文本占位符 2",
+          "position": {
+            "left": 70.33,
+            "top": 100.93,
+            "width": 1139.34,
+            "height": 565.76
+          },
+          "geometry": "rect",
+          "text": "单击此处编辑母版文本样式\n第二级\n第三级\n第四级\n第五级",
+          "style": {
+            "vertical": 1,
+            "wrap": "square",
+            "autoFit": "shrinkText",
+            "insets": {
+              "top": 4.93,
+              "right": 9.47,
+              "bottom": 4.93,
+              "left": 9.47
+            }
+          },
+          "paragraphs": [
+            {
+              "index": 1,
+              "text": "单击此处编辑母版文本样式",
+              "runs": [
+                {
+                  "index": 1,
+                  "text": "单击此处编辑母版文本样式",
+                  "vertical": 1,
+                  "wrap": "square",
+                  "autoFit": "shrinkText",
+                  "insets": {
+                    "top": 4.93,
+                    "right": 9.47,
+                    "bottom": 4.93,
+                    "left": 9.47
+                  }
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "text": "第二级",
+              "runs": [
+                {
+                  "index": 1,
+                  "text": "第二级",
+                  "vertical": 1,
+                  "wrap": "square",
+                  "autoFit": "shrinkText",
+                  "insets": {
+                    "top": 4.93,
+                    "right": 9.47,
+                    "bottom": 4.93,
+                    "left": 9.47
+                  }
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "text": "第三级",
+              "runs": [
+                {
+                  "index": 1,
+                  "text": "第三级",
+                  "vertical": 1,
+                  "wrap": "square",
+                  "autoFit": "shrinkText",
+                  "insets": {
+                    "top": 4.93,
+                    "right": 9.47,
+                    "bottom": 4.93,
+                    "left": 9.47
+                  }
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "text": "第四级",
+              "runs": [
+                {
+                  "index": 1,
+                  "text": "第四级",
+                  "vertical": 1,
+                  "wrap": "square",
+                  "autoFit": "shrinkText",
+                  "insets": {
+                    "top": 4.93,
+                    "right": 9.47,
+                    "bottom": 4.93,
+                    "left": 9.47
+                  }
+                }
+              ]
+            },
+            {
+              "index": 5,
+              "text": "第五级",
+              "runs": [
+                {
+                  "index": 1,
+                  "text": "第五级",
+                  "vertical": 1,
+                  "wrap": "square",
+                  "autoFit": "shrinkText",
+                  "insets": {
+                    "top": 4.93,
+                    "right": 9.47,
+                    "bottom": 4.93,
+                    "left": 9.47
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "order": 3,
+          "kind": "textbox",
+          "scope": "master",
+          "id": "sh/4ryl0bel",
+          "editable": false,
+          "name": "日期占位符 3",
+          "position": {
+            "left": 92.36,
+            "top": 666.65,
+            "width": 283.46,
+            "height": 33.26
+          },
+          "geometry": "rect",
+          "text": "2024/4/14",
+          "style": {
+            "anchor": 2,
+            "vertical": 1,
+            "verticalAlignment": "middle",
+            "wrap": "square",
+            "autoFit": "shrinkText",
+            "insets": {
+              "top": 4.8,
+              "right": 9.6,
+              "bottom": 4.8,
+              "left": 9.6
+            }
+          },
+          "paragraphs": [
+            {
+              "index": 1,
+              "text": "2024/4/14",
+              "runs": [
+                {
+                  "index": 1,
+                  "text": "2024/4/14",
+                  "anchor": 2,
+                  "vertical": 1,
+                  "verticalAlignment": "middle",
+                  "wrap": "square",
+                  "autoFit": "shrinkText",
+                  "insets": {
+                    "top": 4.8,
+                    "right": 9.6,
+                    "bottom": 4.8,
+                    "left": 9.6
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "order": 4,
+          "kind": "shape",
+          "scope": "master",
+          "id": "sh/5s729gvq",
+          "editable": false,
+          "name": "页脚占位符 4",
+          "position": {
+            "left": 432.13,
+            "top": 666.65,
+            "width": 415.75,
+            "height": 33.26
+          },
+          "geometry": "rect",
+          "style": {
+            "anchor": 2,
+            "vertical": 1,
+            "verticalAlignment": "middle",
+            "wrap": "square",
+            "autoFit": "shrinkText",
+            "insets": {
+              "top": 4.8,
+              "right": 9.6,
+              "bottom": 4.8,
+              "left": 9.6
+            }
+          }
+        },
+        {
+          "order": 5,
+          "kind": "textbox",
+          "scope": "master",
+          "id": "sh/i5gjylwf",
+          "editable": false,
+          "name": "灯片编号占位符 5",
+          "position": {
+            "left": 904,
+            "top": 666.65,
+            "width": 283.46,
+            "height": 33.26
+          },
+          "geometry": "rect",
+          "text": "5",
+          "style": {
+            "anchor": 2,
+            "vertical": 1,
+            "verticalAlignment": "middle",
+            "wrap": "square",
+            "autoFit": "shrinkText",
+            "insets": {
+              "top": 4.8,
+              "right": 9.6,
+              "bottom": 4.8,
+              "left": 9.6
+            }
+          },
+          "paragraphs": [
+            {
+              "index": 1,
+              "text": "5",
+              "runs": [
+                {
+                  "index": 1,
+                  "text": "5",
+                  "anchor": 2,
+                  "vertical": 1,
+                  "verticalAlignment": "middle",
+                  "wrap": "square",
+                  "autoFit": "shrinkText",
+                  "insets": {
+                    "top": 4.8,
+                    "right": 9.6,
+                    "bottom": 4.8,
+                    "left": 9.6
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "order": 6,
+          "kind": "shape",
+          "scope": "master",
+          "id": "sh/on2lcfep",
+          "editable": false,
+          "name": "KSO_TEMPLATE",
+          "position": {
+            "left": 0,
+            "top": 0,
+            "width": 0,
+            "height": 0
+          },
+          "hidden": true,
+          "geometry": "rect",
+          "style": {
+            "anchor": 2,
+            "verticalAlignment": "middle"
+          }
+        }
+      ]
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/ihw3mxg3",
+      "editable": true,
+      "position": {
+        "left": 40,
+        "top": 36,
+        "width": 930,
+        "height": 55
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "2  核心问题：注视目标与输出指令不一致",
+      "style": {
+        "anchor": 2,
+        "fontSize": 39,
+        "typeface": "微软雅黑",
+        "color": "#1F2096",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "2  核心问题：注视目标与输出指令不一致",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 39,
+            "typeface": "微软雅黑",
+            "color": "#1F2096",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "2  核心问题：注视目标与输出指令不一致",
+              "anchor": 2,
+              "fontSize": 39,
+              "typeface": "微软雅黑",
+              "color": "#1F2096",
+              "bold": true,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/dgbulwnm",
+      "editable": true,
+      "position": {
+        "left": 55,
+        "top": 265,
+        "width": 250,
+        "height": 150
+      },
+      "geometry": "roundRect",
+      "fillColor": "#FFF2F2",
+      "lineColor": "#C00000",
+      "lineWidth": 1.2
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/cf2tcr61",
+      "editable": true,
+      "position": {
+        "left": 55,
+        "top": 265,
+        "width": 7,
+        "height": 150
+      },
+      "geometry": "rect",
+      "fillColor": "#C00000",
+      "lineColor": "#C00000",
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/z2tcnm5s",
+      "editable": true,
+      "position": {
+        "left": 69,
+        "top": 277,
+        "width": 222,
+        "height": 34
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "在线错误指令",
+      "style": {
+        "anchor": 2,
+        "fontSize": 26.32,
+        "typeface": "等线",
+        "color": "#C00000",
+        "bold": true,
+        "italic": false,
+        "alignment": "center",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 0.94,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "在线错误指令",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 28,
+            "typeface": "等线",
+            "color": "#C00000",
+            "bold": true,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "在线错误指令",
+              "anchor": 2,
+              "fontSize": 28,
+              "typeface": "等线",
+              "color": "#C00000",
+              "bold": true,
+              "alignment": "center",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 0.94,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 5,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/yhkbe1o7",
+      "editable": true,
+      "position": {
+        "left": 70,
+        "top": 317,
+        "width": 220,
+        "height": 86
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "盯着“前进”时\n可能输出“起飞”",
+      "style": {
+        "anchor": 2,
+        "fontSize": 20,
+        "typeface": "等线",
+        "color": "#5B6472",
+        "bold": false,
+        "italic": false,
+        "alignment": "center",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "盯着“前进”时",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 20,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "盯着“前进”时",
+              "anchor": 2,
+              "fontSize": 20,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "center",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "可能输出“起飞”",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 20,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "可能输出“起飞”",
+              "anchor": 2,
+              "fontSize": 20,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "center",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/l4bupwny",
+      "editable": true,
+      "position": {
+        "left": 305,
+        "top": 338,
+        "width": 70,
+        "height": 5
+      },
+      "geometry": "rect",
+      "fillColor": "#C00000",
+      "lineColor": "#C00000",
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/032tgr6d",
+      "editable": true,
+      "position": {
+        "left": 372,
+        "top": 155,
+        "width": 5,
+        "height": 372
+      },
+      "geometry": "rect",
+      "fillColor": "#C00000",
+      "lineColor": "#C00000",
+      "lineWidth": 0
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/n6dcr65o",
+      "editable": true,
+      "position": {
+        "left": 372,
+        "top": 170,
+        "width": 55,
+        "height": 4
+      },
+      "geometry": "rect",
+      "fillColor": "#1D41D5",
+      "lineColor": "#1D41D5",
+      "lineWidth": 0
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/m5kbi1oj",
+      "editable": true,
+      "position": {
+        "left": 425,
+        "top": 115,
+        "width": 330,
+        "height": 110
+      },
+      "geometry": "roundRect",
+      "fillColor": "#EAF0FF",
+      "lineColor": "#1D41D5",
+      "lineWidth": 1.2
+    },
+    {
+      "order": 10,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/w32dkbuh",
+      "editable": true,
+      "position": {
+        "left": 425,
+        "top": 115,
+        "width": 7,
+        "height": 110
+      },
+      "geometry": "rect",
+      "fillColor": "#1D41D5",
+      "lineColor": "#1D41D5",
+      "lineWidth": 0
+    },
+    {
+      "order": 11,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/x4vedgvm",
+      "editable": true,
+      "position": {
+        "left": 439,
+        "top": 127,
+        "width": 302,
+        "height": 34
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "信号质量",
+      "style": {
+        "anchor": 2,
+        "fontSize": 22,
+        "typeface": "等线",
+        "color": "#1F2096",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "信号质量",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 22,
+            "typeface": "等线",
+            "color": "#1F2096",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "信号质量",
+              "anchor": 2,
+              "fontSize": 22,
+              "typeface": "等线",
+              "color": "#1F2096",
+              "bold": true,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 12,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/ahkvi1cb",
+      "editable": true,
+      "position": {
+        "left": 440,
+        "top": 167,
+        "width": 300,
+        "height": 46
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "电极接触、头发\n坏通道、工频污染",
+      "style": {
+        "anchor": 2,
+        "fontSize": 17,
+        "typeface": "等线",
+        "color": "#5B6472",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "电极接触、头发",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 17,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "电极接触、头发",
+              "anchor": 2,
+              "fontSize": 17,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "坏通道、工频污染",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 17,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "坏通道、工频污染",
+              "anchor": 2,
+              "fontSize": 17,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 13,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/v2twb6dw",
+      "editable": true,
+      "position": {
+        "left": 372,
+        "top": 305,
+        "width": 55,
+        "height": 4
+      },
+      "geometry": "rect",
+      "fillColor": "#00AFC6",
+      "lineColor": "#00AFC6",
+      "lineWidth": 0
+    },
+    {
+      "order": 14,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/k7mxovud",
+      "editable": true,
+      "position": {
+        "left": 425,
+        "top": 250,
+        "width": 330,
+        "height": 110
+      },
+      "geometry": "roundRect",
+      "fillColor": "#E9FAFC",
+      "lineColor": "#00AFC6",
+      "lineWidth": 1.2
+    },
+    {
+      "order": 15,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/58vehgvy",
+      "editable": true,
+      "position": {
+        "left": 425,
+        "top": 250,
+        "width": 7,
+        "height": 110
+      },
+      "geometry": "rect",
+      "fillColor": "#00AFC6",
+      "lineColor": "#00AFC6",
+      "lineWidth": 0
+    },
+    {
+      "order": 16,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/i54fmlc7",
+      "editable": true,
+      "position": {
+        "left": 439,
+        "top": 262,
+        "width": 302,
+        "height": 34
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "刺激与校准",
+      "style": {
+        "anchor": 2,
+        "fontSize": 22,
+        "typeface": "等线",
+        "color": "#1F2096",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "刺激与校准",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 22,
+            "typeface": "等线",
+            "color": "#1F2096",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "刺激与校准",
+              "anchor": 2,
+              "fontSize": 22,
+              "typeface": "等线",
+              "color": "#1F2096",
+              "bold": true,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 17,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/j6dwfqds",
+      "editable": true,
+      "position": {
+        "left": 440,
+        "top": 302,
+        "width": 300,
+        "height": 46
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "单目标与六目标\n视觉条件不一致",
+      "style": {
+        "anchor": 2,
+        "fontSize": 17,
+        "typeface": "等线",
+        "color": "#5B6472",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "单目标与六目标",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 17,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "单目标与六目标",
+              "anchor": 2,
+              "fontSize": 17,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "视觉条件不一致",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 17,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "视觉条件不一致",
+              "anchor": 2,
+              "fontSize": 17,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 18,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/sb6xsvu9",
+      "editable": true,
+      "position": {
+        "left": 372,
+        "top": 440,
+        "width": 55,
+        "height": 4
+      },
+      "geometry": "rect",
+      "fillColor": "#E67E22",
+      "lineColor": "#E67E22",
+      "lineWidth": 0
+    },
+    {
+      "order": 19,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/tcfel0vu",
+      "editable": true,
+      "position": {
+        "left": 425,
+        "top": 385,
+        "width": 330,
+        "height": 110
+      },
+      "geometry": "roundRect",
+      "fillColor": "#FFF7EC",
+      "lineColor": "#E67E22",
+      "lineWidth": 1.2
+    },
+    {
+      "order": 20,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/hgrmpwj2",
+      "editable": true,
+      "position": {
+        "left": 425,
+        "top": 385,
+        "width": 7,
+        "height": 110
+      },
+      "geometry": "rect",
+      "fillColor": "#E67E22",
+      "lineColor": "#E67E22",
+      "lineWidth": 0
+    },
+    {
+      "order": 21,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/gfi5grih",
+      "editable": true,
+      "position": {
+        "left": 439,
+        "top": 397,
+        "width": 302,
+        "height": 34
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "解码器",
+      "style": {
+        "anchor": 2,
+        "fontSize": 22,
+        "typeface": "等线",
+        "color": "#1F2096",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "解码器",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 22,
+            "typeface": "等线",
+            "color": "#1F2096",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "解码器",
+              "anchor": 2,
+              "fontSize": 22,
+              "typeface": "等线",
+              "color": "#1F2096",
+              "bold": true,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 22,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/fe94nm1w",
+      "editable": true,
+      "position": {
+        "left": 440,
+        "top": 437,
+        "width": 300,
+        "height": 46
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "FBCCA 偏置\n模板漂移、小样本",
+      "style": {
+        "anchor": 2,
+        "fontSize": 17,
+        "typeface": "等线",
+        "color": "#5B6472",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "FBCCA 偏置",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 17,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "FBCCA 偏置",
+              "anchor": 2,
+              "fontSize": 17,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "模板漂移、小样本",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 17,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "模板漂移、小样本",
+              "anchor": 2,
+              "fontSize": 17,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 23,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/ud0ne10b",
+      "editable": true,
+      "position": {
+        "left": 372,
+        "top": 575,
+        "width": 55,
+        "height": 4
+      },
+      "geometry": "rect",
+      "fillColor": "#C00000",
+      "lineColor": "#C00000",
+      "lineWidth": 0
+    },
+    {
+      "order": 24,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/pkr6tgjy",
+      "editable": true,
+      "position": {
+        "left": 425,
+        "top": 520,
+        "width": 330,
+        "height": 110
+      },
+      "geometry": "roundRect",
+      "fillColor": "#FFF2F2",
+      "lineColor": "#C00000",
+      "lineWidth": 1.2
+    },
+    {
+      "order": 25,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/4ji5kbid",
+      "editable": true,
+      "position": {
+        "left": 425,
+        "top": 520,
+        "width": 7,
+        "height": 110
+      },
+      "geometry": "rect",
+      "fillColor": "#C00000",
+      "lineColor": "#C00000",
+      "lineWidth": 0
+    },
+    {
+      "order": 26,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/3i94r61s",
+      "editable": true,
+      "position": {
+        "left": 439,
+        "top": 532,
+        "width": 302,
+        "height": 34
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "在线判决",
+      "style": {
+        "anchor": 2,
+        "fontSize": 22,
+        "typeface": "等线",
+        "color": "#1F2096",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "在线判决",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 22,
+            "typeface": "等线",
+            "color": "#1F2096",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "在线判决",
+              "anchor": 2,
+              "fontSize": 22,
+              "typeface": "等线",
+              "color": "#1F2096",
+              "bold": true,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 27,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/2h0ni107",
+      "editable": true,
+      "position": {
+        "left": 440,
+        "top": 572,
+        "width": 300,
+        "height": 46
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "93.75% 窗口重叠\n缺少 idle / 释放",
+      "style": {
+        "anchor": 2,
+        "fontSize": 17,
+        "typeface": "等线",
+        "color": "#5B6472",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "93.75% 窗口重叠",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 17,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "93.75% 窗口重叠",
+              "anchor": 2,
+              "fontSize": 17,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "缺少 idle / 释放",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 17,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "缺少 idle / 释放",
+              "anchor": 2,
+              "fontSize": 17,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 28,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/5o7mhcju",
+      "editable": true,
+      "position": {
+        "left": 755,
+        "top": 337,
+        "width": 70,
+        "height": 5
+      },
+      "geometry": "rect",
+      "fillColor": "#5D69AE",
+      "lineColor": "#5D69AE",
+      "lineWidth": 0
+    },
+    {
+      "order": 29,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/kny587i9",
+      "editable": true,
+      "position": {
+        "left": 825,
+        "top": 210,
+        "width": 390,
+        "height": 260
+      },
+      "geometry": "roundRect",
+      "fillColor": "#F4F7FD",
+      "lineColor": "#5D69AE",
+      "lineWidth": 1.2
+    },
+    {
+      "order": 30,
+      "kind": "shape",
+      "scope": "slide",
+      "id": "sh/atcjidg7",
+      "editable": true,
+      "position": {
+        "left": 825,
+        "top": 210,
+        "width": 7,
+        "height": 260
+      },
+      "geometry": "rect",
+      "fillColor": "#5D69AE",
+      "lineColor": "#5D69AE",
+      "lineWidth": 0
+    },
+    {
+      "order": 31,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/vu5kbihc",
+      "editable": true,
+      "position": {
+        "left": 839,
+        "top": 222,
+        "width": 362,
+        "height": 34
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "表现为两个相反结果",
+      "style": {
+        "anchor": 2,
+        "fontSize": 25,
+        "typeface": "等线",
+        "color": "#1F2096",
+        "bold": true,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "表现为两个相反结果",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 25,
+            "typeface": "等线",
+            "color": "#1F2096",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "表现为两个相反结果",
+              "anchor": 2,
+              "fontSize": 25,
+              "typeface": "等线",
+              "color": "#1F2096",
+              "bold": true,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 32,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/wve1knyx",
+      "editable": true,
+      "position": {
+        "left": 840,
+        "top": 262,
+        "width": 360,
+        "height": 196
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "阈值放宽：频繁出现错误指令\n\n阈值收紧：长时间完全不输出\n\n“有输出”不能代表“识别正确”",
+      "style": {
+        "anchor": 2,
+        "fontSize": 21,
+        "typeface": "等线",
+        "color": "#5B6472",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "阈值放宽：频繁出现错误指令",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 21,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "阈值放宽：频繁出现错误指令",
+              "anchor": 2,
+              "fontSize": 21,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "阈值收紧：长时间完全不输出",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 21,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "阈值收紧：长时间完全不输出",
+              "anchor": 2,
+              "fontSize": 21,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "“有输出”不能代表“识别正确”",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 21,
+            "typeface": "等线",
+            "color": "#5B6472",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "“有输出”不能代表“识别正确”",
+              "anchor": 2,
+              "fontSize": 21,
+              "typeface": "等线",
+              "color": "#5B6472",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    },
+    {
+      "order": 33,
+      "kind": "textbox",
+      "scope": "slide",
+      "id": "sh/xwn2dszi",
+      "editable": true,
+      "position": {
+        "left": 42,
+        "top": 691,
+        "width": 1120,
+        "height": 18
+      },
+      "geometry": "rect",
+      "lineWidth": 0,
+      "text": "问题树把分散现象归并成四类原因，后续方法与实验逐项对应",
+      "style": {
+        "anchor": 2,
+        "fontSize": 10.51,
+        "typeface": "等线",
+        "color": "#8A93A3",
+        "bold": false,
+        "italic": false,
+        "alignment": "left",
+        "verticalAlignment": "middle",
+        "wrap": "square",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "问题树把分散现象归并成四类原因，后续方法与实验逐项对应",
+          "lineSpacingPercent": 108000,
+          "style": {
+            "fontSize": 10.51,
+            "typeface": "等线",
+            "color": "#8A93A3",
+            "bold": false,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "问题树把分散现象归并成四类原因，后续方法与实验逐项对应",
+              "anchor": 2,
+              "fontSize": 10.51,
+              "typeface": "等线",
+              "color": "#8A93A3",
+              "bold": false,
+              "alignment": "left",
+              "verticalAlignment": "middle",
+              "wrap": "square",
+              "autoFit": "shrinkText",
+              "autoFitScale": 1,
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            }
+          ],
+          "bulletCharacter": "",
+          "marginLeft": 0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,299 @@
+{
+  "finalPath": "/Users/geniusalu/Documents/brain-drone-swarm-console/output/pptx/SSVEP在线识别稳定性研究_严老师模板_20261019.pptx",
+  "receiptPath": "/Users/geniusalu/Documents/brain-drone-swarm-console/.codex-ppt-build/ssvep-deck/.finalizer/.SSVEP在线识别稳定性研究_严老师模板_20261019.pptx.validation.json",
+  "schemaVersion": "presentation-finalization.v1",
+  "finalSha256": "903fd823c3cf392ef0afd5907035724e005ef46d33f20fcaeac0930cda1d2b14",
+  "byteCount": 2587108,
+  "packageIntegrity": {
+    "chart_count": 2,
+    "claim_boundary": "Structural package checks only; no slide text, notes, formulas, chart values, or native PowerPoint execution were inspected.",
+    "finding_count": 0,
+    "findings": [],
+    "notes_parts_skipped": 18,
+    "relationship_part_count": 90,
+    "slide_count": 18,
+    "status": "pass",
+    "exitCode": 0,
+    "findingCount": 0,
+    "warnings": []
+  },
+  "presentationLayout": {
+    "finding_count": 0,
+    "findings": [],
+    "font_policy": {
+      "checked_text_script_count": 506,
+      "native_font_rendering_verified": false,
+      "observed_font_families": [
+        "Arial",
+        "微软雅黑",
+        "方正大黑简体",
+        "等线"
+      ],
+      "observed_font_use_counts": {
+        "Arial": 1,
+        "微软雅黑": 91,
+        "方正大黑简体": 2,
+        "等线": 412
+      },
+      "passed": true,
+      "performed": true
+    },
+    "slide_count": 18,
+    "slide_size_in": [
+      13.3333,
+      7.5
+    ],
+    "warning_count": 0,
+    "warnings": [],
+    "exitCode": 0,
+    "findingCount": 0,
+    "fontPolicy": {
+      "checked_text_script_count": 506,
+      "native_font_rendering_verified": false,
+      "observed_font_families": [
+        "Arial",
+        "微软雅黑",
+        "方正大黑简体",
+        "等线"
+      ],
+      "observed_font_use_counts": {
+        "Arial": 1,
+        "微软雅黑": 91,
+        "方正大黑简体": 2,
+        "等线": 412
+      },
+      "passed": true,
+      "performed": true
+    }
+  },
+  "fontSelection": {
+    "basis": "reference",
+    "approvedFamilies": [
+      "方正大黑简体",
+      "等线",
+      "黑体",
+      "微软雅黑",
+      "Arial"
+    ],
+    "scriptFonts": {
+      "ea": "微软雅黑"
+    },
+    "referenceSha256": "987f0c4a1eb7cbfd9da023ff9975b42a8504b6a4fa6a603c7e7034532195a5da",
+    "referenceFontsVerifiedInEncodedText": true,
+    "checked_text_script_count": 506,
+    "native_font_rendering_verified": false,
+    "observed_font_families": [
+      "Arial",
+      "微软雅黑",
+      "方正大黑简体",
+      "等线"
+    ],
+    "observed_font_use_counts": {
+      "Arial": 1,
+      "微软雅黑": 91,
+      "方正大黑简体": 2,
+      "等线": 412
+    },
+    "passed": true,
+    "performed": true
+  },
+  "firstPartyImport": {
+    "performed": true,
+    "passed": true,
+    "slideCount": 18,
+    "sha256": "903fd823c3cf392ef0afd5907035724e005ef46d33f20fcaeac0930cda1d2b14",
+    "nodeExecutable": "/Users/geniusalu/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+  },
+  "nativeTableArithmetic": {
+    "performed": true,
+    "checked_column_count": 0,
+    "checks": [],
+    "claim_boundary": "Displayed-value arithmetic with rounding tolerance; not source-data verification.",
+    "eligible_table_count": 0,
+    "finding_count": 0,
+    "findings": [],
+    "native_table_count": 4,
+    "passed": true,
+    "schema_version": "presentation-native-table-arithmetic.v1",
+    "skipped_tables": [
+      {
+        "reason": "no_numeric_amounts",
+        "slide": 4,
+        "table": 1
+      },
+      {
+        "reason": "no_numeric_amounts",
+        "slide": 7,
+        "table": 1
+      },
+      {
+        "reason": "no_numeric_amounts",
+        "slide": 10,
+        "table": 1
+      },
+      {
+        "reason": "no_numeric_amounts",
+        "slide": 15,
+        "table": 1
+      }
+    ],
+    "slide_count": 18,
+    "warning_count": 0,
+    "warnings": []
+  },
+  "nativeChartTitles": {
+    "performed": true,
+    "checks": [
+      {
+        "chart": 1,
+        "slide": 6,
+        "status": "present"
+      },
+      {
+        "chart": 1,
+        "slide": 16,
+        "status": "present"
+      }
+    ],
+    "finding_count": 0,
+    "findings": [],
+    "native_chart_count": 2,
+    "native_powerpoint_verified": false,
+    "passed": true,
+    "presentation_sha256": "903fd823c3cf392ef0afd5907035724e005ef46d33f20fcaeac0930cda1d2b14",
+    "schema_version": "presentation-native-chart-titles.v1",
+    "slide_count": 18,
+    "source_text_emitted": false,
+    "unresolved_linked_title_count": 0
+  },
+  "sourceDerivedPolicyFlags": [
+    "--cover-role",
+    "cover",
+    "--cover-word-limit",
+    "50",
+    "--expected-aspect",
+    "16:9",
+    "--expected-slide-size-emu",
+    "12192000,6858000",
+    "--require-native-table-slide",
+    "4",
+    "--require-native-table-slide",
+    "7",
+    "--require-native-table-slide",
+    "10",
+    "--require-native-table-slide",
+    "15",
+    "--max-content-prose-words",
+    "190",
+    "--approved-dense-slide",
+    "4",
+    "--approved-dense-slide",
+    "7",
+    "--approved-dense-slide",
+    "10",
+    "--approved-dense-slide",
+    "15",
+    "--expected-slide-count",
+    "18",
+    "--approved-font-family",
+    "方正大黑简体",
+    "--approved-font-family",
+    "等线",
+    "--approved-font-family",
+    "黑体",
+    "--approved-font-family",
+    "微软雅黑",
+    "--approved-font-family",
+    "Arial",
+    "--approved-script-font",
+    "ea=微软雅黑"
+  ],
+  "nativeChartValidation": {
+    "detectedOwnerSlides": [
+      6,
+      16
+    ],
+    "detectedChartCount": 2,
+    "targetApplication": "powerpoint",
+    "sourceChartOwnersExplicitlyDeclared": true,
+    "validatorRan": true,
+    "passed": true
+  },
+  "nativeQuantitativeCharts": {
+    "report": {
+      "claim_boundary": "OOXML/workbook structural validation only; source provenance and native PowerPoint opening remain separate checks.",
+      "expected_quantitative_chart_slides": [
+        6,
+        16
+      ],
+      "failed_slide_count": 0,
+      "failed_slides": [],
+      "formal_human_reviewed": false,
+      "native_application_open_verified": false,
+      "package_sha256": "903fd823c3cf392ef0afd5907035724e005ef46d33f20fcaeac0930cda1d2b14",
+      "passed": true,
+      "required_embedded_workbook_slides": [],
+      "results": [
+        {
+          "approved_source_figure_exception": false,
+          "charts": [
+            {
+              "editability_evidence": "powerpoint_native_literal",
+              "embedded_workbook_count": 0,
+              "embedded_workbook_sheet_count": 0,
+              "literal_numeric_point_count": 8,
+              "native_chart_types": [
+                "barChart"
+              ],
+              "numeric_cache_point_count": 0,
+              "series_formula_count": 0,
+              "workbook_numeric_cell_count": 0
+            }
+          ],
+          "failure_codes": [],
+          "native_chart_count": 1,
+          "raster_picture_count": 0,
+          "required_native_chart_count": 1,
+          "slide_number": 6,
+          "status": "passed"
+        },
+        {
+          "approved_source_figure_exception": false,
+          "charts": [
+            {
+              "editability_evidence": "powerpoint_native_literal",
+              "embedded_workbook_count": 0,
+              "embedded_workbook_sheet_count": 0,
+              "literal_numeric_point_count": 2,
+              "native_chart_types": [
+                "barChart"
+              ],
+              "numeric_cache_point_count": 0,
+              "series_formula_count": 0,
+              "workbook_numeric_cell_count": 0
+            }
+          ],
+          "failure_codes": [],
+          "native_chart_count": 1,
+          "raster_picture_count": 0,
+          "required_native_chart_count": 1,
+          "slide_number": 16,
+          "status": "passed"
+        }
+      ],
+      "schema_version": "owner-private.quantitative-chart-native-gate.v1",
+      "slide_count": 18,
+      "source_attachments_accessed": false,
+      "target_application": "powerpoint",
+      "validated_slide_count": 2
+    },
+    "exitCode": 0,
+    "validatedSlideCount": 2,
+    "requiredOwnerSlides": [
+      6,
+      16
+    ],
+    "approvedSourceFigureExceptionSlides": [],
+    "targetApplication": "powerpoint"
+  }
+}
