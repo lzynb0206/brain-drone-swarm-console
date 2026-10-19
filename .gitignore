@@ -9,6 +9,8 @@ build/
 dist/
 *.spec
 artifacts/
+.codex-ppt-build/
+output/pptx/
 .doc_review/
 .env
 data/samples/*.csv

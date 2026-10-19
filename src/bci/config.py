@@ -21,10 +21,9 @@ LABEL_TO_FREQUENCY = dict(zip(COMMANDS, TARGET_FREQUENCIES_HZ))
 # 必须保持相同顺序。通用 CH1..CH8 只能按固定接线位置映射，原标签会保留，
 # 正式自动实验开始前还必须由操作者确认真实电极位置。
 SSVEP_CHANNEL_NAMES = ("O1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "P4")
-# 少通道个人化方案：硬件仍输出 8 路，FBCCA/个人模板只使用
-# 枕区和顶枕区的 Oz、PO3、PO4（CH2/CH4/CH6）。2026-10-18 的 60 轮现场校准中，
-# 这三路跨试次可用率分别为 100%/85%/98%；O1 仅 7%，不再把它默认送入解码。
-SSVEP_CHANNELS_1BASED = (2, 4, 6)
+# 正常八通道实验：FBCCA 与本轮算法对比统一使用全部硬件通道。
+# 通道顺序必须与 SSVEP_CHANNEL_NAMES、LSL metadata 和训练 metadata 一致。
+SSVEP_CHANNELS_1BASED = tuple(range(1, len(SSVEP_CHANNEL_NAMES) + 1))
 
 # 没有新的带标签训练集、权重和 metadata 前必须保持关闭。
 FB_EEGNET_ENABLED = os.getenv("BDS_FB_EEGNET_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
