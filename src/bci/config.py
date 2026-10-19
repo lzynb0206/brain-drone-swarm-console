@@ -17,13 +17,15 @@ TRUE_LABELS = ("空闲",) + COMMANDS
 MI_TRUE_LABELS = ("静息", "想象左手", "想象右手", "想象双脚")
 LABEL_TO_FREQUENCY = dict(zip(COMMANDS, TARGET_FREQUENCIES_HZ))
 
-# 第三篇论文所用的枕区/顶枕区八通道顺序。硬件、LSL metadata、训练 metadata
-# 必须保持相同顺序。通用 CH1..CH8 只能按固定接线位置映射，原标签会保留，
-# 正式自动实验开始前还必须由操作者确认真实电极位置。
-SSVEP_CHANNEL_NAMES = ("O1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "P4")
-# 正常八通道实验：FBCCA 与本轮算法对比统一使用全部硬件通道。
-# 通道顺序必须与 SSVEP_CHANNEL_NAMES、LSL metadata 和训练 metadata 一致。
-SSVEP_CHANNELS_1BASED = tuple(range(1, len(SSVEP_CHANNEL_NAMES) + 1))
+# 2026-10-19 起使用两路额极眼电代理＋六路后脑 SSVEP。CH1/CH8 只用于
+# 去眼电，不进入 FBCCA；GND/REF 仍是设备地和参考，绝不能当成 Fp1/Fp2。
+# 通用 CH1..CH8 只能按这个固定接线顺序映射，原标签会保留在 metadata。
+SSVEP_CHANNEL_NAMES = ("Fp1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "Fp2")
+OCULAR_REFERENCE_CHANNELS_1BASED = (1, 8)
+SSVEP_CHANNELS_1BASED = (2, 3, 4, 5, 6, 7)
+SSVEP_DECODING_CHANNEL_NAMES = tuple(
+    SSVEP_CHANNEL_NAMES[index - 1] for index in SSVEP_CHANNELS_1BASED
+)
 
 # 没有新的带标签训练集、权重和 metadata 前必须保持关闭。
 FB_EEGNET_ENABLED = os.getenv("BDS_FB_EEGNET_ENABLED", "false").strip().lower() in {"1", "true", "yes"}

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import time
 
-from src.bci.fbcca_decoder import FBCCADecoder
 from src.bci.preprocessing import assess_signal_quality
 from src.domain import IntentResult
 from src.ml.predictor import FBEEGNetPredictor
+from src.ports import IntentDecoder
 
 
 class HybridIntentDecoder:
-    def __init__(self, predictor: FBEEGNetPredictor, fallback: FBCCADecoder) -> None:
+    def __init__(self, predictor: FBEEGNetPredictor, fallback: IntentDecoder) -> None:
         self.predictor, self.fallback = predictor, fallback
 
     @property

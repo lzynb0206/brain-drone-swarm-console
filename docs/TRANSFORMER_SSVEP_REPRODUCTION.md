@@ -21,21 +21,24 @@ SSVEP 是视觉刺激范式，Transformer 只替换 FBCCA 所在的解码环节�
 
 | 软件通道 | 电极位置 | Cyton兼容板 |
 | --- | --- | --- |
-| 1 | O1 | 底部 N1P |
+| 1 | Fp1（眼电代理，不进入FBCCA） | 底部 N1P |
 | 2 | Oz | 底部 N2P |
 | 3 | O2 | 底部 N3P |
 | 4 | PO3 | 底部 N4P |
 | 5 | POz | 底部 N5P |
 | 6 | PO4 | 底部 N6P |
 | 7 | P3 | 底部 N7P |
-| 8 | P4 | 底部 N8P |
-| REF | A1 | 底部 SRB2 |
-| BIAS | A2 | 底部 BIAS |
+| 8 | Fp2（眼电代理，不进入FBCCA） | 底部 N8P |
+| REF | 保持当前参考位置 | 底部 SRB2/REF |
+| GND/BIAS | 保持当前地位置 | 底部 BIAS/GND |
 
 直接原生串口采集会输出上述脑区名称。外部 OpenBCI GUI 若只输出 `CH1..CH8`
 或 `EXG Channel 0..7`，LSL适配器只在八个标签全部为通用名称时按位置映射；原始
 来源标签仍保存在 CSV/NPZ metadata 的 `original_channel_names` 中。若外部流已经有
 具体脑区名称，程序不会覆盖。
+
+这一布局变更后，旧八后脑通道的 Transformer、个人模板和FB-EEGNet权重均不兼容，
+必须用新布局重新采集和训练。默认运行时先使用 Fp1/Fp2 ICA＋六后脑通道FBCCA。
 
 ## 采集要求
 

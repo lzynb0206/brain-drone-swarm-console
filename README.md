@@ -10,7 +10,7 @@
 
 - Spring Boot + PostgreSQL 邮箱注册和登录，密码使用 BCrypt 哈希并返回 JWT；也可切换为离线 Mock 模式。
 - 士兵、科研人员、系统工程师、系统管理员等角色页面。
-- 原生 PySide6 全屏六频 SSVEP 刺激：`8 / 9 / 10 / 11 / 12 / 13 Hz`（依次为起飞、前进、后退、左移、右移、降落），使用传承版大色块、4秒识别窗与 Oz/PO3/PO4 三个枕-顶枕区通道，支持 J 开始、K 停止、0 空闲、1–6 标签和 B 急停。单目标页面按正式布局逐类独闪采集10次，生成个人相似度模板并由FBCCA做一致性校验。
+- 原生 PySide6 全屏六频 SSVEP 刺激：`8 / 9 / 10 / 11 / 12 / 13 Hz`（依次为起飞、前进、后退、左移、右移、降落），使用传承版大色块和4秒识别窗；实时算法先以 Fp1/Fp2 为额极眼电代理做保守 FastICA，再仅使用 Oz/O2/PO3/POz/PO4/P3 运行 FBCCA。支持 J 开始、K 停止、0 空闲、1–6 标签和 B 急停。
 - 刺激帧时间、实际刷新率、实测频率、频谱 `.npz/.png` 和开始/停止事件标记。
 - 工程师工作台：真实 Qt 左侧导航、运行时接口状态、真实本机性能和设备日志。
 - 多架 Crazyflie 连接、Flow 起飞、Lighthouse 绝对位置保持、三机自动编队、整体移动、受控降落、停止移动和锁存急停。
@@ -21,7 +21,7 @@
 - 科研导航按真实数据链拆成三个连续页面：`采集`用 ExpandableEEG 原生数据包协议直连蓝牙虚拟 COM/串口（固定8通道、250 Hz）；macOS 自动绕过失效的伪串口并直连 RFCOMM channel 1，Windows 使用传出 COM 口；`LSL收集`独立接收 EEG 流、显示波形/时间戳质量并保存 CSV；`实验`专门回放 CSV。
 - `采集`页采用 OpenBCI GUI 的 System Control Panel 与 Time Series + FFT + Accelerometer 结构；监视器单独使用 5–50 Hz 四阶 Butterworth、50/60 Hz 工频抑制和固定 ±200 μV 量程，原始 CSV、LSL 与解码输入不受显示滤波影响。
 - “实验”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
-- `start-1.csv` 与 LSL采集上位机 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
+- 兼容历史 `start-1.csv` 格式与本项目采集的 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
 - 纯 FBCCA 六频基线，以及可训练的 Transformer-SSVEP：2秒/250 Hz八通道输入、
   频谱分片、自注意力分类、0.60置信度、连续双窗口确认和0.50秒冷却。
@@ -41,7 +41,10 @@
   但其留一试次一致性只有 38.3%，已明确标记为非生产模型，不代表在线准确率。
 - 生产级 RBAC、审计、服务端身份授权和真实设备安全仲裁。
 
-正常启动默认等待实时 `LSL · obci_eeg1`，不会自动播放任何 CSV。本地 `data/samples/start-1.csv` 只作为“实验”页主动导入后的回放文件；CSV 回放不会出现在实时“采集”链路，也不能驱动实机。蜂群后端默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
+正常启动默认等待实时 `LSL · obci_eeg1`，不会自动播放任何 CSV。仓库不再内置
+`data/samples/start-1.csv`；需要回放时在“实验”页主动导入已有 CSV，或显式设置
+`BDS_EEG_CSV_PATH`。CSV 回放不会出现在实时“采集”链路，也不能驱动实机。蜂群后端
+默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
 
 ## 技术架构
 
@@ -255,6 +258,39 @@ BDS_FB_EEGNET_ENABLED=true python main.py
 
 统一接口定义位于 `src/ports/`；详细接入说明见 [docs/INTERFACE_HOOKS.md](docs/INTERFACE_HOOKS.md)。
 
+## 实验数据保存与查找
+
+默认数据根目录是 `data/`，可通过环境变量 `BDS_EEG_DATA_ROOT` 改到独立硬盘或其他
+受控目录。原始 EEG 只写本地文件，不写入 PostgreSQL。CSV 文件会在收到第一帧数据时
+创建，因此只点击开始、但没有收到 EEG 数据时不会产生空文件。
+
+### 按界面操作查找数据
+
+| 界面操作 | 主要输出 | 同时产生的记录 |
+| --- | --- | --- |
+| “采集”页开始采集/开始 CSV 记录 | `data/csv_sessions/lsl_raw_*.csv`；同名 `.json` 保存会话、被试、来源、采样率和通道信息 | 开启连续记录时，`data/continuous_raw/<session_id>/` 保存 10 秒 NPZ 分块，索引写入 `data/sessions/continuous_raw_index.csv` |
+| “LSL收集”页开始收集 | `data/csv_sessions/lsl_raw_*.csv` 和同名 `.json` | 保留接收到的 LSL 时间戳；暂停波形只停止绘图，不停止 CSV 写入 |
+| 自动 SSVEP/MI 实验 | `data/raw_trials/<run_id>-trial-*.npz` | `data/sessions/raw_trials_index.csv` 保存试次总索引，`event_markers.jsonl` 保存实验阶段与时间标记 |
+| “单目标校准”或六目标引导校准 | `data/single_target_calibration/<run_id>/` | 每轮原始 EEG、清单和校准报告均放在该次运行目录中；训练后的模型放在项目根目录 `models/`，不与原始数据混放 |
+| 在线识别与实机命令 | `data/recognition_logs/` | `recognition_log.csv` 保存紧凑识别摘要，达到 16 MiB 后轮转；`command_execution_log.csv` 保存命令审计 |
+| SSVEP 刺激窗口 | `data/stimulus_logs/` | 保存刺激帧时间、实测频率、频谱 `.npz/.png` 和开始/停止标记，不是 EEG 原始波形 |
+| 数据导出 | `data/exports/` | 只在用户执行导出时写入 |
+
+`data/analysis/` 是离线分析报告、预测表和研究阶段模型的工作区，不是运行时采集入口。
+同一次自动实验会同时写入 `raw_trials/`、`sessions/`、`stimulus_logs/`，运行识别时还会写
+`recognition_logs/`；这些目录按“数据用途”划分，因此不要只靠文件夹名判断是否属于同一场
+实验，应以 `session_id` / `run_id` 和 `data/sessions/raw_trials_index.csv` 关联。
+
+查找一次实验时，建议按以下顺序：
+
+1. 先在 `data/sessions/` 找对应的会话 JSON 或 `raw_trials_index.csv`。
+2. 用相同的 `session_id` / `run_id` 到 `raw_trials/` 或 `single_target_calibration/` 找原始 EEG。
+3. 需要排查刺激时序和识别结果时，再查看 `stimulus_logs/` 与 `recognition_logs/`。
+4. 完整连续波形优先查看 `csv_sessions/`；`analysis/` 只用于离线研究结果。
+
+大部分运行时实验目录已被 `.gitignore` 排除。Git 不负责实验数据备份，重新克隆仓库不会
+恢复本机采集记录；正式实验应按被试与会话另行备份，并遵循知情同意和数据脱敏要求。
+
 ## 项目结构
 
 ```text
@@ -313,12 +349,29 @@ src/services/
 └── export_service.py              # 工作台配置和报告导出
 ```
 
-运行时实验数据默认写入 `data/`。`csv_sessions/`、`single_target_calibration/`、
-`sessions/*.jsonl`、原始 EEG、识别日志和预览图片均已移出 Git 并由 `.gitignore`
-排除；这只是停止版本跟踪，不会删除本机文件。最新个人模型
-`models/personal_template_ssvep_experimental.npz` 及 metadata 保留，来源 60 轮数据仍在
-本机 `data/single_target_calibration/single-20261018-210353-640369/`。重要实验数据应备份
-到受控存储，不能把 Git 当作实验数据仓库。
+当前保留从同一组 60 轮个人校准数据生成的 4 通道和 8 通道实验模型：
+`models/personal_template_ssvep_experimental.npz`、
+`models/personal_template_ssvep_experimental_8ch.npz` 及各自 metadata；来源数据仍在本机
+`data/single_target_calibration/single-20261018-210353-640369/`。两者均未获得
+`production_approved`，只能用于科研验证，不能直接驱动实机。
+
+## 可参考的开源项目
+
+截至 2026-10-19，本次检索没有发现一个同时覆盖“实时 SSVEP、实验数据管理、角色化桌面
+工作台、Crazyflie 蜂群和实机安全门”的同构仓库。下面这些项目分别覆盖了本项目的一部分，
+适合按模块参考，不建议直接整仓替换：
+
+| 仓库 | 相关能力 | 对本项目的参考价值 |
+| --- | --- | --- |
+| [bitcraze/crazyflie-lib-python](https://github.com/bitcraze/crazyflie-lib-python) | Bitcraze 官方 Python 通信与控制库 | 本项目已经使用 `cflib`；继续以其连接、日志、参数和 commander API 为底层基准 |
+| [IMRCLab/crazyswarm2](https://github.com/IMRCLab/crazyswarm2) | 基于 ROS 2 的大型 Crazyflie 蜂群栈 | 可参考多机配置、统一命令接口、仿真和系统测试；整体架构比本项目重，不宜直接引入 ROS 2 依赖 |
+| [ludovicdmt/t9_ssvep](https://github.com/ludovicdmt/t9_ssvep) | 基于 LSL 的实时 SSVEP BCI，使用 PsychoPy、MNE 和 TRCA | 可参考校准阶段、实时 LSL 分类、同一被试/同一会话模型管理和刺激参数组织 |
+| [NeuroTechX/EEG-ExPy](https://github.com/NeuroTechX/EEG-ExPy) | 面向 OpenBCI/Muse 等设备的 Python EEG 实验与分析 | 可参考实验协议、数据集组织、采集与分析分离以及可复现实验示例 |
+| [brainflow-dev/brainflow](https://github.com/brainflow-dev/brainflow) | 多种 EEG/生理传感器的统一采集、解析和信号处理 SDK | 如果未来支持更多 EEG 硬件，可参考其设备抽象、marker 和序列化接口；当前 ExpandableEEG 原生协议无需因此替换 |
+| [3C-SCSU/Avatar](https://github.com/3C-SCSU/Avatar) | OpenBCI 脑电采集、预测服务、GUI 与无人机/机器人动作链 | 功能组合与本项目最接近，可参考数据脱敏、人工确认后执行和端到端模块边界；其无人机和服务架构并非 Crazyflie 蜂群方案 |
+
+引用或复制这些仓库的代码前必须单独核对其许可证、版本和硬件假设；“开源可查看”不代表
+可以不保留版权声明直接复制。
 
 ## 测试
 

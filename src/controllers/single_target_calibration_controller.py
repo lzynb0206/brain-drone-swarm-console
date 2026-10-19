@@ -83,7 +83,10 @@ class SingleTargetCalibrationController:
             self.host._notify(f"{display_name}无法开始：最近2秒没有收到实时 EEG")
             return
         if tuple(self.host._eeg_channel_names) != tuple(SSVEP_CHANNEL_NAMES):
-            self.host._notify(f"{display_name}无法开始：当前8通道顺序不是 O1/Oz/O2/PO3/POz/PO4/P3/P4")
+            expected = "/".join(SSVEP_CHANNEL_NAMES)
+            self.host._notify(
+                f"{display_name}无法开始：当前8通道顺序不是 {expected}"
+            )
             return
         if abs(float(self.host._eeg_sample_rate) - float(SAMPLE_RATE_HZ)) > 5.0:
             self.host._notify(f"{display_name}无法开始：采样率需要约250 Hz")
