@@ -343,7 +343,36 @@ class LabeledTrialRecorder:
         labeled_timestamps = self._timestamps[:window_samples].copy()
         paradigm_type = self.paradigm_type
         if paradigm_type == "SSVEP":
-            result = self.decoder.decode(labeled_window, sample_rate_hz)
+            try:
+                result = self.decoder.decode(labeled_window, sample_rate_hz)
+            except ValueError as exc:
+                # A labelled acquisition trial is valuable even when every
+                # channel fails the online quality gate.  Keep the raw window
+                # and its ground-truth label so it can be inspected or decoded
+                # offline; only the online prediction is rejected.  Other
+                # programming/configuration errors must still surface.
+                if "没有可用 EEG 通道" not in str(exc):
+                    raise
+                quality = assess_signal_quality(labeled_window, sample_rate_hz)
+                quality.update({
+                    "decode_error": str(exc),
+                    "collection_continued": True,
+                    "quality_warning": "全部通道未通过在线质量门限；原始试次已保留",
+                })
+                result = IntentResult(
+                    timestamp=datetime.now().timestamp(),
+                    label="",
+                    confidence=0.0,
+                    margin=0.0,
+                    accepted=False,
+                    reason=f"低质量试次仍已保存：{exc}",
+                    frequency_hz=0.0,
+                    scores={},
+                    sample_rate_hz=float(sample_rate_hz),
+                    sample_count=int(labeled_window.shape[1]),
+                    used_channels_1based=(),
+                    signal_quality=quality,
+                )
         else:
             try:
                 quality = assess_signal_quality(labeled_window, sample_rate_hz)

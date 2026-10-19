@@ -47,6 +47,7 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
         self._phase_started_wall = 0.0
         self._phase_timestamps_wall: dict[str, float] = {}
         self._saved_paths: list[str] = []
+        self._quality_statuses: list[str] = []
         self._last_quality_status = "unknown"
         self._early_saved_ack: tuple[str, str, str] | None = None
         self._terminal_emitted = False
@@ -114,6 +115,7 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
         if path:
             self._saved_paths.append(str(path))
         self._last_quality_status = str(quality_status or "unknown").lower()
+        self._quality_statuses.append(self._last_quality_status)
         metadata = self._trial_metadata()
         metadata["raw_trial_path"] = str(path)
         self._emit_phase_marker("trial_saved", metadata)
@@ -124,8 +126,27 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
             self._emit_phase_marker("paused", self._trial_metadata())
             self.status_changed.emit(self._deferred_action)
         if self._last_quality_status == "bad" and self.protocol.phase == ExperimentPhase.REST:
-            self._reject_current_trial("signal_quality_bad")
+            metadata = self._trial_metadata()
+            metadata.update({
+                "quality_status": self._last_quality_status,
+                "collection_continued": True,
+            })
+            self._emit_phase_marker("quality_warning", metadata)
+            self._deferred_action = "信号质量不合格：已标记并保存，本实验继续"
+            self.status_changed.emit(self._deferred_action)
+            self.update()
         return True
+
+    def notify_quality_warning(self, message: str) -> None:
+        """Display a non-fatal quality warning without stopping acquisition."""
+
+        if self.protocol.phase in {
+            ExperimentPhase.IDLE, ExperimentPhase.FINISHED, ExperimentPhase.ABORTED,
+        }:
+            return
+        self._deferred_action = f"信号质量警告（不中断）：{message}"
+        self.status_changed.emit(self._deferred_action)
+        self.update()
 
     def notify_trial_save_error(self, message: str) -> None:
         if self.protocol.phase in {
@@ -262,8 +283,16 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
             "status": status,
             "reason": reason,
             "saved_trials": len(self._saved_paths),
-            "valid_trials": len(self._saved_paths) - self.protocol.rejected_trials,
+            "valid_trials": max(
+                0,
+                len(self._saved_paths)
+                - self.protocol.rejected_trials
+                - sum(status == "bad" for status in self._quality_statuses),
+            ),
             "rejected_trials": self.protocol.rejected_trials,
+            "low_quality_trials": sum(
+                status == "bad" for status in self._quality_statuses
+            ),
             "total_trials": self.protocol.total_trials,
             "paths": list(self._saved_paths),
             "random_seed": int(self.config.random_seed),
@@ -402,7 +431,7 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
             quality = {
                 "good": "良好",
                 "partial": "部分通道可用",
-                "bad": "不合格，已自动追加补采",
+                "bad": "不合格，已标记但继续采集",
             }.get(self._last_quality_status, "未知")
             text = (
                 f"休息  ·  {remaining:.1f}s · 信号质量：{quality}\n"

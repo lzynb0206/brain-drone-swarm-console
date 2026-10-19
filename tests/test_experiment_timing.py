@@ -244,6 +244,61 @@ class ExperimentTrialTimingTest(unittest.TestCase):
             self.assertEqual([], list((Path(directory) / "raw_trials").glob("*.npz")))
             self.assertEqual("", worker.pending_true_label())
 
+    def test_zero_usable_channels_still_saves_labelled_raw_trial(self) -> None:
+        class Stream:
+            source_name = "LSL · test"
+
+        class Decoder:
+            @staticmethod
+            def decode(_window, _sample_rate_hz):
+                raise ValueError(
+                    "没有可用 EEG 通道：请检查接触、工频、漂移及通道重复"
+                )
+
+            @staticmethod
+            def reset():
+                return None
+
+        class MarkerOutlet:
+            @staticmethod
+            def publish(*_args, **_kwargs):
+                return True
+
+            @staticmethod
+            def stop():
+                return None
+
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = ExperimentRecorder(directory)
+            worker = EEGWorker(
+                Stream(), Decoder(), recorder,
+                experiment_clock=ExperimentClock(
+                    local_clock=lambda: 100.0,
+                    unix_clock=lambda: 1_000.0,
+                ),
+                marker_outlet=MarkerOutlet(),
+            )
+            worker.capture_experiment_trial(
+                "前进", 9.0, marker_timestamp=10.0,
+                duration_seconds=4.0, discard_seconds=0.0,
+                metadata={"trial_id": "trial-low-quality-001"},
+            )
+            worker._apply_pending_stimulus(None, np.asarray([], dtype=np.float64), 0)
+            worker._channel_names = tuple(f"CH{index + 1}" for index in range(8))
+            timestamps = 10.0 + np.arange(1000) / 250.0
+            worker._collect_labeled_trial(
+                np.zeros((8, 1000)), timestamps, 250.0, 1000,
+            )
+
+            trial_path = next((Path(directory) / "raw_trials").glob("*.npz"))
+            with np.load(trial_path, allow_pickle=False) as payload:
+                self.assertEqual("前进", str(payload["true_label"]))
+                self.assertEqual((8, 1000), payload["eeg"].shape)
+                quality = json.loads(str(payload["signal_quality"]))
+                self.assertEqual("bad", quality["status"])
+                self.assertTrue(quality["collection_continued"])
+            self.assertEqual("", worker.pending_true_label())
+
 
 if __name__ == "__main__":
     unittest.main()

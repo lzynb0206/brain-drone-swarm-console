@@ -106,6 +106,9 @@ class ExperimentController:
 
     def notify_error(self, message: str) -> None:
         if self.running and self.automatic_window is not None:
+            if "没有可用 EEG 通道" in str(message):
+                self.automatic_window.notify_quality_warning(str(message))
+                return
             self.automatic_window.notify_trial_save_error(message)
 
     def notify_trial_saved(self, label: str, path: str) -> None:
@@ -128,8 +131,8 @@ class ExperimentController:
             "当前 LSL 流只提供通用标签："
             f"{', '.join(original_channels)}。软件只能按位置映射，无法从信号判断真实电极。\n\n"
             "请确认物理接线依次为：\n"
-            "CH1=O1，CH2=Oz，CH3=O2，CH4=PO3，CH5=POz，CH6=PO4，"
-            "CH7=P3，CH8=P4。\n\n确认无误后才开始本次科研采集。",
+            "CH1=Fp1，CH2=Oz，CH3=O2，CH4=PO3，CH5=POz，CH6=PO4，"
+            "CH7=P3，CH8=Fp2。\n\n确认无误后才开始本次科研采集。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
