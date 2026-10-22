@@ -9,7 +9,7 @@ ExpandableEEG蓝牙虚拟COM/串口 → 原生0xA0/0xCx数据包驱动（直接�
         ↓ EEGStream
 后台 QThread（连续分块录制、刺激同步试次、SSVEP 2秒滑动窗）
         ↓
-Fp1/Fp2参考的保守ICA去眼电 → 六路后脑质量检测 → FBCCA → 意图安全阈值与连续窗口门控
+带通滤波器组 → 八路枕区/顶枕区通道质量选择 → FBCCA → 意图安全阈值与连续窗口门控
         ↓
 科研界面 + lsl_raw_*.csv + recognition_log.csv + raw_trials/*.npz
         ↓ 仅在实时硬件/LSL、安全条件满足且人工开启时
@@ -27,9 +27,9 @@ LSL 是把 EEG 和时间戳实时送进本软件的传输通道，FBCCA 是只�
 
 ## 科研人员界面的三段式工作流
 
-当前固定接线为 `Fp1, Oz, O2, PO3, POz, PO4, P3, Fp2`。Fp1/Fp2只作为
-眼电代理，不送入FBCCA；FBCCA使用中间六路。GND和REF保持设备原功能，不能替代
-Fp1/Fp2。完整接线、检查与算法边界见 [SSVEP Fp1/Fp2接线与去眼电流程](SSVEP_FP1_FP2_WIRING.md)。
+当前固定接线为 `O1, Oz, O2, PO3, POz, PO4, P3, P4`。八路都是
+枕区或顶枕区信号，由质量门限自动排除平坦、过幅或50 Hz主导的坏导后送入
+FBCCA。GND和REF保持设备原功能。
 
 说明书表明 ExpandableEEG 的蓝牙模式会先由操作系统映射为 COM/串口，然后按
 `Cyton → Serial → 对应COM口` 读取；它不是 Ganglion 的原生 BLE 协议。根据实验室成功

@@ -18,7 +18,15 @@ from src.bci.config import (
 )
 from src.bci.stimulus import StimulusSessionRecorder, StimulusTarget, luminance_at
 from src.domain import IntentResult
-from src.views.ssvep_rendering import draw_fixation_cross, target_rectangles
+from src.views.ssvep_rendering import (
+    SSVEP_ACCENT,
+    SSVEP_CANVAS_BACKGROUND,
+    SSVEP_TARGET_BORDER,
+    draw_ssvep_header,
+    draw_ssvep_status_banner,
+    draw_ssvep_target,
+    target_rectangles,
+)
 from src.views.stimulus_canvas import StimulusCanvas, StimulusFrameDriver
 
 
@@ -49,7 +57,7 @@ class SSVEPStimulusWindow(StimulusCanvas):
         mode: str = "experiment",
     ) -> None:
         super().__init__(parent, Qt.Window)
-        self.setStyleSheet("background: black;")
+        self.setStyleSheet(f"background: {SSVEP_CANVAS_BACKGROUND};")
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.BlankCursor)
         self.targets = tuple(
@@ -276,7 +284,7 @@ class SSVEPStimulusWindow(StimulusCanvas):
     def paint_stimulus(self) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)
-        painter.fillRect(self.rect(), QColor("#000000"))
+        painter.fillRect(self.rect(), QColor(SSVEP_CANVAS_BACKGROUND))
         elapsed = self._clock.nsecsElapsed() / 1_000_000_000.0 if self._running else 0.0
         stimuli_active = self.stimuli_active
         if self._running:
@@ -284,68 +292,76 @@ class SSVEPStimulusWindow(StimulusCanvas):
 
         target_rects = target_rectangles(self.width(), self.height())
         for index, (target, rect) in enumerate(zip(self.targets, target_rects)):
-            luminance = luminance_at(elapsed, target.frequency_hz) if stimuli_active else 0.08
+            luminance = luminance_at(elapsed, target.frequency_hz) if stimuli_active else 0.06
             if self._running:
                 self._luminance[index].append(luminance)
-            gray = int(round(255 * luminance))
-            painter.fillRect(rect, QColor(gray, gray, gray))
             border_color, border_width, border_style = self._target_frame_style(target.label)
-            painter.setPen(QPen(border_color, border_width, border_style))
-            painter.drawRect(rect)
-            text_color = QColor("#000000") if gray > 150 else QColor("#ffffff")
-            painter.setPen(text_color)
-            painter.setFont(QFont("PingFang SC", max(18, int(rect.height() / 10)), QFont.Bold))
-            painter.drawText(
-                QRectF(rect.left(), rect.top() + rect.height() * 0.08, rect.width(), rect.height() * 0.24),
-                Qt.AlignCenter,
-                f"{index + 1}  {target.label}",
-            )
-            painter.setFont(QFont("Arial", max(16, int(rect.height() / 12)), QFont.Bold))
-            painter.drawText(
-                QRectF(rect.left(), rect.top() + rect.height() * 0.68, rect.width(), rect.height() * 0.22),
-                Qt.AlignCenter,
-                f"{target.frequency_hz:g} Hz",
-            )
-            draw_fixation_cross(
+            draw_ssvep_target(
                 painter,
-                rect.center(),
-                max(16.0, min(rect.width(), rect.height()) * 0.06),
-                text_color,
-                "#000000",
+                rect,
+                target.label,
+                target.frequency_hz,
+                luminance,
+                border_color=border_color,
+                border_width=border_width,
+                border_style=border_style,
             )
 
+        state = self._display_state(stimuli_active)
+        self._draw_header(painter, state)
         if self._running and self.cooldown_remaining > 0.0:
             self._draw_cooldown_overlay(painter)
         elif self._running and self.fresh_window_remaining > 0.0:
             self._draw_fresh_window_overlay(painter)
         elif self._running and (self.control_mode or self.test_mode):
             self._draw_online_result(painter)
+        elif not self._running or self._selected_label == "空闲":
+            self._draw_experiment_overlay(painter)
+        painter.end()
 
-        painter.setPen(QColor("#d1d5db"))
-        painter.setFont(QFont("PingFang SC", 15))
-        state = "空闲校准中" if self.calibrating_idle else (
+    def _display_state(self, stimuli_active: bool) -> str:
+        return "空闲校准中" if self.calibrating_idle else (
             "冷却中（刺激已暂停）" if self._running and not stimuli_active else
             "正在建立新的完整窗口" if self.fresh_window_remaining > 0.0 else
             "刺激运行中" if self._running else "等待开始"
         )
+
+    def _draw_header(self, painter: QPainter, state: str) -> None:
         if self.control_mode:
-            instructions = (
-                f"{state} ｜在线脑控 ｜移动 {self._move_distance_m:.2f}m/次 ｜"
-                f"CD {self._command_cooldown_seconds:.1f}s ｜J 开始  K 暂停  B 急停  Esc 退出"
+            title = f"SSVEP 在线驾驶 · 实机操纵 · {state}"
+            subtitle = (
+                f"移动 {self._move_distance_m:.2f}m/次 · 指令冷却 {self._command_cooldown_seconds:.1f}s · "
+                "J 开始 · K 暂停 · B 急停 · Esc 退出"
             )
         elif self.test_mode:
-            instructions = (
-                f"{state} ｜在线脑控模拟 ｜移动 {self._move_distance_m:.2f}m/次 ｜"
-                f"CD {self._command_cooldown_seconds:.1f}s ｜J 开始  K 暂停  B 停止  Esc 退出"
+            title = f"SSVEP 指令识别测试 · 科研安全模拟 · {state}"
+            subtitle = (
+                f"移动 {self._move_distance_m:.2f}m/次 · 指令冷却 {self._command_cooldown_seconds:.1f}s · "
+                "J 开始 · K 暂停 · B 停止 · Esc 退出"
             )
         else:
-            instructions = (
-                f"{state} ｜真实标签：{self._selected_label} ｜"
-                "J 开始  K 停止  0 空闲  1-6 切换标签  B 急停  Esc 退出"
+            title = f"SSVEP 带标签实验 · 标签：{self._selected_label} · {state}"
+            subtitle = (
+                "J 开始 · K 停止 · 0 空闲 · 1–6 切换标签 · "
+                "B 急停 · Esc 退出"
             )
-        painter.drawText(
-            QRectF(0, 12, self.width(), 42), Qt.AlignCenter,
-            instructions,
+        draw_ssvep_header(painter, self.width(), title, subtitle)
+
+    def _draw_experiment_overlay(self, painter: QPainter) -> None:
+        if not self._running:
+            if self.control_mode:
+                text = "在线驾驶待开始\n按 J 启动视觉刺激与实机脑控"
+            elif self.test_mode:
+                text = "指令识别测试待开始\n按 J 启动；测试模式不会发送无人机指令"
+            else:
+                text = "带标签实验待开始\n按 0 / 1–6 选择真实标签，按 J 开始"
+        else:
+            text = "空闲负样本采集中\n六块持续闪烁，请只注视中央文字"
+        draw_ssvep_status_banner(
+            painter,
+            self.width(),
+            self.height(),
+            text,
         )
 
     def show_recognition_result(self, result: IntentResult) -> None:
@@ -374,8 +390,8 @@ class SSVEPStimulusWindow(StimulusCanvas):
                 return QColor("#39f39b"), 11, Qt.SolidLine
             return QColor("#ffb020"), 8, Qt.DashLine
         if label == self._selected_label:
-            return QColor("#00e5ff"), 6, Qt.SolidLine
-        return QColor("#4b5563"), 4, Qt.SolidLine
+            return QColor(SSVEP_ACCENT), 4, Qt.SolidLine
+        return QColor(SSVEP_TARGET_BORDER), 4, Qt.SolidLine
 
     def process_simulated_control_result(self, result: IntentResult) -> bool:
         """Mirror command admission and cooldown without touching a gateway."""
@@ -420,16 +436,6 @@ class SSVEPStimulusWindow(StimulusCanvas):
 
     def _draw_cooldown_overlay(self, painter: QPainter) -> None:
         remaining = self.cooldown_remaining
-        banner = QRectF(
-            self.width() * 0.30,
-            self.height() * 0.455,
-            self.width() * 0.40,
-            self.height() * 0.105,
-        )
-        painter.fillRect(banner, QColor(8, 15, 28, 245))
-        painter.setPen(QPen(QColor("#ffb020"), 3))
-        painter.drawRect(banner)
-        painter.setFont(QFont("PingFang SC", max(22, int(self.height() * 0.030)), QFont.Bold))
         if self._cooldown_label == "空闲校准":
             message = f"空闲校准 {remaining:.1f}s\n只看这里 · 不注视周围色块"
         elif self.test_mode:
@@ -441,10 +447,12 @@ class SSVEPStimulusWindow(StimulusCanvas):
         else:
             command = f" · 已执行 {self._cooldown_label}" if self._cooldown_label else ""
             message = f"冷却中 {remaining:.1f}s{command}\n全部刺激已停止 · 请移开视线"
-        painter.drawText(
-            banner,
-            Qt.AlignCenter,
+        draw_ssvep_status_banner(
+            painter,
+            self.width(),
+            self.height(),
             message,
+            border_color="#ffb020",
         )
 
     def _draw_online_result(self, painter: QPainter) -> None:
@@ -473,47 +481,22 @@ class SSVEPStimulusWindow(StimulusCanvas):
                 detail += " · 通道不足/工频干扰，暂不确认"
         if self.test_mode:
             detail += " · 测试模式不发送无人机指令"
-        banner = QRectF(
-            self.width() * 0.18,
-            self.height() * 0.44,
-            self.width() * 0.64,
-            self.height() * 0.12,
-        )
-        painter.fillRect(banner, QColor(8, 15, 28, 238))
         frame_color = QColor("#39f39b") if accepted else QColor("#cbd5e1")
-        painter.setPen(QPen(frame_color, 3))
-        painter.drawRect(banner)
-        painter.setPen(frame_color)
-        title_rect = QRectF(
-            banner.left(), banner.top() + banner.height() * 0.08,
-            banner.width(), banner.height() * 0.43,
+        draw_ssvep_status_banner(
+            painter,
+            self.width(),
+            self.height(),
+            f"{title}\n{detail}",
+            border_color=frame_color,
+            text_color=frame_color,
         )
-        detail_rect = QRectF(
-            banner.left() + banner.width() * 0.02,
-            banner.top() + banner.height() * 0.50,
-            banner.width() * 0.96,
-            banner.height() * 0.40,
-        )
-        painter.setFont(QFont("PingFang SC", max(18, int(self.height() * 0.025)), QFont.Bold))
-        painter.drawText(title_rect, Qt.AlignCenter, title)
-        painter.setFont(QFont("PingFang SC", max(13, int(self.height() * 0.017))))
-        painter.drawText(detail_rect, Qt.AlignCenter, detail)
 
     def _draw_fresh_window_overlay(self, painter: QPainter) -> None:
         remaining = self.fresh_window_remaining
-        banner = QRectF(
-            self.width() * 0.34,
-            self.height() * 0.455,
-            self.width() * 0.32,
-            self.height() * 0.105,
-        )
-        painter.fillRect(banner, QColor(8, 15, 28, 230))
-        painter.setPen(QPen(QColor("#00e5ff"), 3))
-        painter.drawRect(banner)
-        painter.setFont(QFont("PingFang SC", max(20, int(self.height() * 0.027)), QFont.Bold))
-        painter.drawText(
-            banner,
-            Qt.AlignCenter,
+        draw_ssvep_status_banner(
+            painter,
+            self.width(),
+            self.height(),
             f"正在建立新窗口 {remaining:.1f}s\n请持续注视目标 · 暂不执行指令",
         )
 

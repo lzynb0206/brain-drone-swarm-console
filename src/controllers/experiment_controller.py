@@ -131,8 +131,8 @@ class ExperimentController:
             "当前 LSL 流只提供通用标签："
             f"{', '.join(original_channels)}。软件只能按位置映射，无法从信号判断真实电极。\n\n"
             "请确认物理接线依次为：\n"
-            "CH1=Fp1，CH2=Oz，CH3=O2，CH4=PO3，CH5=POz，CH6=PO4，"
-            "CH7=P3，CH8=Fp2。\n\n确认无误后才开始本次科研采集。",
+            "CH1=O1，CH2=Oz，CH3=O2，CH4=PO3，CH5=POz，CH6=PO4，"
+            "CH7=P3，CH8=P4。\n\n确认无误后才开始本次科研采集。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

@@ -7,11 +7,26 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
 from src.widgets.scifi_canvas import (
-    BG, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas,
+    RESEARCH_BG as BG,
+    RESEARCH_BLUE as BLUE,
+    RESEARCH_BORDER as BORDER,
+    RESEARCH_CYAN as CYAN,
+    RESEARCH_GREEN as GREEN,
+    RESEARCH_MUTED as MUTED,
+    RESEARCH_PANEL as PANEL,
+    RESEARCH_PANEL_SOFT as PANEL_SOFT,
+    RESEARCH_RED as RED,
+    RESEARCH_TEXT as TEXT,
+    RESEARCH_YELLOW as YELLOW,
+    Canvas,
 )
 
 
 DISPLAY_SCALE_UV = 200.0
+RESEARCH_TRACE_COLORS = (
+    "#4b5563", "#7c3aed", "#2563eb", "#059669",
+    "#ca8a04", "#ea580c", "#dc2626", "#92400e",
+)
 
 
 def _resample_for_pixels(data: np.ndarray, pixel_width: float) -> np.ndarray:
@@ -89,7 +104,7 @@ class ResearchAcquisitionViewMixin:
             ("数据包", str(self._eeg_health.get("total_samples", 0)), 1066, 182),
         )
         for label, value, x, width in summary:
-            c.rect(x, 112, width, 38, "#0c1729", BORDER, 3)
+            c.rect(x, 112, width, 38, PANEL_SOFT, BORDER, 3)
             c.text(x + 12, 112, width * 0.4, 38, label, 9, MUTED, True)
             c.text(x + width * 0.38, 112, width * 0.56, 38, value, 10, TEXT, True, Qt.AlignRight | Qt.AlignVCenter)
 
@@ -104,7 +119,7 @@ class ResearchAcquisitionViewMixin:
         for index, (label, tab) in enumerate(tabs):
             x = 32 + index * tab_width
             active = self.acquisition_tab == tab
-            c.rect(x, 164, tab_width, 38, "#14233b" if active else "#0b1425", BORDER)
+            c.rect(x, 164, tab_width, 38, "#eaf2ff" if active else PANEL_SOFT, BORDER)
             if active:
                 c.line(x + 18, 200, x + tab_width - 18, 200, CYAN, 2)
             c.text(x, 164, tab_width, 36, label, 11, TEXT if active else MUTED, active, Qt.AlignCenter)
@@ -116,7 +131,7 @@ class ResearchAcquisitionViewMixin:
         c.rect(0, 56, 1280, 664, BG)
         c.text(32, 72, 430, 34, "建立脑电采集会话", 21, TEXT, True)
         c.text(32, 105, 690, 24, "连接 ExpandableEEG / Cyton 兼容设备，确认参数后进入实时监测。", 11, MUTED)
-        c.rect(1018, 76, 230, 30, "#0c1729", BORDER, 15)
+        c.rect(1018, 76, 230, 30, PANEL_SOFT, BORDER, 15)
         c.circle(1038, 91, 5, YELLOW)
         c.text(1052, 76, 176, 30, "等待设备连接", 10, TEXT, True)
 
@@ -127,15 +142,15 @@ class ResearchAcquisitionViewMixin:
 
         c.text(52, 168, 310, 26, "01  采集配置", 15, TEXT, True)
         c.text(52, 201, 310, 22, "数据源", 9, MUTED, True)
-        c.rect(52, 228, 310, 46, "#13253d", "#31527b", 3)
+        c.rect(52, 228, 310, 46, "#eef4ff", "#b7cae5", 3)
         c.circle(72, 251, 6, GREEN)
         c.text(90, 228, 254, 46, "ExpandableEEG / Cyton", 11, TEXT, True)
         c.text(52, 294, 310, 22, "传输协议", 9, MUTED, True)
-        c.rect(52, 321, 310, 42, "#0b1728", BORDER, 3)
+        c.rect(52, 321, 310, 42, PANEL_SOFT, BORDER, 3)
         c.text(66, 321, 282, 42, "Bluetooth COM / Native RFCOMM", 10, TEXT)
         for index, (label, value) in enumerate((("通道数", "8 CH"), ("采样率", "250 Hz"))):
             x = 52 + index * 160
-            c.rect(x, 388, 150, 66, "#0b1728", BORDER, 3)
+            c.rect(x, 388, 150, 66, PANEL_SOFT, BORDER, 3)
             c.text(x + 12, 396, 126, 19, label, 9, MUTED)
             c.text(x + 12, 418, 126, 26, value, 15, TEXT, True)
         c.text(52, 478, 310, 44, "固定使用 8 通道硬件配置，避免会话间参数漂移。", 10, MUTED)
@@ -143,13 +158,13 @@ class ResearchAcquisitionViewMixin:
         c.text(418, 168, 390, 26, "02  选择并连接设备", 15, TEXT, True)
         c.text(418, 204, 390, 22, "系统蓝牙配对后，设备会映射为 COM 或 /dev/cu.*", 9, MUTED)
         port = self._collector_selected_device or "尚未选择串口设备"
-        c.rect(418, 236, 390, 48, "#0b1728", BORDER, 3)
+        c.rect(418, 236, 390, 48, PANEL_SOFT, BORDER, 3)
         c.text(434, 236, 358, 48, port[-48:], 10, TEXT)
         self._light_button(c, 418, 300, 184, 40, "刷新 / 选择设备")
         self._light_button(c, 618, 300, 190, 40, "开始采集会话", False, "#2d8a57")
         self._hit(418, 300, 184, 40, "openbci-serial-autoconnect")
         self._hit(618, 300, 190, 40, "openbci-start-session")
-        c.rect(418, 362, 390, 94, "#0b1728", BORDER, 3)
+        c.rect(418, 362, 390, 94, PANEL_SOFT, BORDER, 3)
         c.circle(440, 389, 6, YELLOW)
         c.text(456, 374, 332, 30, self._eeg_status, 10, TEXT, True)
         c.text(438, 411, 350, 29, "只接入真实硬件，不自动播放 CSV 或生成模拟 EEG。", 9, MUTED)
@@ -166,28 +181,28 @@ class ResearchAcquisitionViewMixin:
         )
         for index, (label, description) in enumerate(steps):
             y = 211 + index * 58
-            c.circle(884, y + 17, 13, "#183255", "#31527b")
+            c.circle(884, y + 17, 13, "#e7f1ff", "#b7cae5")
             c.text(871, y + 4, 26, 26, str(index + 1), 9, CYAN, True, Qt.AlignCenter)
             c.text(912, y, 58, 22, label, 10, TEXT, True)
             c.text(970, y, 248, 22, description, 9, MUTED)
             if index < len(steps) - 1:
-                c.line(884, y + 31, 884, y + 48, "#31527b", 2)
+                c.line(884, y + 31, 884, y + 48, "#b7cae5", 2)
 
-        c.rect(32, 566, 1216, 112, "#0b1728", BORDER, 5)
+        c.rect(32, 566, 1216, 112, PANEL_SOFT, BORDER, 5)
         c.text(56, 580, 240, 28, "清晰的数据职责", 13, TEXT, True)
         responsibilities = (
             ("采集", "硬件连接与实时监测"),
             ("LSL 收集", "网络流接收与 CSV 保存"),
-            ("实验", "CSV 回放与算法验证"),
+            ("CSV回放", "CSV 回放与算法验证"),
         )
         for index, (label, value) in enumerate(responsibilities):
             x = 318 + index * 294
-            c.rect(x, 582, 270, 64, "#101c32", BORDER, 3)
+            c.rect(x, 582, 270, 64, PANEL, BORDER, 3)
             c.text(x + 16, 590, 86, 20, label, 10, CYAN, True)
             c.text(x + 16, 613, 238, 22, value, 10, TEXT)
 
     def _acquisition_dashboard_page(self, c: Canvas) -> None:
-        """Compact three-panel runtime overview in the shared dark theme."""
+        """Compact three-panel runtime overview in the research light theme."""
 
         c.rect(32, 218, 736, 478, PANEL, BORDER, 4)
         c.text(50, 226, 230, 30, "8 通道实时波形", 13, TEXT, True)
@@ -211,7 +226,7 @@ class ResearchAcquisitionViewMixin:
     def _research_replay(self, c: Canvas) -> None:
         """CSV experiment replay is deliberately separate from live acquisition."""
         panel, border = PANEL, BORDER
-        ink, sub, blue = TEXT, MUTED, "#3769ef"
+        ink, sub, blue = TEXT, MUTED, BLUE
         c.rect(0, 56, 1280, 664, BG)
         snapshot = self._csv_playback_snapshot()
         is_csv = snapshot.get("backend") == "csv"
@@ -285,15 +300,15 @@ class ResearchAcquisitionViewMixin:
             c.text(946, 478, 290, 38, label, 20, "#2d8a57", True)
             c.text(946, 518, 290, 23, f"Score {result.best_score:.3f}  Margin {result.margin:.3f}", 10, sub)
             c.text(946, 545, 290, 38, result.reason, 10, ink)
-        c.rect(946, 606, 298, 69, "#0b1728", border, 2)
+        c.rect(946, 606, 298, 69, "#fff8e6", border, 2)
         c.text(958, 613, 274, 55, "CSV 回放不会直接启用无人机脑控。\n它用于复盘、算法验证和结果对比。", 10, YELLOW)
 
     def _light_button(
         self, c: Canvas, x: float, y: float, w: float, h: float, label: str,
         active: bool = False, accent: str = "#2f5f89",
     ) -> None:
-        c.rect(x, y, w, h, accent if active else "#111c31", accent, 3)
-        c.text(x, y, w, h, label, 10, TEXT if active else QColor(accent).lighter(150), active, Qt.AlignCenter)
+        c.rect(x, y, w, h, accent if active else PANEL, accent, 3)
+        c.text(x, y, w, h, label, 10, "#ffffff" if active else accent, active, Qt.AlignCenter)
 
     def _draw_light_eeg(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
         display_history = getattr(self, "_eeg_display_history", self._eeg_history)
@@ -301,7 +316,7 @@ class ResearchAcquisitionViewMixin:
         if not histories:
             histories = [[] for _ in range(8)]
         waiting = not any(histories)
-        palette = ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")
+        palette = RESEARCH_TRACE_COLORS
         row_height = h / max(1, len(histories))
         plot_x = x + 83
         plot_w = w - 86
@@ -310,10 +325,10 @@ class ResearchAcquisitionViewMixin:
         for index, values in enumerate(histories):
             baseline = y + row_height * (index + 0.5)
             row_top = y + row_height * index
-            c.line(plot_x, row_top, x + w, row_top, "#243452")
-            c.line(plot_x, baseline, x + w, baseline, "#1d2c45")
+            c.line(plot_x, row_top, x + w, row_top, "#dbe2ea")
+            c.line(plot_x, baseline, x + w, baseline, "#e8edf2")
             if index == len(histories) - 1:
-                c.line(plot_x, y + h - 1, x + w, y + h - 1, "#243452")
+                c.line(plot_x, y + h - 1, x + w, y + h - 1, "#dbe2ea")
             label = self._eeg_channel_names[index] if index < len(self._eeg_channel_names) else f"CH{index + 1}"
             c.circle(x + 15, baseline, 11, palette[index % len(palette)])
             c.text(x + 4, baseline - 10, 22, 20, str(index + 1), 9, "#ffffff", True, Qt.AlignCenter)
@@ -356,19 +371,19 @@ class ResearchAcquisitionViewMixin:
 
     def _acquisition_fft(self, c: Canvas, x: float, y: float, w: float, h: float) -> None:
         plot_x, plot_y, plot_w, plot_h = x + 42, y + 8, w - 50, h - 42
-        c.rect(plot_x, plot_y, plot_w, plot_h, "#071020", BORDER)
+        c.rect(plot_x, plot_y, plot_w, plot_h, PANEL, BORDER)
         for amplitude_uv in (0.1, 1.0, 10.0, 100.0):
             normalized = (np.log10(amplitude_uv) + 1.0) / 3.0
             gy = plot_y + plot_h - normalized * plot_h
-            c.line(plot_x, gy, plot_x + plot_w, gy, "#1c2b45")
+            c.line(plot_x, gy, plot_x + plot_w, gy, "#e1e7ee")
             c.text(x, gy - 8, 36, 16, f"{amplitude_uv:g}", 7, MUTED, False, Qt.AlignRight | Qt.AlignVCenter)
         for index in range(1, 6):
             gx = plot_x + plot_w * index / 6
-            c.line(gx, plot_y, gx, plot_y + plot_h, "#1c2b45")
+            c.line(gx, plot_y, gx, plot_y + plot_h, "#e1e7ee")
             c.text(gx - 18, plot_y + plot_h + 3, 36, 18, f"{index * 10}", 8, MUTED, False, Qt.AlignCenter)
         display_history = getattr(self, "_eeg_display_history", self._eeg_history)
         histories = [np.asarray(values, dtype=float) for values in display_history]
-        palette = ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")
+        palette = RESEARCH_TRACE_COLORS
         for index, values in enumerate(histories[:8]):
             if len(values) < 32:
                 continue
@@ -410,7 +425,7 @@ class ResearchAcquisitionViewMixin:
             score = min(1.0, spread / (spread + 10.0)) if spread else 0.0
             label = self._eeg_channel_names[index] if index < len(self._eeg_channel_names) else f"CH{index + 1}"
             c.text(x + 70, row_y, 90, 24, label, 10, TEXT, True)
-            c.rect(x + 160, row_y + 6, w - 260, 12, "#1d2c45", None, 6)
+            c.rect(x + 160, row_y + 6, w - 260, 12, "#e3e8ee", None, 6)
             c.rect(x + 160, row_y + 6, (w - 260) * score, 12, "#49a66e", None, 6)
             c.text(x + w - 90, row_y, 60, 24, f"{spread:.1f}", 10, MUTED, False, Qt.AlignRight)
 
@@ -420,22 +435,22 @@ class ResearchAcquisitionViewMixin:
             for index, (axis, color) in enumerate((('X', '#d84e4e'), ('Y', '#48a15f'), ('Z', '#3c75ba'))):
                 c.text(x + 25, y + 4 + index * 27, 150, 24, f"{axis} = 0.000 g", 11, color, True)
             circle_x, circle_y = x + w - 78, y + 42
-            c.circle(circle_x, circle_y, 32, "#071020", BORDER)
+            c.circle(circle_x, circle_y, 32, PANEL_SOFT, BORDER)
             c.line(circle_x - 32, circle_y, circle_x + 32, circle_y, BORDER)
             c.line(circle_x, circle_y - 32, circle_x, circle_y + 32, BORDER)
             plot_y = y + 88
             plot_h = max(45, h - 102)
-            c.rect(x + 25, plot_y, w - 50, plot_h, "#071020", BORDER)
+            c.rect(x + 25, plot_y, w - 50, plot_h, PANEL, BORDER)
             for index, color in enumerate(("#d84e4e", "#48a15f", "#3c75ba")):
                 baseline = plot_y + plot_h * (index + 1) / 4
                 c.line(x + 34, baseline, x + w - 34, baseline, color, 1)
             c.text(x + 25, y + h - 16, w - 50, 16, "-5s                         时间                         0s", 8, MUTED, False, Qt.AlignCenter)
             return
         c.text(x, y, w, 30, "加速度计", 16, TEXT, True)
-        c.rect(x + 40, y + 54, w - 80, h - 130, "#071020", BORDER)
+        c.rect(x + 40, y + 54, w - 80, h - 130, PANEL, BORDER)
         for index, (axis, color) in enumerate((("X", "#d84e4e"), ("Y", "#48a15f"), ("Z", "#3c75ba"))):
             baseline = y + 120 + index * 90
-            c.line(x + 70, baseline, x + w - 70, baseline, "#243452")
+            c.line(x + 70, baseline, x + w - 70, baseline, "#dbe2ea")
             c.text(x + 54, baseline - 14, 30, 28, axis, 12, color, True)
         c.text(x + 60, y + h - 58, w - 120, 34, "ExpandableEEG 主数据为 8 路 EEG；硬件包含 AUX 通道时在这里显示 XYZ。", 10, YELLOW, False, Qt.AlignCenter)
 
@@ -453,9 +468,9 @@ class ResearchAcquisitionViewMixin:
         )
         for row_index, (label, value) in enumerate(rows):
             row_y = y + 72 + row_index * 38
-            c.rect(x + 110, row_y, 190, 30, "#14233b", BORDER, 2)
+            c.rect(x + 110, row_y, 190, 30, "#eef4ff", BORDER, 2)
             c.text(x + 122, row_y, 166, 30, label, 9, MUTED, True)
-            c.rect(x + 300, row_y, w - 410, 30, "#0b1728", BORDER, 2)
+            c.rect(x + 300, row_y, w - 410, 30, PANEL_SOFT, BORDER, 2)
             c.text(x + 314, row_y, w - 438, 30, value, 10, TEXT)
         active = bool(outlet.get("active", False))
         button_text = "停止 LSL 广播" if active else "启动 LSL 广播"
@@ -477,7 +492,7 @@ class ResearchAcquisitionViewMixin:
         for index, (label, value) in enumerate(cards):
             card_w = (w - 90) / 4
             card_x = x + 18 + index * (card_w + 18)
-            c.rect(card_x, y + 55, card_w, 94, "#0b1728", BORDER, 3)
+            c.rect(card_x, y + 55, card_w, 94, PANEL_SOFT, BORDER, 3)
             c.text(card_x, y + 66, card_w, 22, label, 9, MUTED, True, Qt.AlignCenter)
             c.text(card_x, y + 92, card_w, 40, value, 22, CYAN, True, Qt.AlignCenter)
         gaps = int(health.get("gap_count", 0) or 0)
@@ -494,11 +509,11 @@ class ResearchAcquisitionViewMixin:
             c.text(left, y + 36, width, 28, label, 9, MUTED, True, Qt.AlignCenter)
         for index, settings in enumerate(self._hardware_channel_settings):
             row_y = y + 66 + index * 37
-            c.circle(x + 47, row_y + 16, 13, ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")[index])
+            c.circle(x + 47, row_y + 16, 13, RESEARCH_TRACE_COLORS[index])
             c.text(x + 34, row_y + 3, 26, 26, str(index + 1), 9, "#ffffff", True, Qt.AlignCenter)
             for key, left, width in zip(("gain", "input", "bias", "srb2", "srb1"), starts[1:], widths[1:]):
                 enabled = settings[key] in {"Yes", "On"}
-                fill = "#153228" if enabled else ("#321d25" if settings[key] == "Off" else "#0b1728")
+                fill = "#eaf7ef" if enabled else ("#fff0f2" if settings[key] == "Off" else "#f8fafc")
                 c.rect(left, row_y, width, 31, fill, BORDER, 2)
                 c.text(left, row_y, width, 31, settings[key], 9, GREEN if enabled else TEXT, False, Qt.AlignCenter)
         c.text(x + 18, y + 374, w - 220, 45, "当前使用 ExpandableEEG 专用串口协议；逐通道 PGA、Bias、SRB 写命令需实机验证后开放。", 9, YELLOW)
@@ -510,13 +525,13 @@ class ResearchAcquisitionViewMixin:
         if not histories or not any(histories):
             c.text(x, y, w, h, "等待 EEG 数据…", 15, MUTED, False, Qt.AlignCenter)
             return
-        palette = ("#ef514d", "#f1c64b", "#62df8a", "#65d9e9", "#6c9bd9", "#987bd8", "#ef7ac8", "#e5e9f0")
+        palette = RESEARCH_TRACE_COLORS
         row_height = h / max(1, len(histories))
         c.p.save()
         c.p.setClipRect(QRectF(x, y, w, h))
         for index, values in enumerate(histories):
             baseline = y + row_height * (index + 0.5)
-            c.line(x, baseline, x + w, baseline, "#1d2c45")
+            c.line(x, baseline, x + w, baseline, "#e1e7ee")
             label = (
                 self._eeg_channel_names[index]
                 if index < len(self._eeg_channel_names)

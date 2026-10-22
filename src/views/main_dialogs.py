@@ -123,13 +123,13 @@ class MainDialogsMixin:
     def _show_openbci_guide(self) -> None:
         QMessageBox.information(
             self,
-            "采集 → LSL收集 → CSV实验",
+            "采集 → LSL收集 → CSV回放",
             "1. 先在系统蓝牙设置中配对 ExpandableEEG，确认生成 COM 或 /dev/cu.* 串口。\n"
             "2. 关闭其他占用该串口的 OpenBCI GUI，再在“采集”页选择设备并启动数据流。\n"
             "3. 检查采样率、通道数和电极标签；MI 建议重点核对 C3/Cz/C4。\n"
             "4. 需要实时转发时，在采集页 Networking 启动 LSL Stream。\n"
             "5. 在“LSL收集”页刷新并选择流，开始接收、显示并保存 CSV。\n"
-            "6. 在“实验”页导入 CSV 做回放和算法复盘。\n\n"
+            "6. 在“CSV回放”页导入 CSV 做回放和算法复盘。\n\n"
             "macOS 检测到 ExpandableEEGBT 时会自动绕过失效的 /dev/cu 伪串口，"
             "直连 ESP32SPP 的 RFCOMM channel 1。若仍提示0字节，再用Type-C数据线和 "
             "scripts/expandable_eeg_config.py 确认设备处于Bluetooth模式。\n\n"

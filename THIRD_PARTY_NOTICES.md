@@ -1,5 +1,16 @@
 # Third-Party Notices
 
+## Graph Contrastive Denoising (GCD)
+
+`src/ml/gcd_preprocessing.py` is adapted from the public `utils.py` in:
+
+- Source: <https://github.com/Quentin2022/Graph-Contrastive-Denoising-Module>
+- License: Apache License 2.0
+
+The local adaptation keeps the upstream numerical preprocessing, graph handling, label mapping,
+and ten-fold split while adding project documentation, path typing, and a command-line entry point.
+The Apache License 2.0 text is available in the upstream repository at the source link above.
+
 ## OpenBCI GUI
 
 The researcher acquisition control-panel layout and interaction states are adapted from the

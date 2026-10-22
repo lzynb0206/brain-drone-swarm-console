@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 import uuid
 
-from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPen
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QKeyEvent, QPainter
 
 from src.bci.config import (
     COMMANDS,
@@ -21,7 +21,15 @@ from src.services.ssvep_experiment_protocol import (
     ExperimentPhase,
     ProtocolTransition,
 )
-from src.views.ssvep_rendering import draw_fixation_cross, target_rectangles
+from src.views.ssvep_rendering import (
+    SSVEP_ACCENT,
+    SSVEP_CANVAS_BACKGROUND,
+    SSVEP_TARGET_BORDER,
+    draw_ssvep_header,
+    draw_ssvep_status_banner,
+    draw_ssvep_target,
+    target_rectangles,
+)
 from src.views.stimulus_canvas import StimulusCanvas, StimulusFrameDriver
 
 
@@ -54,8 +62,8 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
         self._deferred_action = ""
         self._timer = StimulusFrameDriver(self)
         self._timer.timeout.connect(self._tick)
-        self.setWindowTitle("SSVEP 自动随机带标签采集")
-        self.setStyleSheet("background: #050914;")
+        self.setWindowTitle("脑控无人机蜂群作战系统 · SSVEP 自动随机带标签采集")
+        self.setStyleSheet(f"background: {SSVEP_CANVAS_BACKGROUND};")
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.BlankCursor)
 
@@ -329,7 +337,7 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
     def paint_stimulus(self) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)
-        painter.fillRect(self.rect(), QColor("#050914"))
+        painter.fillRect(self.rect(), QColor(SSVEP_CANVAS_BACKGROUND))
         now = time.monotonic()
         phase = self.protocol.phase
         trial = self.protocol.current_trial
@@ -342,28 +350,17 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
 
         for target, rect in zip(self.targets, target_rectangles(self.width(), self.height())):
             luminance = luminance_at(elapsed, target.frequency_hz) if active_stimulus else 0.06
-            gray = int(round(255 * luminance))
-            painter.fillRect(rect, QColor(gray, gray, gray))
             selected = target.label == label and phase in {
                 ExperimentPhase.CUE, ExperimentPhase.STIMULUS,
             }
-            painter.setPen(QPen(QColor("#00e5ff") if selected else QColor("#34435b"), 4))
-            painter.drawRect(rect)
-            text_color = QColor("#050914") if gray > 150 else QColor("#eef6ff")
-            painter.setPen(text_color)
-            painter.setFont(QFont("PingFang SC", max(17, int(rect.height() / 9)), QFont.Bold))
-            painter.drawText(
-                QRectF(rect.left(), rect.top() + rect.height() * 0.10, rect.width(), rect.height() * 0.24),
-                Qt.AlignCenter,
+            draw_ssvep_target(
+                painter,
+                rect,
                 target.label,
+                target.frequency_hz,
+                luminance,
+                border_color=SSVEP_ACCENT if selected else SSVEP_TARGET_BORDER,
             )
-            painter.setFont(QFont("Arial", max(14, int(rect.height() / 12)), QFont.Bold))
-            painter.drawText(
-                QRectF(rect.left(), rect.top() + rect.height() * 0.70, rect.width(), rect.height() * 0.18),
-                Qt.AlignCenter,
-                f"{target.frequency_hz:g} Hz",
-            )
-            draw_fixation_cross(painter, rect.center(), 15.0, text_color, "#050914")
 
         self._draw_header(painter, now, label)
         self._draw_phase_overlay(painter, now, label)
@@ -385,36 +382,21 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
             if trial is not None else f"0/{self.protocol.total_trials}"
         )
         state = "已暂停" if self.protocol.paused else phase_labels[self.protocol.phase]
-        painter.fillRect(QRectF(0, 0, self.width(), 70), QColor(5, 11, 24, 245))
-        painter.setPen(QColor("#e9f2ff"))
-        painter.setFont(QFont("PingFang SC", 17, QFont.Bold))
-        painter.drawText(
-            QRectF(20, 6, self.width() - 40, 30),
-            Qt.AlignCenter,
+        draw_ssvep_header(
+            painter,
+            self.width(),
             f"SSVEP 自动随机采集 · {progress} · 标签：{label} · {state}",
+            (
+                f"提示 {self.config.cue_seconds:g}s · 刺激 {self.config.stimulus_seconds:g}s · "
+                f"分析丢弃前 {self.config.discard_seconds:g}s · 休息 {self.config.rest_seconds:g}s · "
+                "P 暂停/继续 · Esc 中止"
+            ),
         )
-        painter.setPen(QColor("#91a4bd"))
-        painter.setFont(QFont("PingFang SC", 12))
-        timing = (
-            f"提示 {self.config.cue_seconds:g}s · 刺激 {self.config.stimulus_seconds:g}s · "
-            f"分析丢弃前 {self.config.discard_seconds:g}s · 休息 {self.config.rest_seconds:g}s · "
-            "P 暂停/继续 · Esc 中止"
-        )
-        painter.drawText(QRectF(20, 37, self.width() - 40, 26), Qt.AlignCenter, timing)
 
     def _draw_phase_overlay(self, painter: QPainter, now: float, label: str) -> None:
         phase = self.protocol.phase
         if phase == ExperimentPhase.STIMULUS and label != "空闲" and not self.protocol.paused:
             return
-        banner = QRectF(
-            self.width() * 0.25,
-            self.height() * 0.43,
-            self.width() * 0.50,
-            self.height() * 0.15,
-        )
-        painter.fillRect(banner, QColor(7, 16, 32, 248))
-        painter.setPen(QPen(QColor("#00d8f0"), 3))
-        painter.drawRect(banner)
         remaining = self.protocol.seconds_remaining(now)
         if self.protocol.paused:
             text = f"实验已暂停\n当前标签：{label} · 按 P 继续"
@@ -445,9 +427,13 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
             text = "正在准备实验…"
         if self._deferred_action:
             text += f"\n{self._deferred_action}"
-        painter.setPen(QColor("#f4f8ff"))
-        painter.setFont(QFont("PingFang SC", max(20, int(self.height() * 0.027)), QFont.Bold))
-        painter.drawText(banner.adjusted(16, 8, -16, -8), Qt.AlignCenter, text)
+        draw_ssvep_status_banner(
+            painter,
+            self.width(),
+            self.height(),
+            text,
+            text_color="#f4f8ff",
+        )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
         if event.key() == Qt.Key_P:

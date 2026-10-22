@@ -10,12 +10,35 @@ import numpy as np
 
 from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ
 from src.bci.fbcca_decoder import FBCCADecoder
-from src.bci.preprocessing import prepare_ssvep_channels
+from src.bci.preprocessing import (
+    FILTER_BANK_HIGH_EDGE_HZ,
+    filter_bank,
+    prepare_ssvep_channels,
+)
 from src.ml.frequency_profile import record_matches_current_profile
 from src.ml.transformer_predictor import TransformerSSVEPPredictor
 
 
 class FrequencyFixTest(unittest.TestCase):
+    def test_fbcca_filter_bank_stops_at_50hz(self):
+        self.assertEqual(50.0, FILTER_BANK_HIGH_EDGE_HZ)
+        t = np.arange(1000) / 250.0
+        eeg = np.tile(
+            np.sin(2 * np.pi * 48 * t) + np.sin(2 * np.pi * 52 * t),
+            (2, 1),
+        )
+        for filtered, _weight in filter_bank(eeg, 250.0):
+            spectrum = np.abs(np.fft.rfft(filtered, axis=1))
+            frequencies = np.fft.rfftfreq(filtered.shape[1], 1 / 250.0)
+            at_48hz = float(np.max(spectrum[:, np.isclose(frequencies, 48.0)]))
+            at_52hz = float(np.max(spectrum[:, np.isclose(frequencies, 52.0)]))
+            self.assertGreater(at_48hz, 100.0)
+            self.assertLess(at_52hz, 1e-8)
+
+        references = FBCCADecoder()._reference_signals(250.0, 1000)
+        self.assertEqual(8, references[4].shape[0])  # 12/24/36/48 Hz
+        self.assertEqual(6, references[5].shape[0])  # 13/26/39 Hz; 52 Hz excluded
+
     def test_new_targets_are_decoded_with_default_rejection_gate(self):
         self.assertEqual((8., 9., 10., 11., 12., 13.), TARGET_FREQUENCIES_HZ)
         rng = np.random.default_rng(20261017)

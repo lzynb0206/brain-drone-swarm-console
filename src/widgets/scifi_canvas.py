@@ -22,22 +22,38 @@ GREEN = QColor("#69ee90")
 YELLOW = QColor("#f0ce54")
 RED = QColor("#f14e50")
 
+# Research pages use a high-contrast light workspace.  Keep these colors
+# separate from the operational dark palette used by soldier, engineer and
+# administrator dashboards.
+RESEARCH_BG = QColor("#f4f6f8")
+RESEARCH_BG_SOFT = QColor("#f8fafc")
+RESEARCH_PANEL = QColor("#ffffff")
+RESEARCH_PANEL_SOFT = QColor("#f7f9fc")
+RESEARCH_BORDER = QColor("#d5dde7")
+RESEARCH_TEXT = QColor("#17212b")
+RESEARCH_MUTED = QColor("#667281")
+RESEARCH_CYAN = QColor("#0f7490")
+RESEARCH_BLUE = QColor("#2563eb")
+RESEARCH_GREEN = QColor("#16834b")
+RESEARCH_YELLOW = QColor("#946200")
+RESEARCH_RED = QColor("#c43d48")
+
 
 # Keep drawing and hit testing on the same grid.  The research header used to
 # duplicate these values in two modules, which made the clickable regions drift
 # away from the labels whenever one side was adjusted.
 RESEARCH_NAV_ITEMS = (
-    ("采集", 238, 58),
-    ("LSL收集", 296, 80),
-    ("实验", 376, 58),
-    ("范式", 434, 58),
-    ("算法", 492, 58),
-    ("控制", 550, 58),
-    ("映射", 608, 58),
-    ("数据", 666, 58),
-    ("单目标校准", 724, 98),
-    ("SSVEP测试", 822, 90),
-    ("帮助", 912, 58),
+    ("采集", 238, 52),
+    ("LSL收集", 290, 72),
+    ("CSV回放", 362, 72),
+    ("范式算法", 434, 72),
+    ("控制", 506, 52),
+    ("映射", 558, 52),
+    ("数据采集", 610, 72),
+    ("数据", 682, 52),
+    ("单目标校准", 734, 88),
+    ("SSVEP测试", 822, 80),
+    ("帮助", 902, 52),
 )
 
 
@@ -48,9 +64,19 @@ class Canvas:
         self.p = painter
         self.sx = width / 1280.0
         self.sy = height / 720.0
+        self._light_theme = False
         painter.scale(self.sx, self.sy)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
+
+    @property
+    def light_theme(self) -> bool:
+        return self._light_theme
+
+    def use_research_theme(self) -> None:
+        """Use the light palette for the remainder of this paint pass."""
+
+        self._light_theme = True
 
     def fill(self, color: QColor | str = BG) -> None:
         self.p.fillRect(QRectF(0, 0, 1280, 720), QColor(color))
@@ -106,24 +132,35 @@ class Canvas:
         self.p.drawEllipse(QPointF(x, y), radius, radius)
 
     def panel(self, x: float, y: float, w: float, h: float, title: str = "") -> None:
-        self.rect(x, y, w, h, PANEL_DARK, BORDER)
+        panel = RESEARCH_PANEL if self._light_theme else PANEL_DARK
+        border = RESEARCH_BORDER if self._light_theme else BORDER
+        header = RESEARCH_PANEL_SOFT if self._light_theme else QColor("#0c162a")
+        accent = RESEARCH_BLUE if self._light_theme else CYAN
+        text = RESEARCH_TEXT if self._light_theme else TEXT
+        self.rect(x, y, w, h, panel, border)
         if title:
-            self.rect(x, y, w, 38, "#0c162a", BORDER)
-            self.rect(x + 16, y + 13, 4, 13, CYAN)
-            self.text(x + 28, y + 3, w - 34, 32, title, 14, TEXT, True)
+            self.rect(x, y, w, 38, header, border)
+            self.rect(x + 16, y + 13, 4, 13, accent)
+            self.text(x + 28, y + 3, w - 34, 32, title, 14, text, True)
         corner = 16
         for x0, y0, dx, dy in (
             (x, y, 1, 1), (x + w, y, -1, 1), (x, y + h, 1, -1), (x + w, y + h, -1, -1)
         ):
-            self.line(x0, y0, x0 + dx * corner, y0, CYAN, 1.7)
-            self.line(x0, y0, x0, y0 + dy * corner, CYAN, 1.7)
+            self.line(x0, y0, x0 + dx * corner, y0, accent, 1.7)
+            self.line(x0, y0, x0, y0 + dy * corner, accent, 1.7)
 
     def button(
         self, x: float, y: float, w: float, h: float, label: str,
         active: bool = False, disabled: bool = False, accent: QColor | str = BLUE,
         radius: float = 3,
     ) -> None:
-        if disabled:
+        if self._light_theme and disabled:
+            fill, stroke, color = "#eef1f5", "#d7dee7", "#98a2b0"
+        elif self._light_theme and active:
+            fill, stroke, color = QColor(accent), QColor(accent).darker(108), QColor("#ffffff")
+        elif self._light_theme:
+            fill, stroke, color = RESEARCH_PANEL, "#bdc8d5", RESEARCH_TEXT
+        elif disabled:
             fill, stroke, color = "#202a3d", "#344056", "#7f899c"
         elif active:
             fill, stroke, color = QColor(accent), QColor(accent).lighter(125), TEXT
@@ -133,6 +170,9 @@ class Canvas:
         self.text(x, y, w, h, label, 13, color, active, Qt.AlignCenter)
 
     def top_nav(self, active: str) -> None:
+        # The research workspace is light, but the navigation intentionally
+        # keeps the original dark console treatment for orientation and
+        # contrast with the content area.
         self.rect(0, 0, 1280, 56, "#0b1425")
         self.line(0, 55, 1280, 55, "#20314f")
         # compact layers icon
@@ -145,14 +185,16 @@ class Canvas:
             if name == active:
                 self.rect(x, 0, width, 55, "#111c31")
                 self.line(x, 54, x + width, 54, CYAN, 2)
-            self.text(x, 1, width, 53, name, 12, TEXT if name == active else MUTED,
+            self.text(x, 1, width, 53, name, 11, TEXT if name == active else MUTED,
                       name == active, Qt.AlignCenter)
         self.circle(1038, 27, 17, "#ef4d3e")
-        self.text(1023, 10, 30, 34, "⏻", 17, TEXT, False, Qt.AlignCenter)
+        self.text(1023, 10, 30, 34, "⏻", 17, "#ffffff", False, Qt.AlignCenter)
         self.circle(1086, 27, 17, "#15233e")
         self.text(1071, 10, 30, 34, "$", 15, TEXT, False, Qt.AlignCenter)
-        self.button(1118, 10, 34, 34, "▥")
-        self.button(1166, 10, 89, 34, "添加标签")
+        self.rect(1118, 10, 34, 34, "#111c31", "#3a4760", 3)
+        self.text(1118, 10, 34, 34, "▥", 13, TEXT, False, Qt.AlignCenter)
+        self.rect(1166, 10, 89, 34, "#111c31", "#3a4760", 3)
+        self.text(1166, 10, 89, 34, "添加标签", 12, TEXT, False, Qt.AlignCenter)
 
     def chart(
         self, x: float, y: float, w: float, h: float,
@@ -207,5 +249,9 @@ class Canvas:
         self.text(cx - 70, cy + radius - 4, 140, 30, label, 14, TEXT, False, Qt.AlignCenter)
 
     def logout(self) -> None:
+        if self._light_theme:
+            self.circle(1247, 686, 17, RESEARCH_PANEL, RESEARCH_BORDER)
+            self.text(1231, 669, 32, 34, "↪", 18, RESEARCH_MUTED, False, Qt.AlignCenter)
+            return
         self.circle(1247, 686, 17, "#101d32", "#263855")
         self.text(1231, 669, 32, 34, "↪", 18, "#6f7e97", False, Qt.AlignCenter)

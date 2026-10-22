@@ -18,7 +18,12 @@ from src.bci.config import COMMANDS
 from src.domain import IntentResult, Role, User
 from src.services import ExperimentRecorder, WorkbenchService
 from src.views.main_view import MainView
-from src.widgets.scifi_canvas import Canvas, RESEARCH_NAV_ITEMS
+from src.widgets.scifi_canvas import (
+    Canvas,
+    RESEARCH_BG,
+    RESEARCH_NAV_ITEMS,
+    RESEARCH_PANEL,
+)
 
 
 class WorkbenchServiceTest(unittest.TestCase):
@@ -129,16 +134,13 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertEqual(before + 1, len(self.gateway.command_log))
         self.assertEqual("takeoff", self.gateway.command_log[-1].action)
 
-    def test_legacy_decoder_intent_still_requires_execution_confirmation(self) -> None:
+    def test_fbcca_intent_executes_after_one_accepted_window(self) -> None:
         self.gateway.connect()
         self.gateway.arm()
         self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
         self.service.bci.start_session("LSL · obci_eeg1", warmup_seconds=0.0)
         before = len(self.gateway.command_log)
 
-        first = self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
-        self.assertIn("二次确认", first)
-        self.assertEqual(before, len(self.gateway.command_log))
         self.service.handle_intent("起飞", True, "LSL · obci_eeg1")
 
         self.assertEqual(before + 1, len(self.gateway.command_log))
@@ -330,6 +332,52 @@ class MainViewActionRoutingTest(unittest.TestCase):
         for current, following in zip(RESEARCH_NAV_ITEMS, RESEARCH_NAV_ITEMS[1:]):
             self.assertEqual(current[1] + current[2], following[1])
 
+    def test_research_navigation_exposes_new_workspaces(self) -> None:
+        names = [name for name, _x, _width in RESEARCH_NAV_ITEMS]
+
+        self.assertIn("CSV回放", names)
+        self.assertIn("范式算法", names)
+        self.assertIn("数据采集", names)
+        self.assertNotIn("实验", names)
+        self.assertNotIn("范式", names)
+        self.assertNotIn("算法", names)
+
+    def test_research_workspace_uses_light_palette(self) -> None:
+        self.view.research_page = "范式算法"
+        image = QImage(1280, 720, QImage.Format_ARGB32)
+        image.fill(Qt.black)
+        painter = QPainter(image)
+        try:
+            self.view.research_widget._paint_research(Canvas(painter, 1280, 720))
+        finally:
+            painter.end()
+
+        self.assertEqual("#0b1425", image.pixelColor(10, 10).name())
+        self.assertEqual(RESEARCH_BG.name(), image.pixelColor(10, 100).name())
+        self.assertEqual(RESEARCH_PANEL.name(), image.pixelColor(650, 220).name())
+
+    def test_combined_paradigm_algorithm_page_scrolls(self) -> None:
+        self.view.research_page = "范式算法"
+        event = MagicMock()
+        event.pixelDelta.return_value = QPoint(0, 0)
+        event.angleDelta.return_value = QPoint(0, -120)
+
+        self.view.research_widget.wheelEvent(event)
+
+        self.assertEqual(72.0, self.view.research_widget.research_scroll_offset)
+        event.accept.assert_called_once()
+
+    def test_data_collection_is_a_distinct_research_page(self) -> None:
+        self.view._activate("research:数据采集")
+
+        self.assertEqual("数据采集", self.view.research_page)
+        actions = self._render_page(
+            self.view.research_widget,
+            "_research_data_collection",
+        )
+        self.assertIn("automatic-experiment-config", actions)
+        self.assertIn("automatic-experiment-start", actions)
+
     def test_acquisition_setup_keeps_primary_actions_available(self) -> None:
         self.view.acquisition_stage = "setup"
         actions = self._render_page(self.view.research_widget, "_research_acquisition")
@@ -398,7 +446,8 @@ class MainViewActionRoutingTest(unittest.TestCase):
     def test_real_mouse_click_hits_painted_algorithm_card(self) -> None:
         self.view.resize(1280, 720)
         self.view.set_user(User("researcher", "测试科研员", Role.RESEARCHER))
-        self.view.research_page = "算法"
+        self.view.research_page = "范式算法"
+        self.view.research_widget._research_scroll_offset = 520.0
         self.view.actions.algorithm = "SVM"
         self.view.show()
         self.app.processEvents()

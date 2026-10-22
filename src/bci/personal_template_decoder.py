@@ -145,9 +145,9 @@ class PersonalTemplateSSVEPDecoder:
         elif not self.model.experimental_override and not fbcca_agreed:
             reason = f"个人模板为{label}、FBCCA为{fbcca_result.label}，两种证据不一致"
         elif self.model.experimental_override:
-            reason = "实验个人模型已通过宽松门槛；等待连续结果确认"
+            reason = "实验个人模型已通过宽松门槛"
         else:
-            reason = "个人模板与FBCCA指向同一频率；等待连续结果确认"
+            reason = "个人模板与FBCCA指向同一频率"
         return IntentResult(
             timestamp=time.time(),
             label=label,

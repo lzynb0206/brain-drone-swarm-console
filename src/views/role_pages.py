@@ -8,7 +8,11 @@ from PySide6.QtWidgets import QWidget
 
 from src.views.admin_view import AdminViewMixin
 from src.views.engineer_canvas_view import EngineerCanvasViewMixin
-from src.views.research_view import ResearchViewMixin
+from src.views.research_view import (
+    RESEARCH_COMBINED_MAX_SCROLL,
+    RESEARCH_COMBINED_PAGE,
+    ResearchViewMixin,
+)
 from src.views.soldier_view import SoldierViewMixin
 from src.widgets.scifi_canvas import Canvas
 
@@ -95,6 +99,52 @@ class RoleCanvasPage(QWidget):
 
 class ResearchPage(ResearchViewMixin, RoleCanvasPage):
     """Research dashboard with an explicit, read-only shell boundary."""
+
+    def __init__(self, context: QWidget, parent: QWidget | None = None) -> None:
+        super().__init__(context, parent)
+        self._research_scroll_offset = 0.0
+        self._research_content_scrolling = False
+        self._research_section_y_offset = 0.0
+
+    @property
+    def research_scroll_offset(self) -> float:
+        return self._research_scroll_offset
+
+    def reset_research_scroll(self) -> None:
+        self._research_scroll_offset = 0.0
+        self.update()
+
+    def _hit(self, x: float, y: float, w: float, h: float, action: str) -> None:
+        if self._research_content_scrolling:
+            y += self._research_section_y_offset - self._research_scroll_offset
+            if y + h < 56 or y > 720:
+                return
+        super()._hit(x, y, w, h, action)
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        current_page = {
+            "范式": RESEARCH_COMBINED_PAGE,
+            "算法": RESEARCH_COMBINED_PAGE,
+        }.get(self.research_page, self.research_page)
+        if current_page != RESEARCH_COMBINED_PAGE:
+            super().wheelEvent(event)
+            return
+
+        pixel_delta = event.pixelDelta().y()
+        angle_delta = event.angleDelta().y()
+        movement = pixel_delta if pixel_delta else angle_delta / 120.0 * 72.0
+        if not movement:
+            super().wheelEvent(event)
+            return
+        self._research_scroll_offset = max(
+            0.0,
+            min(
+                RESEARCH_COMBINED_MAX_SCROLL,
+                self._research_scroll_offset - movement,
+            ),
+        )
+        self.update()
+        event.accept()
 
     @property
     def acquisition_stage(self):

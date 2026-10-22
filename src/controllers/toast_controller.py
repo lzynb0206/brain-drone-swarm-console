@@ -7,7 +7,13 @@ import time
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetricsF
 
-from src.widgets.scifi_canvas import CYAN, TEXT, Canvas
+from src.widgets.scifi_canvas import (
+    CYAN,
+    TEXT,
+    RESEARCH_BLUE,
+    RESEARCH_TEXT,
+    Canvas,
+)
 
 
 class ToastController:
@@ -31,7 +37,11 @@ class ToastController:
         self.host.update()
 
     def paint(self, canvas: Canvas) -> None:
-        canvas.rect(390, 655, 500, 45, "#15243a", CYAN, 7, 1.5)
+        if canvas.light_theme:
+            fill, border, text_color = "#ffffff", RESEARCH_BLUE, RESEARCH_TEXT
+        else:
+            fill, border, text_color = "#15243a", CYAN, TEXT
+        canvas.rect(390, 655, 500, 45, fill, border, 7, 1.5)
         viewport = QRectF(410, 655, 460, 45)
         font = QFont(canvas.p.font())
         font.setPixelSize(12)
@@ -39,7 +49,7 @@ class ToastController:
         metrics = QFontMetricsF(font)
         text_width = metrics.horizontalAdvance(self.message)
         if text_width <= viewport.width():
-            canvas.text(410, 655, 460, 45, self.message, 12, TEXT, True, Qt.AlignCenter)
+            canvas.text(410, 655, 460, 45, self.message, 12, text_color, True, Qt.AlignCenter)
             return
 
         elapsed = max(0.0, time.monotonic() - self.scroll_started)
@@ -52,7 +62,7 @@ class ToastController:
         try:
             canvas.p.setClipRect(viewport)
             canvas.p.setFont(font)
-            canvas.p.setPen(QColor(TEXT))
+            canvas.p.setPen(QColor(text_color))
             canvas.p.drawText(QPointF(x, baseline), self.message)
             canvas.p.drawText(QPointF(x + cycle, baseline), self.message)
         finally:

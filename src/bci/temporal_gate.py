@@ -95,11 +95,16 @@ class ConsecutiveWindowGate:
         self._candidate_label = ""
         self._candidate_count = 0
         self._cooldown_until = now + self.cooldown_seconds
+        confirmation_text = (
+            "单窗口置信度阈值通过"
+            if self.required_windows == 1
+            else f"置信度阈值通过且连续 {self.required_windows} 个窗口一致"
+        )
         return replace(
             result,
             accepted=True,
             reason=(
-                f"置信度阈值通过且连续 {self.required_windows} 个窗口一致；"
+                f"{confirmation_text}；"
                 f"进入 {self.cooldown_seconds:.3f}s 冷却"
             ),
             safety_verified=True,

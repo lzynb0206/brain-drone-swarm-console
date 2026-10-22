@@ -10,7 +10,7 @@
 
 - Spring Boot + PostgreSQL 邮箱注册和登录，密码使用 BCrypt 哈希并返回 JWT；也可切换为离线 Mock 模式。
 - 士兵、科研人员、系统工程师、系统管理员等角色页面。
-- 原生 PySide6 全屏六频 SSVEP 刺激：`8 / 9 / 10 / 11 / 12 / 13 Hz`（依次为起飞、前进、后退、左移、右移、降落），使用传承版大色块和4秒识别窗；实时算法先以 Fp1/Fp2 为额极眼电代理做保守 FastICA，再仅使用 Oz/O2/PO3/POz/PO4/P3 运行 FBCCA。支持 J 开始、K 停止、0 空闲、1–6 标签和 B 急停。
+- 原生 PySide6 全屏六频 SSVEP 刺激：`8 / 9 / 10 / 11 / 12 / 13 Hz`（依次为起飞、前进、后退、左移、右移、降落），使用传承版大色块和4秒识别窗；实时算法使用带通滤波器组、八路枕区/顶枕区通道选择和 FBCCA，不使用 ICA。支持 J 开始、K 停止、0 空闲、1–6 标签和 B 急停。
 - 刺激帧时间、实际刷新率、实测频率、频谱 `.npz/.png` 和开始/停止事件标记。
 - 工程师工作台：真实 Qt 左侧导航、运行时接口状态、真实本机性能和设备日志。
 - 多架 Crazyflie 连接、Flow 起飞、Lighthouse 绝对位置保持、三机自动编队、整体移动、受控降落、停止移动和锁存急停。
@@ -20,7 +20,7 @@
 - 脑控执行默认关闭；只允许实时硬件或 LSL 数据源，且同一意图连续确认两次、经过冷却并在每次动作后检测到注视释放才可再次提交。
 - 科研导航按真实数据链拆成三个连续页面：`采集`用 ExpandableEEG 原生数据包协议直连蓝牙虚拟 COM/串口（固定8通道、250 Hz）；macOS 自动绕过失效的伪串口并直连 RFCOMM channel 1，Windows 使用传出 COM 口；`LSL收集`独立接收 EEG 流、显示波形/时间戳质量并保存 CSV；`实验`专门回放 CSV。
 - `采集`页采用 OpenBCI GUI 的 System Control Panel 与 Time Series + FFT + Accelerometer 结构；监视器单独使用 5–50 Hz 四阶 Butterworth、50/60 Hz 工频抑制和固定 ±200 μV 量程，原始 CSV、LSL 与解码输入不受显示滤波影响。
-- “实验”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
+- “CSV回放”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
 - 兼容历史 `start-1.csv` 格式与本项目采集的 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
 - 纯 FBCCA 六频基线，以及可训练的 Transformer-SSVEP：2秒/250 Hz八通道输入、
@@ -42,7 +42,7 @@
 - 生产级 RBAC、审计、服务端身份授权和真实设备安全仲裁。
 
 正常启动默认等待实时 `LSL · obci_eeg1`，不会自动播放任何 CSV。仓库不再内置
-`data/samples/start-1.csv`；需要回放时在“实验”页主动导入已有 CSV，或显式设置
+`data/samples/start-1.csv`；需要回放时在“CSV回放”页主动导入已有 CSV，或显式设置
 `BDS_EEG_CSV_PATH`。CSV 回放不会出现在实时“采集”链路，也不能驱动实机。蜂群后端
 默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
 
@@ -322,6 +322,37 @@ brain-drone-swarm-console/
 ├── scripts/                      # 辅助脚本，例如界面预览截图
 └── artifacts/                    # 自动生成的界面预览，不参与运行
 ```
+
+### GCD GitHub 预处理代码
+
+项目已接入论文公开仓库
+[Quentin2022/Graph-Contrastive-Denoising-Module](https://github.com/Quentin2022/Graph-Contrastive-Denoising-Module)
+的 `utils.py` 逻辑，代码位于 `src/ml/gcd_preprocessing.py`。它读取作者提供的
+`processed_data.h5`，执行缺失/无穷值填充、`StandardScaler` 标准化、邻接矩阵去自环与可选
+行归一化、标签转换，以及固定随机种子的十折划分。直接运行：
+
+```bash
+.venv312/bin/python scripts/preprocess_gcd_dataset.py /path/to/processed_data.h5 \
+  --graph-type G_PCC --normalize-adjacency
+```
+
+这段公开代码的输入是作者已经完成特征提取和图构建的 HDF5 数据，不接收本项目实时采集的
+原始 EEG 波形，也不包含 ICA。实时 SSVEP 仍由带通滤波、枕区通道选择和 FBCCA 处理。
+
+仓库缺失的“原始 EEG → 节点特征＋连接图”步骤已针对本项目八通道 SSVEP 补充在
+`src/ml/gcd_ssvep.py`，完整离线实验入口为：
+
+```bash
+.venv312/bin/python scripts/run_gcd_ssvep_experiment.py
+```
+
+该入口执行论文的五阶 0.5–40 Hz 带通、两秒窗口、十维 SSVEP 节点特征、PCC/MSC/PLV
+连接图构建、GCD 对比预训练和七分类 GCN。GCD 高斯核、公开仓库的标签 InfoNCE 掩码、
+每个图卷积层独立加载并微调预训练图嵌入、KL 标签平滑和 256 批大小均按公开实现移植；
+公开仓库没有提供的“原始 SSVEP → 节点特征与连接图”仍属于本项目的任务适配。历史105段
+数据固定使用第1–10轮训练、第11–15轮测试，并同时报告普通 GCN 基线；处理后 HDF5、逐
+试次预测和报告写入 `data/analysis/gcd_ssvep_8ch_105/`。这是离线研究流程，不会自动替换
+实时 FBCCA 或取得实机控制资格。
 
 ### Crazyflie 模块
 

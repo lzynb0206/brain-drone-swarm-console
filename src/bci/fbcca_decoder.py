@@ -10,10 +10,15 @@ import numpy as np
 
 from src.bci.config import (
     COMMANDS,
+    SSVEP_CHANNEL_NAMES,
     SSVEP_CHANNELS_1BASED,
     TARGET_FREQUENCIES_HZ,
 )
-from src.bci.preprocessing import filter_bank, prepare_ssvep_channels
+from src.bci.preprocessing import (
+    FILTER_BANK_HIGH_EDGE_HZ,
+    filter_bank,
+    prepare_ssvep_channels,
+)
 from src.domain import IntentResult
 from src.services.intent_safety_service import IntentSafetyService
 
@@ -74,6 +79,15 @@ class FBCCADecoder:
         self._idle_class_scores: list[np.ndarray] = []
         self._background = np.zeros(len(self.labels), dtype=float)
         self._class_thresholds = np.full(len(self.labels), self._base_min_score)
+
+    @property
+    def backend_status(self) -> str:
+        names = "/".join(
+            SSVEP_CHANNEL_NAMES[index - 1]
+            for index in self.channels_1based
+            if 1 <= index <= len(SSVEP_CHANNEL_NAMES)
+        )
+        return f"带通滤波＋枕区通道选择＋FBCCA（{names}）"
 
     def decode(self, samples, sample_rate_hz: float) -> IntentResult:
         fs = float(sample_rate_hz)
@@ -193,6 +207,8 @@ class FBCCADecoder:
         for frequency in self.frequencies_hz:
             components = []
             for harmonic in range(1, self.harmonics + 1):
+                if harmonic * frequency > FILTER_BANK_HIGH_EDGE_HZ:
+                    break
                 phase = 2.0 * np.pi * harmonic * frequency * timeline
                 components.extend((np.sin(phase), np.cos(phase)))
             references.append(np.asarray(components))

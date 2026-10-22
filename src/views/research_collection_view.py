@@ -7,7 +7,23 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
 from src.widgets.scifi_canvas import (
-    BG, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas,
+    RESEARCH_BG as BG,
+    RESEARCH_BORDER as BORDER,
+    RESEARCH_CYAN as CYAN,
+    RESEARCH_GREEN as GREEN,
+    RESEARCH_MUTED as MUTED,
+    RESEARCH_PANEL as PANEL,
+    RESEARCH_PANEL_SOFT as PANEL_SOFT,
+    RESEARCH_RED as RED,
+    RESEARCH_TEXT as TEXT,
+    RESEARCH_YELLOW as YELLOW,
+    Canvas,
+)
+
+
+RESEARCH_TRACE_COLORS = (
+    "#4b5563", "#7c3aed", "#2563eb", "#059669",
+    "#ca8a04", "#ea580c", "#dc2626", "#92400e",
 )
 
 
@@ -122,7 +138,7 @@ class ResearchCollectionViewMixin:
             getattr(collector.stream, "source_name", "LSL · obci_eeg1")
         ).replace("LSL · ", "")
         c.text(50, 143, 90, 24, "LSL 数据流", 9, MUTED, True)
-        c.rect(50, 170, 486, 36, "#0b1728", BORDER, 3)
+        c.rect(50, 170, 486, 36, PANEL_SOFT, BORDER, 3)
         c.text(64, 170, 458, 36, stream_name, 10, TEXT)
         self._light_button(c, 552, 170, 140, 36, "刷新 / 选择")
         self._light_button(c, 704, 170, 128, 36, "开始收集", False, "#31875a")
@@ -152,7 +168,7 @@ class ResearchCollectionViewMixin:
         )
         for index, (label, value) in enumerate(metrics):
             x = 32 + index * 304
-            c.rect(x, 250, 288, 62, "#0b1728", BORDER, 3)
+            c.rect(x, 250, 288, 62, PANEL_SOFT, BORDER, 3)
             c.text(x + 14, 257, 120, 20, label, 9, MUTED)
             c.text(x + 14, 279, 260, 25, value, 14, TEXT, True)
 
@@ -191,13 +207,13 @@ class ResearchCollectionViewMixin:
         if not histories or not any(histories):
             c.text(x, y, w, h, "等待 LSL EEG 数据…", 14, MUTED, False, Qt.AlignCenter)
             return
-        palette = ("#777777", "#7b3fa0", "#2d67a3", "#268264", "#d7a90b", "#ed5b35", "#d43b37", "#aa5d2b")
+        palette = RESEARCH_TRACE_COLORS
         row_height = h / max(1, len(histories))
         c.p.save()
         c.p.setClipRect(QRectF(x, y, w, h))
         for index, values in enumerate(histories):
             baseline = y + row_height * (index + 0.5)
-            c.line(x, baseline, x + w, baseline, "#243452")
+            c.line(x, baseline, x + w, baseline, "#e1e7ee")
             label = collector.channel_names[index] if index < len(collector.channel_names) else f"CH{index + 1}"
             c.text(x, baseline - 10, 54, 20, label[:8], 8, MUTED)
             if len(values) < 2:

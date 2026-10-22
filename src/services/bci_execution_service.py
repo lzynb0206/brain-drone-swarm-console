@@ -18,14 +18,18 @@ class BCIExecutionService:
         command_sender: Callable[[str], str],
         record: Callable[[str], str],
         command_cooldown_seconds: float = 2.5,
+        required_confirmations: int = 1,
     ) -> None:
         if float(command_cooldown_seconds) < 0.0:
             raise ValueError("command_cooldown_seconds cannot be negative")
+        if int(required_confirmations) < 1:
+            raise ValueError("required_confirmations must be positive")
         self.gateway = gateway
         self.mappings = mappings
         self._command_sender = command_sender
         self._record = record
         self.command_cooldown_seconds = float(command_cooldown_seconds)
+        self.required_confirmations = int(required_confirmations)
         self.enabled = False
         self.session_active = False
         self._session_ready_at = 0.0
@@ -83,7 +87,7 @@ class BCIExecutionService:
         self._requires_release = False
         self._release_notice_sent = False
         if status.airborne:
-            return self._record("脑控执行已授权：飞行指令需连续确认，执行后必须先释放注视")
+            return self._record("脑控执行已授权：单窗口通过阈值即可执行，执行后必须先释放注视")
         return self._record("脑控起飞已授权：无人机保持地面静止，识别到起飞后才启动 Flow Hover")
 
     def start_session(self, eeg_source: str, warmup_seconds: float = 2.0) -> str:
@@ -187,7 +191,7 @@ class BCIExecutionService:
         if action == "land" and not (status.armed and status.airborne):
             self._requires_release = True
             return self._record("脑控降落被拒绝：无人机当前未在飞行")
-        if safety_verified:
+        if safety_verified or self.required_confirmations == 1:
             self._pending_label = ""
             self._pending_count = 0
         else:
@@ -196,8 +200,11 @@ class BCIExecutionService:
             else:
                 self._pending_label = mapped_label
                 self._pending_count = 1
-            if self._pending_count < 2:
-                return self._record(f"脑控候选待二次确认：{mapped_label}")
+            if self._pending_count < self.required_confirmations:
+                return self._record(
+                    f"脑控候选待确认 {self._pending_count}/"
+                    f"{self.required_confirmations}：{mapped_label}"
+                )
         now = time.monotonic()
         if now - self._last_command_time < self.command_cooldown_seconds:
             return None

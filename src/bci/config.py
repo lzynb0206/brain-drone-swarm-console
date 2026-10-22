@@ -17,12 +17,11 @@ TRUE_LABELS = ("空闲",) + COMMANDS
 MI_TRUE_LABELS = ("静息", "想象左手", "想象右手", "想象双脚")
 LABEL_TO_FREQUENCY = dict(zip(COMMANDS, TARGET_FREQUENCIES_HZ))
 
-# 2026-10-19 起使用两路额极眼电代理＋六路后脑 SSVEP。CH1/CH8 只用于
-# 去眼电，不进入 FBCCA；GND/REF 仍是设备地和参考，绝不能当成 Fp1/Fp2。
-# 通用 CH1..CH8 只能按这个固定接线顺序映射，原标签会保留在 metadata。
-SSVEP_CHANNEL_NAMES = ("Fp1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "Fp2")
-OCULAR_REFERENCE_CHANNELS_1BASED = (1, 8)
-SSVEP_CHANNELS_1BASED = (2, 3, 4, 5, 6, 7)
+# 经典 SSVEP 链路：8路枕区/顶枕区信号先进入带通滤波器组，
+# 再使用 FBCCA。不在实时短窗口上执行 ICA。GND/REF 保持设备原功能。
+# 通用 CH1..CH8 只能按这个固定接线顺序映射。
+SSVEP_CHANNEL_NAMES = ("O1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "P4")
+SSVEP_CHANNELS_1BASED = tuple(range(1, 9))
 SSVEP_DECODING_CHANNEL_NAMES = tuple(
     SSVEP_CHANNEL_NAMES[index - 1] for index in SSVEP_CHANNELS_1BASED
 )
@@ -65,7 +64,7 @@ TRANSFORMER_METADATA_PATH = Path(
     )
 ).expanduser()
 TRANSFORMER_MIN_CONFIDENCE = float(os.getenv("BDS_TRANSFORMER_MIN_CONFIDENCE", "0.60"))
-TRANSFORMER_REQUIRED_WINDOWS = int(os.getenv("BDS_TRANSFORMER_REQUIRED_WINDOWS", "2"))
+TRANSFORMER_REQUIRED_WINDOWS = int(os.getenv("BDS_TRANSFORMER_REQUIRED_WINDOWS", "1"))
 TRANSFORMER_COOLDOWN_SECONDS = float(os.getenv("BDS_TRANSFORMER_COOLDOWN_SECONDS", "0.50"))
 
 SAMPLE_RATE_HZ = float(os.getenv("BDS_EEG_SAMPLE_RATE", "250"))

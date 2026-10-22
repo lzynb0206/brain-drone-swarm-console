@@ -22,12 +22,6 @@ from src.workers.labeled_trial_recorder import LabeledTrialRecorder
 class EEGWorker(QThread):
     """Read frames and decode sliding windows outside the Qt UI thread."""
 
-    # macOS gives a QThread a much smaller native stack than Python's main
-    # thread.  NumPy/LAPACK routines used by ICA/CCA can otherwise cross the
-    # guard page and terminate the entire process with SIGBUS instead of
-    # raising a catchable Python exception.
-    NATIVE_STACK_BYTES = 8 * 1024 * 1024
-
     frame_received = Signal(object)
     recognition_received = Signal(object)
     status_changed = Signal(str)
@@ -80,7 +74,6 @@ class EEGWorker(QThread):
         )
         self._pending_online_decode_reset = ""
         self.setObjectName("EEG-Acquisition-Decode")
-        self.setStackSize(self.NATIVE_STACK_BYTES)
 
     @property
     def source_name(self) -> str:

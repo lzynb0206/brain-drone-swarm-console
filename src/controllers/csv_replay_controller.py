@@ -68,7 +68,7 @@ class CSVReplayController:
         self.paused = False
         self.host._build_eeg_worker(replace=True)
         self.host._start_eeg_pipeline()
-        self.host.research_page = "实验"
+        self.host.research_page = "CSV回放"
         self.host._notify(f"已导入并开始回放：{Path(path).name}")
 
     def toggle(self) -> None:

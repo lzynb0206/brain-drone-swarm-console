@@ -11,7 +11,14 @@ from PySide6.QtWidgets import QApplication
 from src.bci.preprocessing import assess_signal_quality
 from src.bci.stimulus import measure_frequency
 from src.domain import IntentResult
-from src.views.ssvep_rendering import target_rectangles
+from src.services.ssvep_experiment_protocol import AutomaticExperimentConfig
+from src.views.automatic_ssvep_experiment_window import AutomaticSSVEPExperimentWindow
+from src.views.ssvep_rendering import (
+    SSVEP_CANVAS_BACKGROUND,
+    SSVEP_TARGET_BORDER,
+    ssvep_status_banner_rect,
+    target_rectangles,
+)
 from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 from src.views.stimulus_canvas import StimulusFrameDriver
 
@@ -66,6 +73,43 @@ class StimulusWindowModeTest(unittest.TestCase):
         finally:
             driver.stop()
             canvas.close()
+
+    def test_all_ssvep_modes_share_the_acquisition_visual_system(self) -> None:
+        windows = [
+            AutomaticSSVEPExperimentWindow(AutomaticExperimentConfig()),
+            SSVEPStimulusWindow(mode="experiment"),
+            SSVEPStimulusWindow(mode="test"),
+            SSVEPStimulusWindow(mode="control"),
+        ]
+        try:
+            header_colors = []
+            canvas_colors = []
+            for window in windows:
+                self.assertIn(SSVEP_CANVAS_BACKGROUND, window.styleSheet())
+                window.resize(1280, 720)
+                window.show()
+                self.app.processEvents()
+                image = window.grab().toImage()
+                header_colors.append(image.pixelColor(4, 4).name())
+                canvas_colors.append(image.pixelColor(4, 100).name())
+
+            self.assertEqual(1, len(set(header_colors)))
+            self.assertEqual([SSVEP_CANVAS_BACKGROUND] * len(windows), canvas_colors)
+            banner = ssvep_status_banner_rect(1280, 720)
+            self.assertAlmostEqual(320.0, banner.left())
+            self.assertAlmostEqual(309.6, banner.top())
+            self.assertAlmostEqual(640.0, banner.width())
+            self.assertAlmostEqual(108.0, banner.height())
+            self.assertEqual(
+                SSVEP_TARGET_BORDER,
+                windows[-1]._target_frame_style("起飞")[0].name(),
+            )
+        finally:
+            for window in windows:
+                window._timer.stop()
+                if isinstance(window, SSVEPStimulusWindow):
+                    window._cooldown_timer.stop()
+                window.close()
 
     def test_control_mode_flushes_decoder_without_creating_true_label(self) -> None:
         window = SSVEPStimulusWindow(mode="control")

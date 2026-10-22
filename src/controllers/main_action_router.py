@@ -23,7 +23,12 @@ class MainActionRouter(QObject):
             view.deactivate()
             view.logout_requested.emit()
         elif action.startswith("research:"):
-            view.research_page = action.split(":", 1)[1]
+            next_page = action.split(":", 1)[1]
+            if view.research_page != next_page:
+                reset_scroll = getattr(view.research_widget, "reset_research_scroll", None)
+                if callable(reset_scroll):
+                    reset_scroll()
+            view.research_page = next_page
             view.update()
         elif action.startswith("acquisition-tab:"):
             view.acquisition_tab = action.split(":", 1)[1]

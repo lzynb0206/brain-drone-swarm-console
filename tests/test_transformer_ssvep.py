@@ -130,7 +130,7 @@ class TransformerConfigurationTest(unittest.TestCase):
     def test_paper_adapted_runtime_profile(self) -> None:
         self.assertEqual(4.0, WINDOW_SECONDS)
         self.assertEqual(0.25, DECISION_STEP_SECONDS)
-        self.assertEqual(("Fp1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "Fp2"), SSVEP_CHANNEL_NAMES)
+        self.assertEqual(("O1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "P4"), SSVEP_CHANNEL_NAMES)
 
     @unittest.skipUnless(importlib.util.find_spec("torch"), "torch not installed in base test environment")
     def test_transformer_forward_shape(self) -> None:

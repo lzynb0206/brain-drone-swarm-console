@@ -5,13 +5,17 @@ from __future__ import annotations
 from typing import Iterable
 
 import numpy as np
+from scipy import signal
 
 
-# Parameters from the inherited FBCCA implementation: three sub-bands starting
-# at 6/14/22 Hz and w(n)=n^-1.25+0.25.  The upper edge of 80 Hz preserves the
-# four harmonics used by its 8-13 Hz reference signals.
+# Three sub-bands starting at 6/14/22 Hz and w(n)=n^-1.25+0.25.  The decoder
+# stops at 50 Hz: this retains the 8-13 Hz fundamentals and their useful lower
+# harmonics while excluding the noisier spectrum above the mains frequency.
 FILTER_BANK_LOW_EDGES_HZ = (6.0, 14.0, 22.0)
+FILTER_BANK_HIGH_EDGE_HZ = 50.0
 FILTER_BANK_WEIGHTS = tuple(index ** -1.25 + 0.25 for index in range(1, 4))
+MAINS_NOTCH_HZ = 50.0
+MAINS_NOTCH_QUALITY = 30.0
 
 
 def remove_linear_drift(data: np.ndarray) -> np.ndarray:
@@ -19,6 +23,26 @@ def remove_linear_drift(data: np.ndarray) -> np.ndarray:
     centered = data - np.mean(data, axis=1, keepdims=True)
     t = np.linspace(-1.0, 1.0, data.shape[1])
     return centered - ((centered @ t) / np.dot(t, t))[:, None] * t
+
+
+def notch_mains(
+    data: np.ndarray,
+    sample_rate_hz: float,
+    frequency_hz: float = MAINS_NOTCH_HZ,
+    quality_factor: float = MAINS_NOTCH_QUALITY,
+) -> np.ndarray:
+    """Suppress mains interference before per-channel standardization."""
+
+    values = np.asarray(data, dtype=float)
+    nyquist_hz = float(sample_rate_hz) / 2.0
+    if not 0.0 < float(frequency_hz) < nyquist_hz * 0.98:
+        return values.copy()
+    numerator, denominator = signal.iirnotch(
+        float(frequency_hz),
+        float(quality_factor),
+        fs=float(sample_rate_hz),
+    )
+    return signal.filtfilt(numerator, denominator, values, axis=1)
 
 
 def assess_signal_quality(samples, sample_rate_hz: float, *, deduplicate_channels=None) -> dict[str, object]:
@@ -108,6 +132,7 @@ def prepare_ssvep_channels(samples, channels_1based: Iterable[int], sample_rate_
     quality = assess_signal_quality(data, sample_rate_hz, deduplicate_channels=requested)
     selected = data[[channel - 1 for channel in requested], :]
     selected = remove_linear_drift(selected)
+    selected = notch_mains(selected, sample_rate_hz)
     standard_deviation = selected.std(axis=1, keepdims=True)
     global_mask = np.asarray(quality["usable_mask"], dtype=bool)
     usable = (standard_deviation[:, 0] > 1e-12) & global_mask[[channel - 1 for channel in requested]]
@@ -135,7 +160,7 @@ def fft_bandpass(data: np.ndarray, sample_rate_hz: float, low_hz: float, high_hz
 
 
 def filter_bank(data: np.ndarray, sample_rate_hz: float):
-    high_hz = min(80.0, sample_rate_hz * 0.48)
+    high_hz = min(FILTER_BANK_HIGH_EDGE_HZ, sample_rate_hz * 0.48)
     for low_hz, weight in zip(FILTER_BANK_LOW_EDGES_HZ, FILTER_BANK_WEIGHTS):
         if low_hz < high_hz:
             yield fft_bandpass(data, sample_rate_hz, low_hz, high_hz), weight

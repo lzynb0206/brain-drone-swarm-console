@@ -8,21 +8,55 @@ from src.bci.config import (
     DECISION_STEP_SECONDS,
     SSVEP_PROFILE_NAME,
     TARGET_FREQUENCIES_HZ,
+    TRUE_LABELS,
     WINDOW_SECONDS,
 )
 from src.widgets.scifi_canvas import (
-    BLUE, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas,
+    RESEARCH_BLUE as BLUE,
+    RESEARCH_BORDER as BORDER,
+    RESEARCH_CYAN as CYAN,
+    RESEARCH_GREEN as GREEN,
+    RESEARCH_MUTED as MUTED,
+    RESEARCH_PANEL as PANEL,
+    RESEARCH_PANEL_SOFT as PANEL_SOFT,
+    RESEARCH_RED as RED,
+    RESEARCH_TEXT as TEXT,
+    RESEARCH_YELLOW as YELLOW,
+    Canvas,
 )
 
 
 class ResearchConfigurationViewMixin:
     """Render paradigm, decoder, controller, mapping and saved-data pages."""
+
+    def _research_paradigm_algorithm(self, c: Canvas) -> None:
+        """Render paradigm configuration and the algorithm library as one canvas."""
+
+        self._research_paradigm(c)
+        c.text(32, 578, 360, 34, "算法与解码", 19, TEXT, True)
+        c.text(32, 608, 560, 22, "选择实时解码算法，并检查模型可用性与安全准入状态。", 10, MUTED)
+        c.text(1020, 590, 210, 24, "滚轮向下查看完整算法库 ↓", 9, CYAN, True, Qt.AlignRight)
+        c.line(32, 640, 1248, 640, BORDER)
+
+        section_offset = 552.0
+        previous_offset = float(getattr(self, "_research_section_y_offset", 0.0))
+        c.p.save()
+        try:
+            c.p.translate(0, section_offset)
+            self._research_section_y_offset = section_offset
+            self._research_algorithm(c)
+        finally:
+            self._research_section_y_offset = previous_offset
+            c.p.restore()
+
     def _research_paradigm(self, c: Canvas) -> None:
         # 【真实接口接入点】UI-06 / M4.6：“应用配置”应调用 ParadigmService：
         # 校验 SSVEP 频率/刺激尺寸/占空比，保存到 YAML/JSON，并通知刺激程序；
         # 每次范式开始/结束还应向 LSL 写入 SSVEP_8Hz_start 等事件标记。
+        c.text(32, 72, 360, 36, "范式配置", 19, TEXT, True)
+        c.text(32, 101, 720, 22, "配置 SSVEP 或 MI 实验范式；采集计划已移至“数据采集”页面。", 10, MUTED)
         c.rect(207, 262, 384, 252, PANEL, BORDER, 4)
-        c.rect(232, 287, 47, 202, "#111c31", BLUE, 3)
+        c.rect(232, 287, 47, 202, "#eaf2ff", BLUE, 3)
         c.p.save()
         c.p.translate(255, 388)
         c.p.rotate(90)
@@ -31,7 +65,7 @@ class ResearchConfigurationViewMixin:
         options = [("SSVEP", 287), ("MI", 361), ("SSVEP+MI混合", 434)]
         for name, y in options:
             active = self.actions.paradigm_type == name
-            c.rect(296, y, 270, 57, "#1a263a" if active else "#172236", BLUE if active else None, 3)
+            c.rect(296, y, 270, 57, "#eaf2ff" if active else PANEL, BLUE if active else BORDER, 3)
             c.text(312, y, 210, 57, name, 15, TEXT if active else MUTED)
             c.text(528, y, 22, 57, "⌄", 16, MUTED, False, Qt.AlignCenter)
             self._hit(296, y, 270, 57, f"paradigm-type:{name}")
@@ -66,7 +100,7 @@ class ResearchConfigurationViewMixin:
             for index, label in enumerate(("静息", "想象左手", "想象右手", "想象双脚")):
                 x = 656 + (index % 2) * 188
                 y = 318 + (index // 2) * 52
-                c.rect(x, y, 174, 39, "#152239", "#2b3b58", 3)
+                c.rect(x, y, 174, 39, PANEL_SOFT, BORDER, 3)
                 c.text(x, y, 174, 39, label, 12, TEXT, True, Qt.AlignCenter)
             c.text(656, 428, 380, 23, "建议关注：C3 / Cz / C4（以实际电极帽标注为准）", 11, CYAN)
             c.text(656, 456, 380, 46, "操作：连接 EEG 采集 → 检查信号质量 →\n点击右上角“添加标签” → 完成 4 秒想象", 11, MUTED)
@@ -74,38 +108,72 @@ class ResearchConfigurationViewMixin:
             c.text(848, 515, 190, 38, "FBCCA 已停用", 12, GREEN, True, Qt.AlignCenter)
             self._hit(656, 515, 180, 38, "paradigm-start")
 
-        if self.actions.paradigm_type == "SSVEP":
-            config = self.actions.automatic_experiment_config
-            c.rect(48, 588, 1184, 105, "#0b1728", BORDER, 4)
-            c.text(66, 596, 276, 28, "自动随机带标签采集", 14, TEXT, True)
-            c.text(66, 625, 276, 23, "空闲 + 六动作 · 分块平衡随机", 9, CYAN, True)
-            c.text(
-                66, 650, 276, 24,
-                "实时 EEG 就绪后开始；标签来自试验计划",
-                8, MUTED,
-            )
-            metrics = (
-                ("每类", f"{config.repetitions_per_label} 次"),
-                ("总数", f"{config.trial_count}"),
-                ("提示", f"{config.cue_seconds:g}s"),
-                ("刺激", f"{config.stimulus_seconds:g}s"),
-                ("丢弃", f"{config.discard_seconds:g}s"),
-                ("休息", f"{config.rest_seconds:g}s"),
-            )
-            for index, (label, value) in enumerate(metrics):
-                x = 358 + index * 89
-                c.text(x, 601, 78, 18, label, 8, MUTED, True, Qt.AlignCenter)
-                c.rect(x, 623, 78, 34, "#111c31", BORDER, 2)
-                c.text(x, 623, 78, 34, value, 10, TEXT, True, Qt.AlignCenter)
-            c.text(
-                358, 663, 523, 18,
-                f"随机种子 {config.random_seed} · 可分析 {config.analysis_seconds:g}s/试次",
-                8, MUTED, False, Qt.AlignCenter,
-            )
-            self._light_button(c, 902, 610, 142, 54, "配置自动实验", False, "#477af0")
-            self._light_button(c, 1058, 610, 150, 54, "开始自动采集", True, "#2d8a57")
-            self._hit(902, 610, 142, 54, "automatic-experiment-config")
-            self._hit(1058, 610, 150, 54, "automatic-experiment-start")
+
+    def _research_data_collection(self, c: Canvas) -> None:
+        """Dedicated automatic labeled-data collection workspace."""
+
+        config = self.actions.automatic_experiment_config
+        ssvep_ready = self.actions.paradigm_type == "SSVEP"
+        c.text(32, 72, 360, 36, "实验数据采集", 19, TEXT, True)
+        c.text(
+            32, 101, 850, 22,
+            "独立管理自动随机带标签采集；原始试次、时间戳和质量信息会安全落盘。",
+            10, MUTED,
+        )
+        c.rect(32, 132, 1216, 532, PANEL, BORDER, 5)
+        c.text(56, 150, 320, 34, "SSVEP 平衡随机采集计划", 16, TEXT, True)
+        status_text = "SSVEP 范式已就绪" if ssvep_ready else "请先在“范式算法”页切换为 SSVEP"
+        status_color = GREEN if ssvep_ready else RED
+        c.rect(932, 151, 286, 32, "#eaf7ef" if ssvep_ready else "#fff0f2", BORDER, 16)
+        c.circle(952, 167, 5, status_color)
+        c.text(966, 151, 238, 32, status_text, 9, status_color, True)
+
+        metrics = (
+            ("每类次数", f"{config.repetitions_per_label} 次"),
+            ("试次总数", str(config.trial_count)),
+            ("提示时间", f"{config.cue_seconds:g} s"),
+            ("刺激时间", f"{config.stimulus_seconds:g} s"),
+            ("前段丢弃", f"{config.discard_seconds:g} s"),
+            ("休息时间", f"{config.rest_seconds:g} s"),
+        )
+        for index, (label, value) in enumerate(metrics):
+            x = 56 + index * 193
+            c.rect(x, 208, 176, 76, PANEL_SOFT, BORDER, 4)
+            c.text(x + 12, 218, 152, 22, label, 9, MUTED, True)
+            c.text(x + 12, 242, 152, 30, value, 16, TEXT, True)
+
+        c.text(56, 310, 220, 26, "真实标签计划", 13, TEXT, True)
+        label_width = 150
+        for index, label in enumerate(TRUE_LABELS):
+            x = 56 + index * 164
+            c.rect(x, 346, label_width, 44, "#eef4ff", "#b7cae5", 4)
+            c.text(x, 346, label_width, 44, label, 11, BLUE, True, Qt.AlignCenter)
+
+        c.text(56, 420, 220, 26, "安全保存流程", 13, TEXT, True)
+        stages = (
+            ("1", "实时 EEG 就绪", "固定 8 通道 / 250 Hz"),
+            ("2", "按计划采集", "标签来自随机计划，不来自预测"),
+            ("3", "逐试次确认保存", "NPZ + 时间戳 + 质量状态"),
+        )
+        for index, (number, title, description) in enumerate(stages):
+            x = 56 + index * 382
+            c.rect(x, 456, 354, 84, PANEL_SOFT, BORDER, 4)
+            c.circle(x + 29, 498, 16, "#e7f1ff", BLUE)
+            c.text(x + 13, 482, 32, 32, number, 10, BLUE, True, Qt.AlignCenter)
+            c.text(x + 58, 468, 274, 25, title, 11, TEXT, True)
+            c.text(x + 58, 496, 274, 29, description, 9, MUTED)
+
+        c.text(
+            56, 562, 620, 24,
+            f"随机种子 {config.random_seed} · 每试次可分析 {config.analysis_seconds:g} 秒 · "
+            "采集完成后可在“数据”页检查索引",
+            9, MUTED,
+        )
+        self._light_button(c, 836, 574, 176, 54, "配置采集计划", False, "#477af0")
+        self._light_button(c, 1024, 574, 194, 54, "开始自动采集", ssvep_ready, "#2d8a57")
+        self._hit(836, 574, 176, 54, "automatic-experiment-config")
+        if ssvep_ready:
+            self._hit(1024, 574, 194, 54, "automatic-experiment-start")
 
     def _research_algorithm(self, c: Canvas) -> None:
         c.rect(48, 104, 1184, 69, PANEL, BORDER, 3)
@@ -138,7 +206,7 @@ class ResearchConfigurationViewMixin:
         for label, value, x, y in metadata:
             c.text(x, y, 86, 38, label, 14, TEXT)
             c.text(x + 50 if len(label) <= 3 else x + 80, y, 145, 38, value, 14, TEXT, True)
-        c.line(73, 310, 1207, 310, "#283752")
+        c.line(73, 310, 1207, 310, "#dce3eb")
         c.rect(48, 376, 1184, 295, PANEL, BORDER, 3)
         c.text(73, 394, 200, 37, "算法库", 17, TEXT, True)
         algorithms = ["FBCCA", "个人模板-SSVEP", "Transformer-SSVEP"]
@@ -150,11 +218,11 @@ class ResearchConfigurationViewMixin:
             loaded = name in self.actions.loaded_algorithms
             default = name == self.actions.default_algorithm
             available = bool(statuses.get(name, {}).get("available", name == "FBCCA"))
-            c.rect(x, 441, 160, 96, "#17243a", BLUE if selected else "#2b3a55", 3, 2 if selected else 1)
+            c.rect(x, 441, 160, 96, "#eef4ff" if selected else PANEL, BLUE if selected else BORDER, 3, 2 if selected else 1)
             c.text(x, 452, 160, 37, name, 13, TEXT, True, Qt.AlignCenter)
-            c.rect(x + 47, 504, 32, 16, GREEN if loaded else "#526078", None, 8)
-            c.circle(x + 72 if loaded else x + 56, 512, 5, TEXT)
-            c.circle(x + 98, 512, 8, YELLOW if default else "#2b3954")
+            c.rect(x + 47, 504, 32, 16, GREEN if loaded else "#d3dae3", None, 8)
+            c.circle(x + 72 if loaded else x + 56, 512, 5, "#ffffff" if loaded else TEXT)
+            c.circle(x + 98, 512, 8, YELLOW if default else "#d3dae3")
             c.circle(x + 124, 512, 7, CYAN if available else RED)
             self._hit(x, 441, 160, 96, f"algorithm-select:{name}")
         labels = [("加载算法", 73, 569, 112), ("卸载算法", 201, 569, 114),
@@ -183,9 +251,9 @@ class ResearchConfigurationViewMixin:
             value = self.actions.controller_values[label]
             end = 203 + 707 * value / 100
             c.text(145, y - 18, 45, 35, label, 13, TEXT)
-            c.line(203, y, 910, y, "#6d6f70", 7)
-            c.line(203, y, end, y, "#eeeeee", 7)
-            c.circle(end, y, 8, "#f2f2f2")
+            c.line(203, y, 910, y, "#d7dee7", 7)
+            c.line(203, y, end, y, BLUE, 7)
+            c.circle(end, y, 8, BLUE)
             c.text(932, y - 17, 74, 34, f"{value / 100:.2f}", 13, TEXT)
             self._hit(196, y - 14, 721, 28, f"controller-slider:{label}")
         for i, (label, action) in enumerate((("应用参数", "controller-apply"), ("保存预设", "controller-save"), ("恢复默认", "controller-reset"))):
@@ -216,7 +284,7 @@ class ResearchConfigurationViewMixin:
         headers = [("SSVEP频率", 434), ("映射动作", 577), ("参数", 684), ("操作", 778)]
         for text, x in headers:
             c.text(x, 181, 104, 30, text, 12, TEXT, True, Qt.AlignCenter)
-        c.line(433, 210, 847, 210, "#273752")
+        c.line(433, 210, 847, 210, "#dce3eb")
         for i, row in enumerate(self.actions.mappings[:6]):
             y = 209 + i * 27
             c.text(448, y, 88, 29, row.frequency, 13, TEXT, False, Qt.AlignCenter)
@@ -226,7 +294,7 @@ class ResearchConfigurationViewMixin:
             c.text(797, y, 47, 29, "删除", 13, RED, False, Qt.AlignCenter)
             self._hit(742, y, 52, 29, f"mapping-edit:{i}")
             self._hit(797, y, 47, 29, f"mapping-delete:{i}")
-            c.line(433, y + 26, 847, y + 26, "#273752")
+            c.line(433, y + 26, 847, y + 26, "#dce3eb")
         c.button(576, 371, 128, 28, "添加映射", True)
         self._hit(576, 371, 128, 28, "mapping-add")
         c.text(56, 436, 360, 42, "Flow Deck 单机验收", 16, TEXT, True)
@@ -242,19 +310,19 @@ class ResearchConfigurationViewMixin:
         c.text(200, 538, 880, 23, "连接、Flow Deck 测距/光流、解锁和急停检查通过后才会执行", 10, MUTED, False, Qt.AlignCenter)
         c.text(56, 606, 360, 32, "L3 战术意图", 15, TEXT, True)
         c.text(56, 640, 850, 28, "预留更高层战术意图映射；当前版本仅开放经过单机安全验收的动作。", 10, MUTED)
-        c.rect(1064, 620, 150, 34, "#0b1728", BORDER, 17)
+        c.rect(1064, 620, 150, 34, "#fff8e6", BORDER, 17)
         c.text(1064, 620, 150, 34, "规划中", 10, YELLOW, True, Qt.AlignCenter)
 
     def _research_data(self, c: Canvas) -> None:
         # The left list and counts come from the recorder index, not painted demo sessions.
-        c.rect(16, 72, 1248, 35, "#0b1425")
+        c.rect(16, 72, 1248, 35, PANEL)
         c.text(39, 72, 360, 35, "实验数据工作台", 17, TEXT, True)
         for i, name in enumerate(("数据浏览", "标签管理", "采集说明")):
             x = 543 + i * 106
             c.button(x, 72, 90, 34, name, self.actions.data_tab == name)
             self._hit(x, 72, 90, 34, f"data-tab:{name}")
         c.text(1185, 72, 62, 34, "⌕  ⇧", 20, MUTED, False, Qt.AlignCenter)
-        c.rect(32, 123, 254, 597, "#0b1425", BORDER)
+        c.rect(32, 123, 254, 597, PANEL, BORDER)
         c.text(40, 125, 190, 43, "数据浏览", 14, TEXT, True)
         c.text(260, 125, 20, 43, "×", 16, TEXT, True, Qt.AlignCenter)
         c.line(32, 168, 286, 168, BORDER)
@@ -267,17 +335,18 @@ class ResearchConfigurationViewMixin:
             y = 211 + i * 40
             if trials and i == self.actions.selected_session:
                 c.rect(41, y, 238, 36, BLUE, None, 3)
-            c.text(52, y, 195, 36, name, 13, TEXT)
+            selected = bool(trials and i == self.actions.selected_session)
+            c.text(52, y, 195, 36, name, 13, "#ffffff" if selected else TEXT)
             if trials:
                 c.text(250, y, 20, 36, "›", 18, MUTED, False, Qt.AlignCenter)
                 self._hit(41, y, 238, 36, f"data-session:{i}")
-        c.rect(304, 123, 944, 597, "#071020", BORDER)
+        c.rect(304, 123, 944, 597, PANEL, BORDER)
         c.text(317, 124, 420, 44, "当前 EEG 缓存与保存状态", 14, TEXT, True)
         c.text(1203, 124, 34, 44, "⌕×", 18, MUTED, False, Qt.AlignCenter)
         c.line(304, 168, 1248, 168, BORDER)
         self._draw_live_eeg(c, 335, 205, 880, 330)
         stats = self.experiment_recorder.stats() if self.experiment_recorder is not None else {"recognitions": 0, "labeled_trials": 0}
-        c.rect(335, 557, 880, 116, "#0c1628", "#263752", 3)
+        c.rect(335, 557, 880, 116, PANEL_SOFT, BORDER, 3)
         c.text(355, 567, 840, 27, f"识别日志：{stats['recognitions']} 条    带真实标签试次：{stats['labeled_trials']} 条", 13, TEXT, True)
         c.text(355, 599, 840, 23, "添加标签后保存：SSVEP连续2秒；MI连续4秒。", 12, CYAN)
         log_path = str(self.experiment_recorder.recognition_log_path) if self.experiment_recorder is not None else "未配置"

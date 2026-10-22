@@ -32,7 +32,6 @@ from src.adapters.mock import (
 from src.bci import (
     ConsecutiveWindowGate,
     FBCCADecoder,
-    OcularArtifactFBCCADecoder,
     RuntimeIntentDecoder,
 )
 from src.bci.personal_template_decoder import PersonalTemplateSSVEPDecoder
@@ -151,7 +150,7 @@ def create_default_container() -> ApplicationContainer:
         )
     system_monitor = RealSystemMonitor()
     engineer_data_provider = RuntimeEngineerDataProvider(eeg_stream, swarm_gateway)
-    baseline_decoder: IntentDecoder = OcularArtifactFBCCADecoder()
+    baseline_decoder: IntentDecoder = FBCCADecoder()
     if FB_EEGNET_ENABLED:
         from src.bci.hybrid_decoder import HybridIntentDecoder
         from src.ml.predictor import FBEEGNetPredictor

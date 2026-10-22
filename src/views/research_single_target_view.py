@@ -6,7 +6,15 @@ from PySide6.QtCore import Qt
 
 from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ
 from src.widgets.scifi_canvas import (
-    CYAN, GREEN, MUTED, RED, TEXT, YELLOW, Canvas,
+    RESEARCH_BORDER as BORDER,
+    RESEARCH_CYAN as CYAN,
+    RESEARCH_GREEN as GREEN,
+    RESEARCH_MUTED as MUTED,
+    RESEARCH_PANEL_SOFT as PANEL_SOFT,
+    RESEARCH_RED as RED,
+    RESEARCH_TEXT as TEXT,
+    RESEARCH_YELLOW as YELLOW,
+    Canvas,
 )
 
 
@@ -29,7 +37,7 @@ class ResearchSingleTargetViewMixin:
         )
         for index, (number, title, body) in enumerate(steps):
             y = 205 + index * 79
-            c.circle(74, y + 19, 18, "#14375a", CYAN)
+            c.circle(74, y + 19, 18, "#e7f4f8", CYAN)
             c.text(56, y + 1, 36, 36, number, 10, TEXT, True, Qt.AlignCenter)
             c.text(105, y - 2, 260, 25, title, 13, TEXT, True)
             c.text(105, y + 23, 260, 36, body, 9, MUTED)
@@ -39,7 +47,7 @@ class ResearchSingleTargetViewMixin:
         for index, (label, frequency) in enumerate(zip(COMMANDS, TARGET_FREQUENCIES_HZ)):
             x = 448 + (index % 3) * 252
             y = 206 + (index // 3) * 72
-            c.rect(x, y, 228, 54, "#0c1729", "#2d4668", 4)
+            c.rect(x, y, 228, 54, PANEL_SOFT, BORDER, 4)
             c.text(x + 13, y + 4, 110, 25, label, 13, TEXT, True)
             c.text(x + 129, y + 4, 82, 25, f"{frequency:g} Hz", 12, CYAN, True, Qt.AlignRight)
             c.text(x + 13, y + 29, 198, 18, "固定位置独闪 × 10轮", 9, MUTED)
