@@ -27,6 +27,7 @@ from src.controllers import (
     SingleTargetCalibrationController,
     SoldierBCIController,
     ToastController,
+    TrialAnalysisController,
 )
 from src.domain import EEGFrame, IntentResult, Role, User
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
@@ -128,6 +129,12 @@ class MainView(
         self.single_target_calibration = SingleTargetCalibrationController(self)
         self.recognition = RecognitionController(self)
         self.manual_flight = ManualFlightController(self)
+        analysis_root = (
+            experiment_recorder.export_dir / "trial_analysis"
+            if experiment_recorder is not None
+            else Path.cwd() / "data" / "exports" / "trial_analysis"
+        )
+        self.trial_analysis = TrialAnalysisController(self, analysis_root)
         self.action_router = MainActionRouter(self)
         lsl_collector_stream = None
         lsl_factory = getattr(self.eeg_stream, "create_lsl_receiver", None)

@@ -28,9 +28,6 @@ class WorkbenchExportService:
             "algorithm": self.research.algorithm,
             "algorithm_mode": self.research.algorithm_mode,
             "default_algorithm": self.research.default_algorithm,
-            "controller": self.research.controller,
-            "controller_values": self.research.controller_values,
-            "mappings": [entry.__dict__ for entry in self.research.mappings],
             "automatic_ssvep_experiment": {
                 "labels": list(automatic.labels),
                 "repetitions_per_label": automatic.repetitions_per_label,

@@ -171,6 +171,10 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
         return self.context.experiment_recorder
 
     @property
+    def trial_analysis(self):
+        return self.context.trial_analysis
+
+    @property
     def lsl_collector(self):
         return self.context.lsl_collector
 

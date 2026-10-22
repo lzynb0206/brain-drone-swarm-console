@@ -44,7 +44,5 @@ class AdminOperationsService:
         self.layout_mode = "专注布局" if self.layout_mode == "标准布局" else "标准布局"
         return self._record(f"工作台已切换为{self.layout_mode}")
 
-    def workspace_summary(self, loaded_algorithm_count: int, mapping_count: int) -> str:
-        return self._record(
-            f"工作台状态：{loaded_algorithm_count}个算法已加载，{mapping_count}条映射"
-        )
+    def workspace_summary(self, loaded_algorithm_count: int) -> str:
+        return self._record(f"工作台状态：{loaded_algorithm_count}个算法已加载")

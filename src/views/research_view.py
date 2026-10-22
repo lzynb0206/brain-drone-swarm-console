@@ -52,8 +52,6 @@ class ResearchViewMixin(
             RESEARCH_COMBINED_PAGE: self._research_paradigm_algorithm,
             "范式": self._research_paradigm_algorithm,
             "算法": self._research_paradigm_algorithm,
-            "控制": self._research_controller,
-            "映射": self._research_mapping,
             "数据采集": self._research_data_collection,
             "数据": self._research_data,
             "单目标校准": self._research_single_target_calibration,

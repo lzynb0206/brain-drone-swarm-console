@@ -16,6 +16,7 @@ TARGET_FREQUENCIES_HZ = (8.0, 9.0, 10.0, 11.0, 12.0, 13.0)
 TRUE_LABELS = ("空闲",) + COMMANDS
 MI_TRUE_LABELS = ("静息", "想象左手", "想象右手", "想象双脚")
 LABEL_TO_FREQUENCY = dict(zip(COMMANDS, TARGET_FREQUENCIES_HZ))
+FREQUENCY_TO_LABEL = dict(zip(TARGET_FREQUENCIES_HZ, COMMANDS))
 
 # 经典 SSVEP 链路：8路枕区/顶枕区信号先进入带通滤波器组，
 # 再使用 FBCCA。不在实时短窗口上执行 ICA。GND/REF 保持设备原功能。

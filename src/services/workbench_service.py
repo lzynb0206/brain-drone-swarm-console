@@ -10,7 +10,7 @@ from src.ports import SwarmGateway, SystemMonitor
 from src.services.admin_operations_service import AdminOperationsService
 from src.services.bci_execution_service import BCIExecutionService
 from src.services.export_service import WorkbenchExportService
-from src.services.research_workbench_service import MappingEntry, ResearchWorkbenchService
+from src.services.research_workbench_service import ResearchWorkbenchService
 from src.services.structured_mission_service import StructuredMissionService
 from src.services.swarm_control_service import SwarmControlService
 
@@ -21,8 +21,8 @@ class WorkbenchService:
     _RESEARCH_FIELDS = frozenset({
         "paradigm_frequency", "paradigm_type", "stimulus_size", "duty_cycle",
         "algorithm", "algorithm_mode", "loaded_algorithms", "default_algorithm",
-        "controller", "controller_values", "mappings", "data_tab",
-        "selected_session", "log_filter", "marker_count", "automatic_experiment_config",
+        "data_tab", "selected_session", "log_filter", "marker_count",
+        "automatic_experiment_config",
     })
     _ADMIN_FIELDS = frozenset({
         "storage_percent", "last_backup", "user_roles", "self_test_run", "layout_mode",
@@ -41,9 +41,7 @@ class WorkbenchService:
 
         research = ResearchWorkbenchService(self._record)
         swarm = SwarmControlService(swarm_gateway, experiment_recorder, self._record)
-        bci = BCIExecutionService(
-            swarm_gateway, research.mappings, swarm.send_command, self._record,
-        )
+        bci = BCIExecutionService(swarm_gateway, swarm.send_command, self._record)
         swarm.disable_bci = bci.disable
         admin = AdminOperationsService(system_monitor, self._record)
         exporter = WorkbenchExportService(research, self._record)
@@ -72,8 +70,6 @@ class WorkbenchService:
     def __setattr__(self, name: str, value) -> None:
         if name in self._RESEARCH_FIELDS and "research" in self.__dict__:
             setattr(self.research, name, value)
-            if name == "mappings" and "bci" in self.__dict__:
-                self.bci.mappings = value
             return
         if name in self._ADMIN_FIELDS and "admin" in self.__dict__:
             setattr(self.admin, name, value)
@@ -112,24 +108,6 @@ class WorkbenchService:
 
     def benchmark_algorithm(self) -> str:
         return self.research.benchmark_algorithm()
-
-    def apply_controller(self) -> str:
-        return self.research.apply_controller()
-
-    def save_controller_preset(self) -> str:
-        return self.research.save_controller_preset()
-
-    def reset_controller(self) -> str:
-        return self.research.reset_controller()
-
-    def add_mapping(self, frequency: str, action: str, parameter: str) -> str:
-        return self.research.add_mapping(frequency, action, parameter)
-
-    def update_mapping(self, index: int, action: str, parameter: str) -> str:
-        return self.research.update_mapping(index, action, parameter)
-
-    def delete_mapping(self, index: int) -> str:
-        return self.research.delete_mapping(index)
 
     def add_marker(self, label: str = "") -> str:
         return self.research.add_marker(label)
@@ -239,7 +217,7 @@ class WorkbenchService:
         return self.admin.toggle_layout()
 
     def workspace_summary(self) -> str:
-        return self.admin.workspace_summary(len(self.loaded_algorithms), len(self.mappings))
+        return self.admin.workspace_summary(len(self.loaded_algorithms))
 
     def export_workspace_config(self, output_dir: Path | None = None) -> Path:
         return self.exporter.export_workspace_config(output_dir)
@@ -248,4 +226,4 @@ class WorkbenchService:
         return self.exporter.export_soldier_report(output_dir)
 
 
-__all__ = ["MappingEntry", "WorkbenchService"]
+__all__ = ["WorkbenchService"]

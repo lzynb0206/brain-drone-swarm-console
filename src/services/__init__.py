@@ -24,12 +24,12 @@ from src.services.ssvep_experiment_protocol import (
     ProtocolTransition,
     build_balanced_trial_plan,
 )
-from src.services.workbench_service import MappingEntry, WorkbenchService
+from src.services.workbench_service import WorkbenchService
 
 __all__ = [
     "AdminOperationsService", "BCIExecutionService", "EEGDisplayProcessor", "ExperimentClock", "ExperimentMarkerOutlet",
     "ExperimentRecorder", "ExperimentTimestamp",
-    "IntentSafetyDecision", "IntentSafetyService", "LSLEEGOutlet", "MappingEntry", "MissionPlanningError",
+    "IntentSafetyDecision", "IntentSafetyService", "LSLEEGOutlet", "MissionPlanningError",
     "RawEEGCsvRecorder", "ResearchWorkbenchService", "StructuredMissionService",
     "SwarmControlService", "WorkbenchExportService", "WorkbenchService",
     "AutomaticExperimentConfig", "AutomaticExperimentProtocol", "ExperimentPhase",

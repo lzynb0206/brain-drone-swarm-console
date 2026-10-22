@@ -10,6 +10,7 @@ from src.controllers.recognition_controller import RecognitionController
 from src.controllers.soldier_bci_controller import SoldierBCIController
 from src.controllers.toast_controller import ToastController
 from src.controllers.single_target_calibration_controller import SingleTargetCalibrationController
+from src.controllers.trial_analysis_controller import TrialAnalysisController
 
 __all__ = [
     "CSVReplayController",
@@ -22,4 +23,5 @@ __all__ = [
     "SoldierBCIController",
     "ToastController",
     "SingleTargetCalibrationController",
+    "TrialAnalysisController",
 ]

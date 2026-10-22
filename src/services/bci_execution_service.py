@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 
-from src.services.research_workbench_service import MappingEntry
+from src.bci.config import FREQUENCY_TO_LABEL
 
 
 class BCIExecutionService:
@@ -14,7 +14,6 @@ class BCIExecutionService:
     def __init__(
         self,
         gateway,
-        mappings: Sequence[MappingEntry],
         command_sender: Callable[[str], str],
         record: Callable[[str], str],
         command_cooldown_seconds: float = 2.5,
@@ -25,7 +24,6 @@ class BCIExecutionService:
         if int(required_confirmations) < 1:
             raise ValueError("required_confirmations must be positive")
         self.gateway = gateway
-        self.mappings = mappings
         self._command_sender = command_sender
         self._record = record
         self.command_cooldown_seconds = float(command_cooldown_seconds)
@@ -155,11 +153,7 @@ class BCIExecutionService:
 
         mapped_label = label
         if frequency_hz is not None:
-            frequency_key = f"{float(frequency_hz):g}Hz"
-            mapped_label = next(
-                (entry.action for entry in self.mappings if entry.frequency == frequency_key),
-                label,
-            )
+            mapped_label = FREQUENCY_TO_LABEL.get(float(frequency_hz), label)
         action = {
             "起飞": "takeoff",
             "前进": "forward",

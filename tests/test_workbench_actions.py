@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
@@ -14,7 +15,6 @@ from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 
 from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
 from src.adapters.real import CrazyflieSwarmConfig, CrazyflieSwarmGateway
-from src.bci.config import COMMANDS
 from src.domain import IntentResult, Role, User
 from src.services import ExperimentRecorder, WorkbenchService
 from src.views.main_view import MainView
@@ -31,23 +31,12 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.gateway = MockSwarmGateway()
         self.service = WorkbenchService(self.gateway, MockSystemMonitor())
 
-    def test_algorithm_controller_and_mapping_are_stateful(self) -> None:
+    def test_algorithm_selection_is_stateful(self) -> None:
         self.service.select_algorithm("SVM")
         self.service.load_algorithm()
         self.service.set_default_algorithm()
         self.assertEqual("SVM", self.service.default_algorithm)
         self.assertIn("SVM", self.service.loaded_algorithms)
-
-        self.service.controller_values["Kp"] = 84
-        self.assertIn("Kp=0.84", self.service.apply_controller())
-
-        self.service.add_mapping("18Hz", "悬停", "0m/s")
-        self.assertEqual("18Hz", self.service.mappings[-1].frequency)
-        added_index = len(self.service.mappings) - 1
-        self.service.update_mapping(added_index, "后退", "1m/s")
-        self.assertEqual("后退", self.service.mappings[-1].action)
-        self.service.delete_mapping(added_index)
-        self.assertEqual(len(COMMANDS), len(self.service.mappings))
 
     def test_swarm_commands_and_emergency_stop_use_gateway(self) -> None:
         self.service.send_swarm_command("takeoff")
@@ -145,6 +134,21 @@ class WorkbenchServiceTest(unittest.TestCase):
 
         self.assertEqual(before + 1, len(self.gateway.command_log))
         self.assertEqual("takeoff", self.gateway.command_log[-1].action)
+
+    def test_fixed_frequency_mapping_remains_in_live_bci_execution(self) -> None:
+        self.service.send_swarm_command("takeoff")
+        self.service.set_bci_control_enabled(True, "LSL · obci_eeg1")
+        self.service.bci.start_session("LSL · obci_eeg1", warmup_seconds=0.0)
+
+        self.service.handle_intent(
+            "起飞",
+            True,
+            "LSL · obci_eeg1",
+            frequency_hz=12.0,
+            safety_verified=True,
+        )
+
+        self.assertEqual("right", self.gateway.command_log[-1].action)
 
     def test_grounded_bci_authorization_does_not_take_off_until_intent_arrives(self) -> None:
         self.gateway.disarm()
@@ -261,11 +265,10 @@ class MainViewActionRoutingTest(unittest.TestCase):
             painter.end()
         return {action for _rect, action in page._regions}
 
-    def test_painted_control_actions_change_application_state(self) -> None:
+    def test_painted_actions_change_application_state(self) -> None:
         self.view._activate("paradigm-frequency:15")
         self.view._activate("algorithm-select:LSTM")
         self.view._activate("algorithm-load")
-        self.view._activate("controller-slider:Kp", x=910)
         self.view._activate("data-tab:数据浏览")
         self.view._activate("swarm-command:takeoff")
         self.view._activate("swarm-command:right")
@@ -273,7 +276,6 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual(15, self.view.actions.paradigm_frequency)
         self.assertEqual("LSTM", self.view.actions.algorithm)
         self.assertIn("LSTM", self.view.actions.loaded_algorithms)
-        self.assertEqual(100, self.view.actions.controller_values["Kp"])
         self.assertEqual("数据浏览", self.view.actions.data_tab)
         self.assertEqual("right", self.gateway.command_log[-1].action)
 
@@ -338,6 +340,8 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertIn("CSV回放", names)
         self.assertIn("范式算法", names)
         self.assertIn("数据采集", names)
+        self.assertNotIn("控制", names)
+        self.assertNotIn("映射", names)
         self.assertNotIn("实验", names)
         self.assertNotIn("范式", names)
         self.assertNotIn("算法", names)
@@ -377,6 +381,39 @@ class MainViewActionRoutingTest(unittest.TestCase):
         )
         self.assertIn("automatic-experiment-config", actions)
         self.assertIn("automatic-experiment-start", actions)
+
+    def test_data_analysis_page_exposes_import_actions(self) -> None:
+        actions = self._render_page(self.view.research_widget, "_research_data")
+
+        self.assertIn("analysis-load-project", actions)
+        self.assertIn("analysis-import-directory", actions)
+        self.assertIn("analysis-import-files", actions)
+
+    def test_data_analysis_page_selects_label_trial_and_window(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            timeline = np.arange(1250, dtype=float) / 250.0
+            eeg = np.asarray([
+                40.0 * np.sin(2 * np.pi * 8.0 * timeline + index * 0.3)
+                for index in range(8)
+            ], dtype=np.float32)
+            np.savez_compressed(
+                root / "takeoff.npz",
+                eeg=eeg,
+                fs=np.asarray(250.0),
+                true_label=np.asarray("起飞"),
+                channel_names=np.asarray(("O1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "P4")),
+            )
+            self.view.trial_analysis.load_source(root)
+            actions = self._render_page(self.view.research_widget, "_research_data")
+
+        self.assertEqual("起飞", self.view.trial_analysis.selected_label)
+        self.assertEqual(0.8, self.view.trial_analysis.window_start_seconds)
+        self.assertEqual(4.2, self.view.trial_analysis.window_end_seconds)
+        self.assertIn("analysis-label:起飞", actions)
+        self.assertIn("analysis-trial:0", actions)
+        self.assertIn("analysis-window", actions)
+        self.assertIn("analysis-generate", actions)
 
     def test_acquisition_setup_keeps_primary_actions_available(self) -> None:
         self.view.acquisition_stage = "setup"

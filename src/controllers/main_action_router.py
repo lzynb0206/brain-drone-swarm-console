@@ -140,25 +140,26 @@ class MainActionRouter(QObject):
             view._notify(view._set_default_selected_decoder())
         elif action == "algorithm-benchmark":
             view._notify(view.actions.benchmark_algorithm())
-        elif action.startswith("controller-select:"):
-            view.actions.controller = action.split(":", 1)[1]
-            view._notify(f"控制器已选择：{view.actions.controller}")
-        elif action.startswith("controller-slider:"):
-            key = action.rsplit(":", 1)[1]
-            view.actions.controller_values[key] = max(0, min(100, round((x - 203) / 707 * 100)))
-            view.update()
-        elif action == "controller-apply":
-            view._notify(view.actions.apply_controller())
-        elif action == "controller-save":
-            view._notify(view.actions.save_controller_preset())
-        elif action == "controller-reset":
-            view._notify(view.actions.reset_controller())
-        elif action == "mapping-add":
-            view._add_mapping_dialog()
-        elif action.startswith("mapping-edit:"):
-            view._edit_mapping_dialog(int(action.rsplit(":", 1)[1]))
-        elif action.startswith("mapping-delete:"):
-            view._notify(view.actions.delete_mapping(int(action.rsplit(":", 1)[1])))
+        elif action == "analysis-load-project":
+            view.trial_analysis.load_project_data()
+        elif action == "analysis-import-directory":
+            view.trial_analysis.choose_directory()
+        elif action == "analysis-import-files":
+            view.trial_analysis.choose_files()
+        elif action.startswith("analysis-label:"):
+            view.trial_analysis.select_label(action.split(":", 1)[1])
+        elif action.startswith("analysis-trial:"):
+            view.trial_analysis.select_record(int(action.rsplit(":", 1)[1]))
+        elif action == "analysis-page-previous":
+            view.trial_analysis.previous_page()
+        elif action == "analysis-page-next":
+            view.trial_analysis.next_page()
+        elif action == "analysis-window":
+            view.trial_analysis.configure_window()
+        elif action == "analysis-generate":
+            view.trial_analysis.generate_report()
+        elif action == "analysis-show-report":
+            view.trial_analysis.show_last_report()
         elif action.startswith("data-tab:"):
             view.actions.data_tab = action.split(":", 1)[1]
             if view.actions.data_tab == "数据集生成":

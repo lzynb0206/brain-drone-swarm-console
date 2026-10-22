@@ -18,14 +18,15 @@
 - 飞行安全门控：实时遥测、3.2V 低电压提示、Flow 下视距离/光流质量和串行命令队列。
 - 士兵脑控页提供一键“启动 SSVEP 驾驶”：自动连接 ExpandableEEG、发布 `obci_eeg1`、由独立 LSL 接收线程运行 FBCCA，并在收到首帧后才开放脑控授权；不需要进入科研页面。地面授权不会启动电机，只有识别到“起飞”才进入现有 Flow Hover 起飞与悬停链路。
 - 脑控执行默认关闭；只允许实时硬件或 LSL 数据源，且同一意图连续确认两次、经过冷却并在每次动作后检测到注视释放才可再次提交。
-- 科研导航按真实数据链拆成三个连续页面：`采集`用 ExpandableEEG 原生数据包协议直连蓝牙虚拟 COM/串口（固定8通道、250 Hz）；macOS 自动绕过失效的伪串口并直连 RFCOMM channel 1，Windows 使用传出 COM 口；`LSL收集`独立接收 EEG 流、显示波形/时间戳质量并保存 CSV；`实验`专门回放 CSV。
+- 科研导航按真实数据链拆分：`采集`用 ExpandableEEG 原生数据包协议直连蓝牙虚拟 COM/串口（固定8通道、250 Hz）；macOS 自动绕过失效的伪串口并直连 RFCOMM channel 1，Windows 使用传出 COM 口；`LSL收集`独立接收 EEG 流、显示波形/时间戳质量并保存 CSV；`CSV回放`专门回放 CSV；`数据采集`管理自动带标签实验。
 - `采集`页采用 OpenBCI GUI 的 System Control Panel 与 Time Series + FFT + Accelerometer 结构；监视器单独使用 5–50 Hz 四阶 Butterworth、50/60 Hz 工频抑制和固定 ±200 μV 量程，原始 CSV、LSL 与解码输入不受显示滤波影响。
 - “CSV回放”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
 - 兼容历史 `start-1.csv` 格式与本项目采集的 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
 - 纯 FBCCA 六频基线，以及可训练的 Transformer-SSVEP：2秒/250 Hz八通道输入、
   频谱分片、自注意力分类、0.60置信度、连续双窗口确认和0.50秒冷却。
-- 解码器可在科研“算法”页真实切换；缺少 Transformer 权重时明确拒绝加载，不静默伪装。
+- 解码器可在科研“范式算法”页真实切换；缺少 Transformer 权重时明确拒绝加载，不静默伪装。
+- “数据”页可导入本项目或外部带标签 NPZ，按动作标签、具体试次和试次内时间段三级筛选，生成原始波形、通道质量、阈前/陷波后 FFT、FBCCA 滤波子带和六类分数六联图，同时保存 JSON 指标与通道质量 CSV。
 - 解码器安全默认固定为 FBCCA。个人模板和 Transformer 即使文件存在也不会自动成为默认模型；
   metadata 未明确标记 `production_approved=true` 时只能做科研识别，不能派发实机命令。
 - 包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
@@ -78,13 +79,15 @@ obci_eeg1 → EEGWorker → FBCCA/Transformer`。科研页仍可独立选择直�
   管理操作和导出服务。
 - 科研、作战、管理员和工程画布页面都是独立 `QWidget`，通过 Qt Signal/Slot
   把语义动作交给 `MainActionRouter`，不再让 `MainView` 继承点击路由 mixin。
-- 科研页入口只负责导航分发；硬件采集/CSV、独立 LSL 收集以及范式/算法/控制/映射/数据
-  渲染分别位于独立模块，避免继续扩张单个 `research_view.py`。
+- 科研页入口只负责导航分发；硬件采集/CSV、独立 LSL 收集、范式算法、数据采集和试次分析
+  分别位于独立模块，避免继续扩张单个 `research_view.py`。未接入真实控制器的参数演示页和
+  可编辑动作映射页已移除；在线脑控使用 `src/bci/config.py` 中固定、可审计的频率标签配置。
 - `MainView` 只负责页面装配、共享 EEG worker 生命周期和顶层事件转发。直接硬件采集、
   CSV 回放、独立 LSL 收集、士兵脑控安全链路和自动实验分别由
   `EEGAcquisitionController`、`CSVReplayController`、`LSLCollectionController`、
   `SoldierBCIController`、`ExperimentController`、`RecognitionController` 和
-  `ManualFlightController` 管理；Toast 的计时、滚动绘制和清理由 `ToastController` 管理。
+  `ManualFlightController` 管理；带标签试次的导入、筛选和报告预览由
+  `TrialAnalysisController` 管理；Toast 的计时、滚动绘制和清理由 `ToastController` 管理。
 - `EEGWorker` 专注读流、窗口化和调度；连续 EEG 的缓存/10 秒分块由
   `ContinuousEEGRecorder` 处理，刺激时间戳对齐、标注试次解码与保存由
   `LabeledTrialRecorder` 处理。
@@ -232,7 +235,7 @@ python -m src.ml.train_transformer_ssvep \
 ```
 
 训练输出 `models/transformer_ssvep.pt` 和
-`models/transformer_ssvep_metadata.json`。随后可在科研“算法”页加载，或使用
+`models/transformer_ssvep_metadata.json`。随后可在科研“范式算法”页加载，或使用
 `BDS_INTENT_DECODER=transformer python main.py` 显式启用。
 
 ### 训练并启用旧版 FB-EEGNet
@@ -274,7 +277,13 @@ BDS_FB_EEGNET_ENABLED=true python main.py
 | “单目标校准”或六目标引导校准 | `data/single_target_calibration/<run_id>/` | 每轮原始 EEG、清单和校准报告均放在该次运行目录中；训练后的模型放在项目根目录 `models/`，不与原始数据混放 |
 | 在线识别与实机命令 | `data/recognition_logs/` | `recognition_log.csv` 保存紧凑识别摘要，达到 16 MiB 后轮转；`command_execution_log.csv` 保存命令审计 |
 | SSVEP 刺激窗口 | `data/stimulus_logs/` | 保存刺激帧时间、实测频率、频谱 `.npz/.png` 和开始/停止标记，不是 EEG 原始波形 |
-| 数据导出 | `data/exports/` | 只在用户执行导出时写入 |
+| “数据”页试次分析 | `data/exports/trial_analysis/<真实标签>/` | 每次生成一张六联图 PNG、同名指标 JSON 和 `_channels.csv` 通道质量表；导入源文件保持只读 |
+| 其他数据导出 | `data/exports/` | 只在用户执行导出时写入 |
+
+在“数据”页可以直接点击“载入项目数据”，也可以导入任意包含带标签 NPZ 的目录或选择多个
+NPZ 文件。导入后先选“起飞/右移”等真实标签，再选择该标签下的具体第几段试次；“设置时间段”
+可在完整试次内自由设置开始与结束秒数。点击“生成完整图表”后会打开可滚动的大图预览，原图、
+JSON 和 CSV 均保存在上表所列目录中，不会覆盖或修改原始 EEG。
 
 `data/analysis/` 是离线分析报告、预测表和研究阶段模型的工作区，不是运行时采集入口。
 同一次自动实验会同时写入 `raw_trials/`、`sessions/`、`stimulus_logs/`，运行识别时还会写
@@ -373,7 +382,7 @@ src/adapters/real/
 ```text
 src/services/
 ├── workbench_service.py           # 保持旧 API 的组合门面
-├── research_workbench_service.py  # 范式、算法、控制器和映射
+├── research_workbench_service.py  # 范式、算法和科研页面状态
 ├── swarm_control_service.py       # 蜂群命令、回执、审计和急停
 ├── bci_execution_service.py       # 实时源限制、二次确认和冷却
 ├── admin_operations_service.py    # 管理页面操作状态

@@ -17,11 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.bci.config import (
-    COMMANDS,
-    TARGET_FREQUENCIES_HZ,
-    WINDOW_SECONDS,
-)
+from src.bci.config import WINDOW_SECONDS
 from src.services.ssvep_experiment_protocol import AutomaticExperimentConfig
 from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 
@@ -444,32 +440,6 @@ class MainDialogsMixin:
         label, ok = QInputDialog.getItem(self, "单架无人机控制", "动作", labels, 0, False)
         if ok:
             self._notify(self.actions.send_swarm_command(action_map[label], uav_id=uav_id))
-
-    def _add_mapping_dialog(self) -> None:
-        frequency, ok = QInputDialog.getItem(
-            self, "添加映射", "SSVEP频率", [f"{value:g}Hz" for value in TARGET_FREQUENCIES_HZ], 0, False,
-        )
-        if not ok:
-            return
-        command, ok = QInputDialog.getItem(self, "添加映射", "映射动作", list(COMMANDS), 0, False)
-        if not ok:
-            return
-        parameter, ok = QInputDialog.getText(self, "添加映射", "参数", text="15°")
-        if ok and parameter.strip():
-            self._notify(self.actions.add_mapping(frequency, command, parameter.strip()))
-
-    def _edit_mapping_dialog(self, index: int) -> None:
-        entry = self.actions.mappings[index]
-        commands = list(COMMANDS)
-        command, ok = QInputDialog.getItem(
-            self, "修改映射", "映射动作", commands,
-            commands.index(entry.action) if entry.action in commands else 0, False,
-        )
-        if not ok:
-            return
-        parameter, ok = QInputDialog.getText(self, "修改映射", "参数", text=entry.parameter)
-        if ok and parameter.strip():
-            self._notify(self.actions.update_mapping(index, command, parameter.strip()))
 
     def _show_device_dialog(self, name: str) -> None:
         swarm_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None

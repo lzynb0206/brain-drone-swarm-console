@@ -2,5 +2,3 @@
 torch>=2.2
 scikit-learn>=1.4
 h5py>=3.10
-matplotlib>=3.8
-contourpy>=1.0.1,<1.4

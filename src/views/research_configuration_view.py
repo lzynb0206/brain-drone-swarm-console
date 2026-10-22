@@ -1,4 +1,4 @@
-"""Research paradigm, algorithm, controller, mapping and data rendering."""
+"""Research paradigm, algorithm, collection and data rendering."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from src.widgets.scifi_canvas import (
 
 
 class ResearchConfigurationViewMixin:
-    """Render paradigm, decoder, controller, mapping and saved-data pages."""
+    """Render paradigm, decoder, collection and saved-data pages."""
 
     def _research_paradigm_algorithm(self, c: Canvas) -> None:
         """Render paradigm configuration and the algorithm library as one canvas."""
@@ -231,126 +231,182 @@ class ResearchConfigurationViewMixin:
             c.button(x, y, w, 43, label, i == 0)
             self._hit(x, y, w, 43, ("algorithm-load", "algorithm-unload", "algorithm-default", "algorithm-benchmark")[i])
 
-    def _research_controller(self, c: Canvas) -> None:
-        # 【真实接口接入点】UI-08 / M6.5：滑块和本地应用动作已可操作；正式版
-        # ControllerService 还需将 Kp/Ki/Kd 校验后交给实现 BaseController 的
-        # PID/MPC 控制器；参数写入 YAML，并保留版本和操作者审计记录。
-        c.text(32, 72, 320, 36, "控制器参数工作台", 19, TEXT, True)
-        c.text(32, 101, 640, 22, "统一管理飞行控制器、参数预设与切换策略。", 10, MUTED)
-        c.rect(32, 132, 1216, 72, PANEL, BORDER, 3)
-        c.text(52, 148, 106, 40, "当前控制器", 12, MUTED)
-        c.button(164, 150, 128, 36, self.actions.controller)
-        modes = [("● 手动选择", True), ("□ 场景自动匹配", False), ("□ 自适应切换", False), ("□ 双控制器热备", False)]
-        x = 348
-        for label, active in modes:
-            c.button(x, 171, 126, 31, label, False, not active)
-            x += 133
-        c.rect(32, 220, 1216, 296, PANEL, BORDER, 3)
-        c.text(56, 236, 300, 40, f"{self.actions.controller} 参数配置", 16, TEXT, True)
-        for label, y in (("Kp", 310), ("Ki", 370), ("Kd", 430)):
-            value = self.actions.controller_values[label]
-            end = 203 + 707 * value / 100
-            c.text(145, y - 18, 45, 35, label, 13, TEXT)
-            c.line(203, y, 910, y, "#d7dee7", 7)
-            c.line(203, y, end, y, BLUE, 7)
-            c.circle(end, y, 8, BLUE)
-            c.text(932, y - 17, 74, 34, f"{value / 100:.2f}", 13, TEXT)
-            self._hit(196, y - 14, 721, 28, f"controller-slider:{label}")
-        for i, (label, action) in enumerate((("应用参数", "controller-apply"), ("保存预设", "controller-save"), ("恢复默认", "controller-reset"))):
-            x = 486 + i * 137
-            c.button(x, 468, 121, 34, label, i == 0)
-            self._hit(x, 468, 121, 34, action)
-        c.rect(32, 532, 1216, 164, PANEL, BORDER, 3)
-        c.text(56, 545, 200, 42, "控制器库", 16, TEXT, True)
-        controllers = ("PID", "MPC", "新增", "滑模控制", "鲁棒控制", "自适应控制")
-        for i, name in enumerate(controllers):
-            x = 56 + i * 144
-            disabled = name == "新增"
-            c.button(x, 622, 120, 42, name, name == self.actions.controller, disabled, "#69c77a")
-            if not disabled:
-                self._hit(x, 622, 120, 42, f"controller-select:{name}")
-
-    def _research_mapping(self, c: Canvas) -> None:
-        # 【真实接口接入点】UI-09 / M4.5：映射表应来自 CommandMappingRepository。
-        # 解码 label/频率先经本映射转换为 SwarmCommand，再由安全仲裁器检查
-        # 置信度、二次确认、Flow 质量、电量、解锁和急停状态，
-        # 最后才调用 swarm_gateway.send_command。
-        c.text(32, 72, 320, 36, "识别与动作映射", 19, TEXT, True)
-        c.text(32, 101, 640, 22, "将脑电识别结果转换为经过安全仲裁的飞行动作。", 10, MUTED)
-        panels = [(32, 132, 1216, 276), (32, 424, 1216, 156), (32, 596, 1216, 100)]
-        for x, y, w, h in panels:
-            c.rect(x, y, w, h, PANEL, BORDER, 3)
-        c.text(56, 143, 430, 42, "SSVEP 识别与安全动作映射", 16, TEXT, True)
-        headers = [("SSVEP频率", 434), ("映射动作", 577), ("参数", 684), ("操作", 778)]
-        for text, x in headers:
-            c.text(x, 181, 104, 30, text, 12, TEXT, True, Qt.AlignCenter)
-        c.line(433, 210, 847, 210, "#dce3eb")
-        for i, row in enumerate(self.actions.mappings[:6]):
-            y = 209 + i * 27
-            c.text(448, y, 88, 29, row.frequency, 13, TEXT, False, Qt.AlignCenter)
-            c.text(564, y, 88, 29, row.action, 13, TEXT, False, Qt.AlignCenter)
-            c.text(660, y, 74, 29, row.parameter, 13, TEXT, False, Qt.AlignCenter)
-            c.text(742, y, 52, 29, "修改", 13, BLUE, False, Qt.AlignCenter)
-            c.text(797, y, 47, 29, "删除", 13, RED, False, Qt.AlignCenter)
-            self._hit(742, y, 52, 29, f"mapping-edit:{i}")
-            self._hit(797, y, 47, 29, f"mapping-delete:{i}")
-            c.line(433, y + 26, 847, y + 26, "#dce3eb")
-        c.button(576, 371, 128, 28, "添加映射", True)
-        self._hit(576, 371, 128, 28, "mapping-add")
-        c.text(56, 436, 360, 42, "Flow Deck 单机验收", 16, TEXT, True)
-        acceptance = (
-            ("LED 无桨测试", "led_test"),
-            ("保持悬停", "hover"),
-            ("受控降落", "land"),
-        )
-        for index, (name, action) in enumerate(acceptance):
-            button_x = 310 + index * 220
-            c.button(button_x, 480, 190, 40, name)
-            self._hit(button_x, 480, 190, 40, f"swarm-command:{action}")
-        c.text(200, 538, 880, 23, "连接、Flow Deck 测距/光流、解锁和急停检查通过后才会执行", 10, MUTED, False, Qt.AlignCenter)
-        c.text(56, 606, 360, 32, "L3 战术意图", 15, TEXT, True)
-        c.text(56, 640, 850, 28, "预留更高层战术意图映射；当前版本仅开放经过单机安全验收的动作。", 10, MUTED)
-        c.rect(1064, 620, 150, 34, "#fff8e6", BORDER, 17)
-        c.text(1064, 620, 150, 34, "规划中", 10, YELLOW, True, Qt.AlignCenter)
-
     def _research_data(self, c: Canvas) -> None:
-        # The left list and counts come from the recorder index, not painted demo sessions.
-        c.rect(16, 72, 1248, 35, PANEL)
-        c.text(39, 72, 360, 35, "实验数据工作台", 17, TEXT, True)
-        for i, name in enumerate(("数据浏览", "标签管理", "采集说明")):
-            x = 543 + i * 106
-            c.button(x, 72, 90, 34, name, self.actions.data_tab == name)
-            self._hit(x, 72, 90, 34, f"data-tab:{name}")
-        c.text(1185, 72, 62, 34, "⌕  ⇧", 20, MUTED, False, Qt.AlignCenter)
-        c.rect(32, 123, 254, 597, PANEL, BORDER)
-        c.text(40, 125, 190, 43, "数据浏览", 14, TEXT, True)
-        c.text(260, 125, 20, 43, "×", 16, TEXT, True, Qt.AlignCenter)
-        c.line(32, 168, 286, 168, BORDER)
-        c.text(40, 169, 210, 38, "实验会话", 13, MUTED)
-        trials = self.experiment_recorder.recent_trials(12) if self.experiment_recorder is not None else []
-        names = [f"{row.get('timestamp', '')[5:19]}  {row.get('true_label', '')}" for row in trials]
-        if not names:
-            names = ["暂无带标签原始试次"]
-        for i, name in enumerate(names):
-            y = 211 + i * 40
-            if trials and i == self.actions.selected_session:
-                c.rect(41, y, 238, 36, BLUE, None, 3)
-            selected = bool(trials and i == self.actions.selected_session)
-            c.text(52, y, 195, 36, name, 13, "#ffffff" if selected else TEXT)
-            if trials:
-                c.text(250, y, 20, 36, "›", 18, MUTED, False, Qt.AlignCenter)
-                self._hit(41, y, 238, 36, f"data-session:{i}")
-        c.rect(304, 123, 944, 597, PANEL, BORDER)
-        c.text(317, 124, 420, 44, "当前 EEG 缓存与保存状态", 14, TEXT, True)
-        c.text(1203, 124, 34, 44, "⌕×", 18, MUTED, False, Qt.AlignCenter)
-        c.line(304, 168, 1248, 168, BORDER)
-        self._draw_live_eeg(c, 335, 205, 880, 330)
-        stats = self.experiment_recorder.stats() if self.experiment_recorder is not None else {"recognitions": 0, "labeled_trials": 0}
-        c.rect(335, 557, 880, 116, PANEL_SOFT, BORDER, 3)
-        c.text(355, 567, 840, 27, f"识别日志：{stats['recognitions']} 条    带真实标签试次：{stats['labeled_trials']} 条", 13, TEXT, True)
-        c.text(355, 599, 840, 23, "添加标签后保存：SSVEP连续2秒；MI连续4秒。", 12, CYAN)
-        log_path = str(self.experiment_recorder.recognition_log_path) if self.experiment_recorder is not None else "未配置"
-        c.text(355, 630, 840, 22, f"识别日志：{log_path}", 10, MUTED)
+        browser = self.trial_analysis
+        c.text(32, 72, 460, 36, "带标签试次分析工作台", 19, TEXT, True)
+        c.text(
+            32,
+            101,
+            850,
+            22,
+            "导入采集数据，按动作与具体试次筛选，再自由截取时间段生成完整分析图表。",
+            10,
+            MUTED,
+        )
+        c.rect(32, 132, 1216, 82, PANEL, BORDER, 4)
+        c.text(54, 143, 150, 24, "当前数据源", 10, MUTED, True)
+        c.text(54, 167, 650, 29, browser.source_summary, 12, TEXT, True)
+        self._light_button(c, 822, 150, 126, 46, "载入项目数据", False, BLUE)
+        self._light_button(c, 958, 150, 126, 46, "导入目录", False, BLUE)
+        self._light_button(c, 1094, 150, 126, 46, "导入试次", False, BLUE)
+        self._hit(822, 150, 126, 46, "analysis-load-project")
+        self._hit(958, 150, 126, 46, "analysis-import-directory")
+        self._hit(1094, 150, 126, 46, "analysis-import-files")
+
+        if not browser.records:
+            self._research_data_empty_state(c)
+            return
+
+        c.rect(32, 230, 1216, 82, PANEL, BORDER, 4)
+        c.text(54, 240, 180, 26, "1  选择动作标签", 12, TEXT, True)
+        counts = {
+            label: sum(record.true_label == label for record in browser.records)
+            for label in browser.labels
+        }
+        for index, label in enumerate(browser.labels[:9]):
+            x = 228 + index * 108
+            selected = label == browser.selected_label
+            c.button(x, 248, 98, 45, f"{label}  {counts[label]}", selected)
+            self._hit(x, 248, 98, 45, f"analysis-label:{label}")
+
+        c.rect(32, 326, 1216, 198, PANEL, BORDER, 4)
+        c.text(54, 338, 250, 27, "2  选择该动作的具体试次", 12, TEXT, True)
+        c.text(
+            895,
+            338,
+            170,
+            27,
+            f"第 {browser.page + 1}/{browser.page_count} 页",
+            10,
+            MUTED,
+            False,
+            Qt.AlignRight,
+        )
+        c.button(1077, 336, 64, 30, "上一页", disabled=browser.page <= 0)
+        c.button(
+            1149,
+            336,
+            64,
+            30,
+            "下一页",
+            disabled=browser.page >= browser.page_count - 1,
+        )
+        if browser.page > 0:
+            self._hit(1077, 336, 64, 30, "analysis-page-previous")
+        if browser.page < browser.page_count - 1:
+            self._hit(1149, 336, 64, 30, "analysis-page-next")
+
+        for index, (record_index, record) in enumerate(browser.visible_records):
+            column, row = index % 3, index // 3
+            x, y = 54 + column * 393, 377 + row * 66
+            selected = record_index == browser.selected_record_index
+            c.rect(
+                x,
+                y,
+                372,
+                56,
+                "#eef4ff" if selected else PANEL_SOFT,
+                BLUE if selected else BORDER,
+                4,
+                2 if selected else 1,
+            )
+            sequence = browser.page * browser.PAGE_SIZE + index + 1
+            identity = record.trial_index or f"{sequence:02d}"
+            short_id = record.trial_id[-28:]
+            c.text(x + 14, y + 4, 338, 25, f"第 {identity} 段 · {short_id}", 10, TEXT, True)
+            c.text(
+                x + 14,
+                y + 29,
+                338,
+                19,
+                f"{record.duration_seconds:.2f} s · {record.sample_rate_hz:g} Hz · "
+                f"{record.channel_count} 通道",
+                9,
+                MUTED,
+            )
+            self._hit(x, y, 372, 56, f"analysis-trial:{record_index}")
+
+        c.rect(32, 540, 1216, 128, PANEL, BORDER, 4)
+        c.text(54, 552, 260, 26, "3  截取时间段并生成报告", 12, TEXT, True)
+        record = browser.selected_record
+        if record is not None:
+            c.text(
+                54,
+                583,
+                690,
+                23,
+                f"已选：{record.true_label} · {record.trial_id}",
+                11,
+                TEXT,
+                True,
+            )
+            c.text(
+                54,
+                610,
+                690,
+                22,
+                f"分析窗口：{browser.window_start_seconds:.2f}–"
+                f"{browser.window_end_seconds:.2f} s（完整试次 {record.duration_seconds:.2f} s）",
+                10,
+                CYAN,
+                True,
+            )
+            if browser.last_report is not None:
+                report = browser.last_report
+                c.text(
+                    54,
+                    637,
+                    690,
+                    20,
+                    f"最近报告：候选 {report.candidate_label} · 分数 {report.confidence:.3f} · "
+                    f"可用通道 {report.usable_channel_count}/{report.total_channel_count}",
+                    9,
+                    GREEN if report.accepted else YELLOW,
+                )
+        self._light_button(c, 786, 574, 132, 54, "设置时间段", False, BLUE)
+        self._light_button(c, 930, 574, 142, 54, "生成完整图表", True, "#2d8a57")
+        self._light_button(
+            c,
+            1084,
+            574,
+            142,
+            54,
+            "查看最近报告",
+            browser.last_report is not None,
+            CYAN,
+        )
+        self._hit(786, 574, 132, 54, "analysis-window")
+        self._hit(930, 574, 142, 54, "analysis-generate")
+        if browser.last_report is not None:
+            self._hit(1084, 574, 142, 54, "analysis-show-report")
+
+    def _research_data_empty_state(self, c: Canvas) -> None:
+        c.rect(32, 230, 1216, 438, PANEL, BORDER, 5)
+        c.text(430, 267, 420, 42, "导入后按三步完成分析", 18, TEXT, True, Qt.AlignCenter)
+        steps = (
+            ("1", "选择动作", "例如起飞、右移或降落"),
+            ("2", "选择具体试次", "同一动作的每一段都可单独选择"),
+            ("3", "截取并生成", "自由设置起止时间，输出六联图"),
+        )
+        for index, (number, title, description) in enumerate(steps):
+            x = 112 + index * 374
+            c.rect(x, 348, 330, 134, PANEL_SOFT, BORDER, 5)
+            c.circle(x + 40, 389, 18, "#e7f1ff", BLUE)
+            c.text(x + 22, 371, 36, 36, number, 11, BLUE, True, Qt.AlignCenter)
+            c.text(x + 72, 360, 226, 38, title, 14, TEXT, True)
+            c.text(x + 72, 400, 226, 44, description, 10, MUTED)
+        c.text(
+            180,
+            518,
+            920,
+            56,
+            "支持项目采集产生的带标签 NPZ：真实标签、原始 EEG、采样率和通道名都会被读取。\n"
+            "生成内容包括原始波形、通道质量表、阈前/陷波后 FFT、滤波子带和六类 FBCCA 分数。",
+            11,
+            MUTED,
+            False,
+            Qt.AlignCenter,
+        )
 
     # ---------- Administrator dashboard ----------
 
