@@ -21,6 +21,7 @@ class RoleCanvasPage(QWidget):
     """Own canvas input/painting and publish semantic actions through a signal."""
 
     action_requested = Signal(str, float, float)
+    show_corner_logout = True
 
     def __init__(self, context: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -48,8 +49,9 @@ class RoleCanvasPage(QWidget):
             canvas = Canvas(painter, self.width(), self.height())
             self._regions = []
             self._render(canvas)
-            canvas.logout()
-            self._hit(1224, 663, 56, 57, "logout")
+            if self.show_corner_logout:
+                canvas.logout_button()
+                self._hit(1154, 674, 101, 34, "logout")
             if self.context._toast:
                 self.context._paint_toast(canvas)
         finally:
@@ -100,6 +102,8 @@ class RoleCanvasPage(QWidget):
 class ResearchPage(ResearchViewMixin, RoleCanvasPage):
     """Research dashboard with an explicit, read-only shell boundary."""
 
+    show_corner_logout = False
+
     def __init__(self, context: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(context, parent)
         self._research_scroll_offset = 0.0
@@ -126,7 +130,14 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
             "范式": RESEARCH_COMBINED_PAGE,
             "算法": RESEARCH_COMBINED_PAGE,
         }.get(self.research_page, self.research_page)
-        if current_page != RESEARCH_COMBINED_PAGE:
+        if current_page == RESEARCH_COMBINED_PAGE:
+            max_scroll = RESEARCH_COMBINED_MAX_SCROLL
+        elif current_page == "数据分析":
+            max_scroll = self._research_data_max_scroll()
+        else:
+            super().wheelEvent(event)
+            return
+        if max_scroll <= 0:
             super().wheelEvent(event)
             return
 
@@ -139,7 +150,7 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
         self._research_scroll_offset = max(
             0.0,
             min(
-                RESEARCH_COMBINED_MAX_SCROLL,
+                max_scroll,
                 self._research_scroll_offset - movement,
             ),
         )

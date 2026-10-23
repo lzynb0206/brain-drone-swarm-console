@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -109,6 +111,25 @@ class StimulusWindowModeTest(unittest.TestCase):
                 window._timer.stop()
                 if isinstance(window, SSVEPStimulusWindow):
                     window._cooldown_timer.stop()
+                window.close()
+
+    def test_each_mode_uses_its_dedicated_stimulus_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            roots = {
+                "experiment": root / "research",
+                "test": root / "test",
+                "control": root / "soldier",
+            }
+            window = SSVEPStimulusWindow(recording_roots=roots, mode="test")
+            try:
+                self.assertEqual(roots["test"].resolve(), window._recorder.root)
+                window.set_mode("control")
+                self.assertEqual(roots["control"].resolve(), window._recorder.root)
+                window.set_mode("experiment")
+                self.assertEqual(roots["experiment"].resolve(), window._recorder.root)
+            finally:
+                window._timer.stop()
                 window.close()
 
     def test_control_mode_flushes_decoder_without_creating_true_label(self) -> None:

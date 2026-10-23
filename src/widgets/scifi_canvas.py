@@ -43,15 +43,14 @@ RESEARCH_RED = QColor("#c43d48")
 # duplicate these values in two modules, which made the clickable regions drift
 # away from the labels whenever one side was adjusted.
 RESEARCH_NAV_ITEMS = (
-    ("采集", 238, 52),
-    ("LSL收集", 290, 72),
-    ("CSV回放", 362, 72),
-    ("范式算法", 434, 72),
-    ("数据采集", 506, 72),
-    ("数据", 578, 52),
-    ("单目标校准", 630, 88),
-    ("SSVEP测试", 718, 80),
-    ("帮助", 798, 52),
+    ("采集", 238, 112),
+    ("LSL收集", 350, 112),
+    ("CSV回放", 462, 112),
+    ("范式算法", 574, 112),
+    ("数据采集", 686, 112),
+    ("数据分析", 798, 112),
+    ("单目标校准", 910, 112),
+    ("SSVEP测试", 1022, 112),
 )
 
 
@@ -185,14 +184,8 @@ class Canvas:
                 self.line(x, 54, x + width, 54, CYAN, 2)
             self.text(x, 1, width, 53, name, 11, TEXT if name == active else MUTED,
                       name == active, Qt.AlignCenter)
-        self.circle(1038, 27, 17, "#ef4d3e")
-        self.text(1023, 10, 30, 34, "⏻", 17, "#ffffff", False, Qt.AlignCenter)
-        self.circle(1086, 27, 17, "#15233e")
-        self.text(1071, 10, 30, 34, "$", 15, TEXT, False, Qt.AlignCenter)
-        self.rect(1118, 10, 34, 34, "#111c31", "#3a4760", 3)
-        self.text(1118, 10, 34, 34, "▥", 13, TEXT, False, Qt.AlignCenter)
-        self.rect(1166, 10, 89, 34, "#111c31", "#3a4760", 3)
-        self.text(1166, 10, 89, 34, "添加标签", 12, TEXT, False, Qt.AlignCenter)
+        self.rect(1154, 10, 101, 34, "#c83d43", "#eb686d", 3)
+        self.text(1154, 10, 101, 34, "退出登录", 12, "#ffffff", True, Qt.AlignCenter)
 
     def chart(
         self, x: float, y: float, w: float, h: float,
@@ -246,10 +239,10 @@ class Canvas:
         self.text(cx - 55, cy - 23, 110, 48, f"{value}%", 28 if not compact else 23, TEXT, True, Qt.AlignCenter)
         self.text(cx - 70, cy + radius - 4, 140, 30, label, 14, TEXT, False, Qt.AlignCenter)
 
-    def logout(self) -> None:
+    def logout_button(self) -> None:
         if self._light_theme:
-            self.circle(1247, 686, 17, RESEARCH_PANEL, RESEARCH_BORDER)
-            self.text(1231, 669, 32, 34, "↪", 18, RESEARCH_MUTED, False, Qt.AlignCenter)
+            self.rect(1154, 674, 101, 34, "#c83d43", "#eb686d", 3)
+            self.text(1154, 674, 101, 34, "退出登录", 12, "#ffffff", True, Qt.AlignCenter)
             return
-        self.circle(1247, 686, 17, "#101d32", "#263855")
-        self.text(1231, 669, 32, 34, "↪", 18, "#6f7e97", False, Qt.AlignCenter)
+        self.rect(1154, 674, 101, 34, "#a92f36", "#d3545a", 3)
+        self.text(1154, 674, 101, 34, "退出登录", 12, "#ffffff", True, Qt.AlignCenter)

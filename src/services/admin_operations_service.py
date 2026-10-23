@@ -14,7 +14,6 @@ class AdminOperationsService:
         self.last_backup = "2026-08-30 22:00"
         self.user_roles = {"张伟": "士兵", "李明": "科研人员", "王强": "管理员"}
         self.self_test_run = False
-        self.layout_mode = "标准布局"
 
     def run_self_test(self) -> str:
         self.self_test_run = True
@@ -39,10 +38,3 @@ class AdminOperationsService:
     def update_user_role(self, username: str, role: str) -> str:
         self.user_roles[username] = role
         return self._record(f"用户 {username} 的角色已修改为 {role}")
-
-    def toggle_layout(self) -> str:
-        self.layout_mode = "专注布局" if self.layout_mode == "标准布局" else "标准布局"
-        return self._record(f"工作台已切换为{self.layout_mode}")
-
-    def workspace_summary(self, loaded_algorithm_count: int) -> str:
-        return self._record(f"工作台状态：{loaded_algorithm_count}个算法已加载")

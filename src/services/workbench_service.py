@@ -21,11 +21,11 @@ class WorkbenchService:
     _RESEARCH_FIELDS = frozenset({
         "paradigm_frequency", "paradigm_type", "stimulus_size", "duty_cycle",
         "algorithm", "algorithm_mode", "loaded_algorithms", "default_algorithm",
-        "data_tab", "selected_session", "log_filter", "marker_count",
+        "data_tab", "selected_session", "log_filter",
         "automatic_experiment_config",
     })
     _ADMIN_FIELDS = frozenset({
-        "storage_percent", "last_backup", "user_roles", "self_test_run", "layout_mode",
+        "storage_percent", "last_backup", "user_roles", "self_test_run",
     })
 
     def __init__(
@@ -108,9 +108,6 @@ class WorkbenchService:
 
     def benchmark_algorithm(self) -> str:
         return self.research.benchmark_algorithm()
-
-    def add_marker(self, label: str = "") -> str:
-        return self.research.add_marker(label)
 
     def generate_dataset(self) -> str:
         return self.research.generate_dataset()
@@ -212,12 +209,6 @@ class WorkbenchService:
 
     def update_user_role(self, username: str, role: str) -> str:
         return self.admin.update_user_role(username, role)
-
-    def toggle_layout(self) -> str:
-        return self.admin.toggle_layout()
-
-    def workspace_summary(self) -> str:
-        return self.admin.workspace_summary(len(self.loaded_algorithms))
 
     def export_workspace_config(self, output_dir: Path | None = None) -> Path:
         return self.exporter.export_workspace_config(output_dir)

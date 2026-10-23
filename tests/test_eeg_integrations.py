@@ -30,6 +30,7 @@ from src.bci.config import (
 from src.domain import EEGFrame, IntentResult
 from src.services import ExperimentRecorder, LSLEEGOutlet, RawEEGCsvRecorder
 from src.workers import EEGWorker
+from src.workers.eeg_worker import NUMERICAL_THREAD_STACK_BYTES
 
 
 class CsvEEGStreamTest(unittest.TestCase):
@@ -204,6 +205,15 @@ class FBCCADecoderTest(unittest.TestCase):
 
 
 class EEGWorkerOnlineResetTest(unittest.TestCase):
+    def test_reserves_enough_thread_stack_for_blas_decoding(self) -> None:
+        class Stream:
+            source_name = "test"
+
+        with tempfile.TemporaryDirectory() as directory:
+            worker = EEGWorker(Stream(), FBCCADecoder(), ExperimentRecorder(directory))
+
+        self.assertEqual(NUMERICAL_THREAD_STACK_BYTES, worker.stackSize())
+
     def test_reset_online_decoding_clears_rolling_window_and_decoder_state(self) -> None:
         class Decoder:
             def __init__(self) -> None:
@@ -227,6 +237,34 @@ class EEGWorkerOnlineResetTest(unittest.TestCase):
         self.assertEqual(0, timestamps.size)
         self.assertEqual(0, pending)
         self.assertEqual(1, decoder.reset_count)
+
+    def test_session_recording_writes_raw_eeg_and_markers_to_dedicated_root(self) -> None:
+        class Stream:
+            source_name = "LSL · test"
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            research_recorder = ExperimentRecorder(root / "research")
+            test_recorder = ExperimentRecorder(root / "ssvep-test")
+            worker = EEGWorker(Stream(), object(), research_recorder)
+            worker.set_experiment_context("S01", "session-test")
+            worker.begin_session_recording(test_recorder)
+            worker.record_experiment_marker("SSVEP_command_test_start", 10.0)
+            worker._collect_continuous(
+                np.ones((8, 25)),
+                np.arange(25, dtype=float) / 250.0,
+                250.0,
+            )
+            worker.end_session_recording()
+
+            test_chunks = list(test_recorder.continuous_dir.rglob("*.npz"))
+            research_chunks = list(research_recorder.continuous_dir.rglob("*.npz"))
+            marker_text = test_recorder.marker_log_path.read_text(encoding="utf-8")
+
+        self.assertEqual(1, len(test_chunks))
+        self.assertEqual([], research_chunks)
+        self.assertIn("SSVEP_command_test_start", marker_text)
+        self.assertIs(research_recorder, worker._current_online_recorder())
 
 
 class ExperimentRecorderTest(unittest.TestCase):

@@ -19,6 +19,9 @@ from src.workers.continuous_eeg_recorder import ContinuousEEGRecorder
 from src.workers.labeled_trial_recorder import LabeledTrialRecorder
 
 
+NUMERICAL_THREAD_STACK_BYTES = 8 * 1024 * 1024
+
+
 class EEGWorker(QThread):
     """Read frames and decode sliding windows outside the Qt UI thread."""
 
@@ -41,9 +44,15 @@ class EEGWorker(QThread):
         parent=None,
     ) -> None:
         super().__init__(parent)
+        # macOS gives a Qt-created worker thread a much smaller stack than the
+        # main Python thread.  NumPy's bundled OpenBLAS can exceed that default
+        # while SciPy filtering/FBCCA enters LAPACK, terminating the process
+        # with SIGBUS instead of raising a catchable Python exception.
+        self.setStackSize(NUMERICAL_THREAD_STACK_BYTES)
         self.stream = stream
         self.decoder = decoder
         self.recorder = recorder
+        self._online_recorder = recorder
         self.window_seconds = float(window_seconds)
         self.decision_step_seconds = float(decision_step_seconds)
         self.experiment_clock = experiment_clock or ExperimentClock()
@@ -55,6 +64,7 @@ class EEGWorker(QThread):
             recorder,
             self.continuous_chunk_saved.emit,
         )
+        self._session_continuous_recorder: ContinuousEEGRecorder | None = None
         self._channel_names: tuple[str, ...] = ()
         self._original_channel_names: tuple[str, ...] = ()
         self._channel_units: tuple[str, ...] = ()
@@ -138,7 +148,7 @@ class EEGWorker(QThread):
         stamp = self.experiment_clock.stamp(timestamp, timestamp_domain)
         subject_id, session_id = self._experiment_context()
         context = dict(metadata or {})
-        self.recorder.record_marker(
+        self._current_online_recorder().record_marker(
             name,
             stamp.lsl_seconds,
             subject_id,
@@ -181,6 +191,32 @@ class EEGWorker(QThread):
 
     def set_continuous_recording(self, enabled: bool) -> None:
         self._continuous_recorder.set_enabled(enabled)
+
+    def begin_session_recording(self, recorder: ExperimentRecorder) -> None:
+        """Route online logs and a raw EEG copy to a purpose-specific folder."""
+
+        with self._state_lock:
+            previous = self._session_continuous_recorder
+            self._online_recorder = recorder
+            self._session_continuous_recorder = ContinuousEEGRecorder(
+                recorder,
+                self.continuous_chunk_saved.emit,
+            )
+            self._session_continuous_recorder.set_enabled(True)
+        if previous is not None:
+            previous.set_enabled(False)
+            previous.flush()
+
+    def end_session_recording(self) -> None:
+        """Finish the purpose-specific raw copy and restore the worker recorder."""
+
+        with self._state_lock:
+            session_recorder = self._session_continuous_recorder
+            self._session_continuous_recorder = None
+            self._online_recorder = self.recorder
+        if session_recorder is not None:
+            session_recorder.set_enabled(False)
+            session_recorder.flush()
 
     def set_paradigm_type(self, paradigm_type: str) -> None:
         self._labeled_trial_recorder.set_paradigm_type(paradigm_type)
@@ -312,7 +348,7 @@ class EEGWorker(QThread):
                 start_time = (datetime.now().astimezone() - timedelta(seconds=self.window_seconds)).isoformat(
                     timespec="milliseconds"
                 )
-                self.recorder.record(
+                self._current_online_recorder().record(
                     result, window, source=self.source_name, subject_id=subject_id,
                     session_id=session_id, start_time=start_time,
                     sample_timestamps=window_timestamps,
@@ -368,12 +404,34 @@ class EEGWorker(QThread):
             original_channel_names=self._original_channel_names,
             channel_units=self._channel_units,
         )
+        with self._state_lock:
+            session_recorder = self._session_continuous_recorder
+        if session_recorder is not None:
+            session_recorder.append(
+                values,
+                timestamps,
+                sample_rate_hz,
+                source=self.source_name,
+                subject_id=subject_id,
+                session_id=session_id,
+                channel_names=self._channel_names,
+                original_channel_names=self._original_channel_names,
+                channel_units=self._channel_units,
+            )
 
     def _flush_continuous(self, sample_rate_hz: float) -> None:
         fallback_rate = float(
             sample_rate_hz or getattr(self.stream, "sample_rate_hz", 0.0) or 0.0
         )
         self._continuous_recorder.flush(fallback_rate)
+        with self._state_lock:
+            session_recorder = self._session_continuous_recorder
+        if session_recorder is not None:
+            session_recorder.flush(fallback_rate)
+
+    def _current_online_recorder(self) -> ExperimentRecorder:
+        with self._state_lock:
+            return self._online_recorder
 
     def _collect_labeled_trial(
         self,

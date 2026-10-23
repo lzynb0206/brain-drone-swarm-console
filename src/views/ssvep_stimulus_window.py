@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +13,9 @@ from PySide6.QtGui import QColor, QFont, QImage, QKeyEvent, QPainter, QPen
 from src.bci.config import (
     COMMANDS,
     FBCCA_IDLE_CALIBRATION_SECONDS,
-    STIMULUS_RECORDING_ROOT,
+    RESEARCH_DATA_ROOT,
+    SOLDIER_SSVEP_DATA_ROOT,
+    SSVEP_TEST_DATA_ROOT,
     TARGET_FREQUENCIES_HZ,
     WINDOW_SECONDS,
 )
@@ -52,11 +55,24 @@ class SSVEPStimulusWindow(StimulusCanvas):
 
     def __init__(
         self,
-        recording_root: Path | str = STIMULUS_RECORDING_ROOT,
+        recording_root: Path | str | None = None,
+        recording_roots: Mapping[str, Path | str] | None = None,
         parent=None,
         mode: str = "experiment",
     ) -> None:
         super().__init__(parent, Qt.Window)
+        if recording_root is not None and recording_roots is not None:
+            raise ValueError("use recording_root or recording_roots, not both")
+        default_roots = {
+            "experiment": RESEARCH_DATA_ROOT / "stimulus_logs",
+            "test": SSVEP_TEST_DATA_ROOT / "stimulus_logs",
+            "control": SOLDIER_SSVEP_DATA_ROOT / "stimulus_logs",
+        }
+        if recording_root is not None:
+            default_roots = {key: Path(recording_root) for key in default_roots}
+        elif recording_roots is not None:
+            default_roots.update({key: Path(value) for key, value in recording_roots.items()})
+        self._recording_roots = default_roots
         self.setStyleSheet(f"background: {SSVEP_CANVAS_BACKGROUND};")
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.BlankCursor)
@@ -64,7 +80,7 @@ class SSVEPStimulusWindow(StimulusCanvas):
             StimulusTarget(label, float(frequency))
             for label, frequency in zip(COMMANDS, TARGET_FREQUENCIES_HZ)
         )
-        self._recorder = StimulusSessionRecorder(recording_root)
+        self._recorder: StimulusSessionRecorder | None = None
         self._clock = QElapsedTimer()
         self._timer = StimulusFrameDriver(self)
         self._timer.timeout.connect(self.update)
@@ -113,6 +129,7 @@ class SSVEPStimulusWindow(StimulusCanvas):
         if self._running and normalized != self._mode:
             self.end_trial()
         self._mode = normalized
+        self._recorder = StimulusSessionRecorder(self._recording_roots[normalized])
         self._selected_label = (
             "在线控制" if self.control_mode else
             "指令测试" if self.test_mode else
@@ -258,6 +275,8 @@ class SSVEPStimulusWindow(StimulusCanvas):
         if self.control_mode:
             self.control_stopped.emit()
         try:
+            if self._recorder is None:
+                raise RuntimeError("刺激记录目录尚未初始化")
             payload = self._recorder.save(
                 self.targets,
                 self._frame_times,

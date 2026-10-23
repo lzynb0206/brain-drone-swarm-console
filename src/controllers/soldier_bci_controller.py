@@ -129,6 +129,8 @@ class SoldierBCIController:
         )
         self.bridge_worker = bridge
         self.host._build_eeg_worker(replace=True)
+        if self.host._pipeline_worker is not None:
+            self.host._pipeline_worker.set_continuous_recording(True)
         bridge.start()
         self.host._start_eeg_pipeline()
         self.host._notify("正在一键启动：蓝牙采集 → LSL obci_eeg1 → FBCCA…")
@@ -178,6 +180,8 @@ class SoldierBCIController:
         worker = self.host._pipeline_worker
         source = worker.source_name if worker is not None else ""
         self.host.actions.set_bci_control_enabled(False, source)
+        if worker is not None:
+            worker.set_continuous_recording(False)
         self.reset_state()
         self.host._disconnect_eeg_pipeline(stop_csv_recording=True)
         self.host._eeg_status = message

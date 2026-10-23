@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 
 from src.app import CommandConsoleWindow
 from src.container import create_demo_container
+from src.domain import Role
 
 
 class LoginFlowTest(unittest.TestCase):
@@ -38,6 +40,38 @@ class LoginFlowTest(unittest.TestCase):
         login._attempt_login()
         self.assertIn("请输入", login.error_label.text())
         self.assertIs(self.window.pages.currentWidget(), login)
+
+    def test_research_shortcut_enters_research_workspace_without_password(self) -> None:
+        login = self.window.login_view
+        login.username_input.setText("research")
+        login.password_input.clear()
+
+        with patch.object(login.auth_service, "login") as backend_login:
+            login._attempt_login()
+
+        backend_login.assert_not_called()
+        self.assertIs(self.window.pages.currentWidget(), self.window.main_view)
+        self.assertEqual(Role.RESEARCHER, self.window.main_view.user.role)
+        self.assertIs(
+            self.window.main_view._role_stack.currentWidget(),
+            self.window.main_view.research_widget,
+        )
+
+    def test_soldier_shortcut_enters_soldier_workspace_without_password(self) -> None:
+        login = self.window.login_view
+        login.username_input.setText("soldier")
+        login.password_input.clear()
+
+        with patch.object(login.auth_service, "login") as backend_login:
+            login._submit_username()
+
+        backend_login.assert_not_called()
+        self.assertIs(self.window.pages.currentWidget(), self.window.main_view)
+        self.assertEqual(Role.SOLDIER, self.window.main_view.user.role)
+        self.assertIs(
+            self.window.main_view._role_stack.currentWidget(),
+            self.window.main_view.soldier_widget,
+        )
 
 
 if __name__ == "__main__":

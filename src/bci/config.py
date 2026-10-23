@@ -85,7 +85,10 @@ FBCCA_IDLE_CALIBRATION_SECONDS = float(
 # mode and must never start looping merely because a bundled sample exists.
 EEG_BACKEND = os.getenv("BDS_EEG_BACKEND", "lsl").strip().lower()
 EEG_CSV_PATH = Path(
-    os.getenv("BDS_EEG_CSV_PATH", str(PROJECT_ROOT / "data" / "samples" / "start-1.csv"))
+    os.getenv(
+        "BDS_EEG_CSV_PATH",
+        str(PROJECT_ROOT / "data" / "research_experiments" / "samples" / "start-1.csv"),
+    )
 ).expanduser()
 LSL_STREAM_NAME = os.getenv("BDS_LSL_STREAM_NAME", "obci_eeg1")
 LSL_STREAM_TYPE = os.getenv("BDS_LSL_STREAM_TYPE", "EEG")
@@ -97,5 +100,10 @@ SOLDIER_EEG_PORT = os.getenv("BDS_SOLDIER_EEG_PORT", "").strip()
 DATA_ROOT = Path(
     os.getenv("BDS_EEG_DATA_ROOT", str(PROJECT_ROOT / "data"))
 ).expanduser()
-RECORDING_ROOT = DATA_ROOT
-STIMULUS_RECORDING_ROOT = DATA_ROOT / "stimulus_logs"
+RESEARCH_DATA_ROOT = DATA_ROOT / "research_experiments"
+SSVEP_TEST_DATA_ROOT = DATA_ROOT / "ssvep_realtime_tests"
+SOLDIER_SSVEP_DATA_ROOT = DATA_ROOT / "soldier_ssvep_flights"
+
+# Compatibility name used by the general experiment recorder.  Every runtime
+# writer must stay inside one of the three purpose-based roots above.
+RECORDING_ROOT = RESEARCH_DATA_ROOT

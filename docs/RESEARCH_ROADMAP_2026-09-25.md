@@ -37,7 +37,11 @@
 | `src/services/experiment_recorder.py` 保存原始 EEG、标签、识别、事件与命令日志 | 已有研究记录基础 | 增加逐机遥测、候选分配、重分配、询问、失败、终态、求解耗时与场景版本 |
 | FB-EEGNet 脚本用 `StratifiedShuffleSplit` 随机按试次划分 | 可用于开发期训练 | 不足以支持跨会话/跨受试者泛化；需要独立训练、校准、验证、最终测试切分 |
 
-本次默认数据位置存在 `data/samples/start-1.csv`，但不存在 `data/sessions/raw_trials_index.csv` 和匹配的 FB-EEGNet 权重、元数据。这个观察只说明本仓库默认路径中的证据，不说明其他同学没有数据。传承工程描述了自制 OpenBCI 干电极设备，但不能据此认定目前实验设备就是该型号。
+当时的旧数据结构存在 `data/samples/start-1.csv`，但不存在旧路径
+`data/sessions/raw_trials_index.csv` 和匹配的 FB-EEGNet 权重、元数据；旧数据现已归档到
+桌面备份，新科研数据统一写入 `data/research_experiments/`。这个观察只说明本机项目中的
+证据，不说明其他同学没有数据。传承工程描述了自制 OpenBCI 干电极设备，但不能据此认定
+目前实验设备就是该型号。
 
 单机功能已由用户确认可用，应保留并接入新的任务执行器，不需要推倒重做。当前认证、权限和后台不是论文瓶颈，不建议继续扩展它们来替代算法与实验工作。
 

@@ -43,7 +43,7 @@
 - 生产级 RBAC、审计、服务端身份授权和真实设备安全仲裁。
 
 正常启动默认等待实时 `LSL · obci_eeg1`，不会自动播放任何 CSV。仓库不再内置
-`data/samples/start-1.csv`；需要回放时在“CSV回放”页主动导入已有 CSV，或显式设置
+`data/research_experiments/samples/start-1.csv`；需要回放时在“CSV回放”页主动导入已有 CSV，或显式设置
 `BDS_EEG_CSV_PATH`。CSV 回放不会出现在实时“采集”链路，也不能驱动实机。蜂群后端
 默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
 
@@ -119,6 +119,10 @@ python -m pip install -r requirements.txt
 ```bash
 python main.py
 ```
+
+登录页保留两个仅用于本机工作台切换的免密快捷账号：输入 `research` 后点击登录或按回车，
+直接进入科研页面；输入 `soldier` 后点击登录或按回车，直接进入士兵页面。这两个入口不会请求
+认证后端；其他用户名仍必须输入密码并按原流程通过 Spring Boot/PostgreSQL 认证。
 
 ### 离线演示模式
 
@@ -230,7 +234,7 @@ Hover 使用 Crazyflie 官方 Hover setpoint：持续发送机体系 `vx/vy`、�
 ```bash
 python -m pip install -r requirements-ml.txt
 python -m src.ml.train_transformer_ssvep \
-  --index data/sessions/raw_trials_index.csv \
+  --index data/research_experiments/sessions/raw_trials_index.csv \
   --split-mode session
 ```
 
@@ -244,7 +248,7 @@ python -m src.ml.train_transformer_ssvep \
 
 ```bash
 python -m pip install -r requirements-ml.txt
-python -m src.ml.train_fb_eegnet --index data/sessions/raw_trials_index.csv
+python -m src.ml.train_fb_eegnet --index data/research_experiments/sessions/raw_trials_index.csv
 BDS_FB_EEGNET_ENABLED=true python main.py
 ```
 
@@ -264,38 +268,36 @@ BDS_FB_EEGNET_ENABLED=true python main.py
 ## 实验数据保存与查找
 
 默认数据根目录是 `data/`，可通过环境变量 `BDS_EEG_DATA_ROOT` 改到独立硬盘或其他
-受控目录。原始 EEG 只写本地文件，不写入 PostgreSQL。CSV 文件会在收到第一帧数据时
-创建，因此只点击开始、但没有收到 EEG 数据时不会产生空文件。
+受控目录。根目录固定分为 `research_experiments/`、`ssvep_realtime_tests/` 和
+`soldier_ssvep_flights/`，不再按文件类型把同一用途的数据散落到多个一级目录。
+原始 EEG 只写本地文件，不写入 PostgreSQL。CSV 文件会在收到第一帧数据时创建，因此
+只点击开始、但没有收到 EEG 数据时不会产生空文件。
 
 ### 按界面操作查找数据
 
 | 界面操作 | 主要输出 | 同时产生的记录 |
 | --- | --- | --- |
-| “采集”页开始采集/开始 CSV 记录 | `data/csv_sessions/lsl_raw_*.csv`；同名 `.json` 保存会话、被试、来源、采样率和通道信息 | 开启连续记录时，`data/continuous_raw/<session_id>/` 保存 10 秒 NPZ 分块，索引写入 `data/sessions/continuous_raw_index.csv` |
-| “LSL收集”页开始收集 | `data/csv_sessions/lsl_raw_*.csv` 和同名 `.json` | 保留接收到的 LSL 时间戳；暂停波形只停止绘图，不停止 CSV 写入 |
-| 自动 SSVEP/MI 实验 | `data/raw_trials/<run_id>-trial-*.npz` | `data/sessions/raw_trials_index.csv` 保存试次总索引，`event_markers.jsonl` 保存实验阶段与时间标记 |
-| “单目标校准”或六目标引导校准 | `data/single_target_calibration/<run_id>/` | 每轮原始 EEG、清单和校准报告均放在该次运行目录中；训练后的模型放在项目根目录 `models/`，不与原始数据混放 |
-| 在线识别与实机命令 | `data/recognition_logs/` | `recognition_log.csv` 保存紧凑识别摘要，达到 16 MiB 后轮转；`command_execution_log.csv` 保存命令审计 |
-| SSVEP 刺激窗口 | `data/stimulus_logs/` | 保存刺激帧时间、实测频率、频谱 `.npz/.png` 和开始/停止标记，不是 EEG 原始波形 |
-| “数据”页试次分析 | `data/exports/trial_analysis/<真实标签>/` | 每次生成一张六联图 PNG、同名指标 JSON 和 `_channels.csv` 通道质量表；导入源文件保持只读 |
-| 其他数据导出 | `data/exports/` | 只在用户执行导出时写入 |
+| “采集”页、LSL 收集、自动实验、单目标校准 | `data/research_experiments/` | CSV、带标签 NPZ、连续原始 EEG、会话索引、校准与分析结果均归入科研目录 |
+| 科研界面“SSVEP测试” | `data/ssvep_realtime_tests/` | 自动保存测试期间的连续原始 EEG、识别日志、事件标记、刺激时序和频谱 |
+| 士兵页面实机 SSVEP | `data/soldier_ssvep_flights/` | 自动保存连续原始 EEG、识别日志、刺激时序、飞行命令和执行回执 |
+| “数据分析”页试次分析 | `data/research_experiments/exports/trial_analysis/<真实标签>/` | 六联分析图只在界面内显示；磁盘仅保存指标 JSON 和 `_channels.csv` 通道质量表，导入源文件保持只读 |
 
-在“数据”页可以直接点击“载入项目数据”，也可以导入任意包含带标签 NPZ 的目录或选择多个
+在“数据分析”页可以直接点击“载入项目数据”，也可以导入任意包含带标签 NPZ 的目录或选择多个
 NPZ 文件。导入后先选“起飞/右移”等真实标签，再选择该标签下的具体第几段试次；“设置时间段”
-可在完整试次内自由设置开始与结束秒数。点击“生成完整图表”后会打开可滚动的大图预览，原图、
-JSON 和 CSV 均保存在上表所列目录中，不会覆盖或修改原始 EEG。
+可在完整试次内自由设置开始与结束秒数。点击“在本页显示图表”后，原来的六联图按大尺寸嵌入
+当前页面，可用滚轮向下完整查看；程序不再生成 PNG，JSON 和 CSV 仍保存在上表所列目录中，
+不会覆盖或修改原始 EEG。
 
-`data/analysis/` 是离线分析报告、预测表和研究阶段模型的工作区，不是运行时采集入口。
-同一次自动实验会同时写入 `raw_trials/`、`sessions/`、`stimulus_logs/`，运行识别时还会写
-`recognition_logs/`；这些目录按“数据用途”划分，因此不要只靠文件夹名判断是否属于同一场
-实验，应以 `session_id` / `run_id` 和 `data/sessions/raw_trials_index.csv` 关联。
+离线分析报告统一放在 `data/research_experiments/analysis/`。每个一级目录内部仍用
+`raw_trials/`、`continuous_raw/`、`sessions/`、`recognition_logs/`、`stimulus_logs/` 和
+`exports/` 区分文件类型，并以 `session_id` / `run_id` 关联同一次运行。
 
 查找一次实验时，建议按以下顺序：
 
-1. 先在 `data/sessions/` 找对应的会话 JSON 或 `raw_trials_index.csv`。
-2. 用相同的 `session_id` / `run_id` 到 `raw_trials/` 或 `single_target_calibration/` 找原始 EEG。
-3. 需要排查刺激时序和识别结果时，再查看 `stimulus_logs/` 与 `recognition_logs/`。
-4. 完整连续波形优先查看 `csv_sessions/`；`analysis/` 只用于离线研究结果。
+1. 先按用途选择科研、实时测试或士兵实机目录。
+2. 在该目录的 `sessions/` 找对应会话索引，再用同一 `session_id` / `run_id` 查原始 EEG。
+3. 刺激时序和识别结果分别查看同一用途目录中的 `stimulus_logs/` 与 `recognition_logs/`。
+4. 科研 CSV 和离线分析只放在 `research_experiments/csv_sessions/` 与 `analysis/`。
 
 大部分运行时实验目录已被 `.gitignore` 排除。Git 不负责实验数据备份，重新克隆仓库不会
 恢复本机采集记录；正式实验应按被试与会话另行备份，并遵循知情同意和数据脱敏要求。
@@ -360,7 +362,7 @@ brain-drone-swarm-console/
 每个图卷积层独立加载并微调预训练图嵌入、KL 标签平滑和 256 批大小均按公开实现移植；
 公开仓库没有提供的“原始 SSVEP → 节点特征与连接图”仍属于本项目的任务适配。历史105段
 数据固定使用第1–10轮训练、第11–15轮测试，并同时报告普通 GCN 基线；处理后 HDF5、逐
-试次预测和报告写入 `data/analysis/gcd_ssvep_8ch_105/`。这是离线研究流程，不会自动替换
+试次预测和报告写入 `data/research_experiments/analysis/gcd_ssvep_8ch_105/`。这是离线研究流程，不会自动替换
 实时 FBCCA 或取得实机控制资格。
 
 ### Crazyflie 模块
@@ -391,8 +393,8 @@ src/services/
 
 当前保留从同一组 60 轮个人校准数据生成的 4 通道和 8 通道实验模型：
 `models/personal_template_ssvep_experimental.npz`、
-`models/personal_template_ssvep_experimental_8ch.npz` 及各自 metadata；来源数据仍在本机
-`data/single_target_calibration/single-20261018-210353-640369/`。两者均未获得
+`models/personal_template_ssvep_experimental_8ch.npz` 及各自 metadata；旧来源数据已归档到桌面
+`脑控无人机历史实验数据备份-2026-10-22/single_target_calibration/`。两者均未获得
 `production_approved`，只能用于科研验证，不能直接驱动实机。
 
 ## 可参考的开源项目

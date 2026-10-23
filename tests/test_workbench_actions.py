@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QImage, QPainter, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 
@@ -333,6 +333,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
     def test_research_navigation_uses_one_contiguous_layout_grid(self) -> None:
         for current, following in zip(RESEARCH_NAV_ITEMS, RESEARCH_NAV_ITEMS[1:]):
             self.assertEqual(current[1] + current[2], following[1])
+        self.assertEqual(1, len({width for _name, _x, width in RESEARCH_NAV_ITEMS}))
 
     def test_research_navigation_exposes_new_workspaces(self) -> None:
         names = [name for name, _x, _width in RESEARCH_NAV_ITEMS]
@@ -340,11 +341,23 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertIn("CSV回放", names)
         self.assertIn("范式算法", names)
         self.assertIn("数据采集", names)
+        self.assertIn("数据分析", names)
+        self.assertNotIn("数据", names)
+        self.assertNotIn("帮助", names)
         self.assertNotIn("控制", names)
         self.assertNotIn("映射", names)
         self.assertNotIn("实验", names)
         self.assertNotIn("范式", names)
         self.assertNotIn("算法", names)
+
+    def test_research_header_only_keeps_explicit_logout_action(self) -> None:
+        actions = self._render_page(self.view.research_widget, "_paint_research")
+
+        self.assertIn("logout", actions)
+        self.assertNotIn("workspace-summary", actions)
+        self.assertNotIn("workspace-layout", actions)
+        self.assertNotIn("marker-add", actions)
+        self.assertFalse(self.view.research_widget.show_corner_logout)
 
     def test_research_workspace_uses_light_palette(self) -> None:
         self.view.research_page = "范式算法"
@@ -405,7 +418,10 @@ class MainViewActionRoutingTest(unittest.TestCase):
                 channel_names=np.asarray(("O1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "P4")),
             )
             self.view.trial_analysis.load_source(root)
+            self.view.trial_analysis.service.output_root = root / "exports"
+            self.view.trial_analysis.generate_report()
             actions = self._render_page(self.view.research_widget, "_research_data")
+            generated_pngs = list((root / "exports").rglob("*.png"))
 
         self.assertEqual("起飞", self.view.trial_analysis.selected_label)
         self.assertEqual(0.8, self.view.trial_analysis.window_start_seconds)
@@ -414,6 +430,21 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertIn("analysis-trial:0", actions)
         self.assertIn("analysis-window", actions)
         self.assertIn("analysis-generate", actions)
+        self.assertNotIn("analysis-show-report", actions)
+        self.assertIsNotNone(self.view.trial_analysis.report_pixmap)
+        self.assertEqual([], generated_pngs)
+
+    def test_inline_data_analysis_report_scrolls_inside_research_page(self) -> None:
+        self.view.research_page = "数据分析"
+        self.view.trial_analysis.report_pixmap = QPixmap(1800, 1600)
+        event = MagicMock()
+        event.pixelDelta.return_value = QPoint(0, 0)
+        event.angleDelta.return_value = QPoint(0, -120)
+
+        self.view.research_widget.wheelEvent(event)
+
+        self.assertEqual(72.0, self.view.research_widget.research_scroll_offset)
+        event.accept.assert_called_once()
 
     def test_acquisition_setup_keeps_primary_actions_available(self) -> None:
         self.view.acquisition_stage = "setup"

@@ -1,7 +1,7 @@
 """Train and evaluate FB-EEGNet from ExperimentRecorder raw trials.
 
 Example:
-    python -m src.ml.train_fb_eegnet --index data/sessions/raw_trials_index.csv
+    python -m src.ml.train_fb_eegnet --index data/research_experiments/sessions/raw_trials_index.csv
 """
 
 from __future__ import annotations
@@ -204,7 +204,11 @@ def train(args) -> dict[str, object]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="使用真实带标签 EEG 训练 FB-EEGNet")
-    parser.add_argument("--index", type=Path, default=Path("data/sessions/raw_trials_index.csv"))
+    parser.add_argument(
+        "--index",
+        type=Path,
+        default=Path("data/research_experiments/sessions/raw_trials_index.csv"),
+    )
     parser.add_argument("--model-out", type=Path, default=Path("models/fb_eegnet_fusion.pt"))
     parser.add_argument("--metadata-out", type=Path, default=Path("models/fb_eegnet_metadata.json"))
     parser.add_argument("--sample-rate", type=float, default=250.0)

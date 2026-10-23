@@ -1,7 +1,7 @@
 {
   "model_version": "personal_template_ssvep_v5",
   "algorithm": "experimental_kernel_trial_retrieval_with_soft_fbcca_fusion",
-  "source_run": "/Users/geniusalu/Documents/brain-drone-swarm-console/data/single_target_calibration/single-20261018-210353-640369",
+  "source_run": "/Users/geniusalu/Desktop/脑控无人机历史实验数据备份-2026-10-22/single_target_calibration/single-20261018-210353-640369",
   "model_path": "/Users/geniusalu/Documents/brain-drone-swarm-console/models/personal_template_ssvep_experimental.npz",
   "labels": [
     "起飞",

@@ -24,7 +24,6 @@ class ResearchWorkbenchService:
         self.data_tab = "标签管理"
         self.selected_session = 2
         self.log_filter = "INFO"
-        self.marker_count = 0
         self.automatic_experiment_config = AutomaticExperimentConfig()
 
     def apply_paradigm(self) -> str:
@@ -71,11 +70,6 @@ class ResearchWorkbenchService:
                 "Transformer基准应按会话划分，并报告准确率、空闲误触发率和触发延迟"
             )
         return self._record("FBCCA 为无训练解码器；请使用同一批带标签试次作为基线")
-
-    def add_marker(self, label: str = "") -> str:
-        self.marker_count += 1
-        suffix = f"：{label}" if label else ""
-        return self._record(f"下一完整 EEG 试次已标注{suffix}")
 
     def generate_dataset(self) -> str:
         return self._record("当前阶段保存原始带标签试次，尚未执行训练/验证集划分")

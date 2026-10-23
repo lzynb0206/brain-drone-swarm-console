@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.ports import AuthError
-from src.domain import Role
+from src.domain import Role, User
 from src.services.auth_service import AuthService
 
 
@@ -34,6 +34,14 @@ ROLE_CHOICES = (
     ("系统管理员", Role.ADMIN),
     ("指挥官", Role.COMMANDER),
 )
+
+# Explicit local entry points requested for the two day-to-day workspaces.
+# Keep this list narrow: every other account still uses the configured auth
+# gateway and therefore continues to require its normal password.
+PASSWORDLESS_LOCAL_ACCOUNTS = {
+    "research": ("科研人员", Role.RESEARCHER),
+    "soldier": ("作战操作员", Role.SOLDIER),
+}
 
 
 class AuthTaskSignals(QObject):
@@ -156,8 +164,8 @@ class LoginView(BackdropWidget):
         self.setObjectName("loginRoot")
         self._build_ui()
         if self.auth_service.is_remote:
-            self.username_label.setText("邮箱")
-            self.username_input.setPlaceholderText("请输入系统注册邮箱")
+            self.username_label.setText("账号")
+            self.username_input.setPlaceholderText("注册邮箱，或 research / soldier")
         QTimer.singleShot(100, self.username_input.setFocus)
 
     def _build_ui(self) -> None:
@@ -233,7 +241,7 @@ class LoginView(BackdropWidget):
         version.setFixedHeight(24)
         root.addWidget(version)
 
-        self.username_input.returnPressed.connect(self.password_input.setFocus)
+        self.username_input.returnPressed.connect(self._submit_username)
         self.password_input.returnPressed.connect(self._attempt_login)
         self.username_input.textChanged.connect(self._clear_error)
         self.password_input.textChanged.connect(self._clear_error)
@@ -261,9 +269,15 @@ class LoginView(BackdropWidget):
         return field
 
     def _attempt_login(self) -> None:
-        username = self.username_input.text()
+        username = self.username_input.text().strip()
+        local_user = self._passwordless_local_user(username)
+        if local_user is not None:
+            self._clear_error()
+            self.login_succeeded.emit(local_user)
+            return
+
         password = self.password_input.text()
-        if not username.strip() or not password:
+        if not username or not password:
             self.error_label.setText("请输入用户名和密码")
             return
         # UI 只调用 AuthService。默认容器连接本机 Spring Boot 后端，
@@ -272,6 +286,29 @@ class LoginView(BackdropWidget):
             lambda: self.auth_service.login(username, password),
             self._login_completed,
             "登录中…",
+        )
+
+    def _submit_username(self) -> None:
+        """Enter a local workspace immediately or continue to the password."""
+
+        username = self.username_input.text().strip()
+        if self._passwordless_local_user(username) is not None:
+            self._attempt_login()
+            return
+        self.password_input.setFocus()
+
+    @staticmethod
+    def _passwordless_local_user(username: str) -> User | None:
+        account = PASSWORDLESS_LOCAL_ACCOUNTS.get(username.casefold())
+        if account is None:
+            return None
+        display_name, role = account
+        normalized_username = username.casefold()
+        return User(
+            normalized_username,
+            display_name,
+            role,
+            uid=f"local-{normalized_username}",
         )
 
     def _login_completed(self, user) -> None:

@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, Slot
-from PySide6.QtWidgets import QInputDialog
-
-from src.bci.config import MI_TRUE_LABELS, TRUE_LABELS
 
 
 class MainActionRouter(QObject):
@@ -66,7 +63,7 @@ class MainActionRouter(QObject):
             if view.actions.paradigm_type == "SSVEP":
                 view._open_ssvep_stimulus()
             else:
-                view._notify("MI 采集模式已启用：请用右上角“添加标签”记录下一段 4 秒运动想象 EEG")
+                view._notify("MI 参数预览已启用；当前版本未开放手动带标签采集")
         elif action == "ssvep-command-test":
             view._open_ssvep_test()
         elif action == "automatic-experiment-config":
@@ -158,8 +155,6 @@ class MainActionRouter(QObject):
             view.trial_analysis.configure_window()
         elif action == "analysis-generate":
             view.trial_analysis.generate_report()
-        elif action == "analysis-show-report":
-            view.trial_analysis.show_last_report()
         elif action.startswith("data-tab:"):
             view.actions.data_tab = action.split(":", 1)[1]
             if view.actions.data_tab == "数据集生成":
@@ -169,17 +164,6 @@ class MainActionRouter(QObject):
         elif action.startswith("data-session:"):
             view.actions.selected_session = int(action.rsplit(":", 1)[1])
             view.update()
-        elif action == "marker-add":
-            if view._pipeline_worker is None or not view._pipeline_worker.isRunning():
-                view._notify("EEG 采集未运行，无法标注试次")
-                return
-            labels = MI_TRUE_LABELS if view.actions.paradigm_type != "SSVEP" else TRUE_LABELS
-            label, ok = QInputDialog.getItem(
-                self, "标注下一次 EEG 试次", "真实标签", list(labels), 0, False,
-            )
-            if ok:
-                view._pipeline_worker.capture_next_trial(label)
-                view._notify(view.actions.add_marker(label))
         elif action.startswith("log-filter:"):
             view.actions.log_filter = action.split(":", 1)[1]
             view.update()
@@ -249,12 +233,6 @@ class MainActionRouter(QObject):
         elif action == "workspace-export":
             path = view.actions.export_workspace_config()
             view._notify(f"配置已导出：{path}")
-        elif action == "workspace-summary":
-            view._notify(view.actions.workspace_summary())
-        elif action == "workspace-layout":
-            view._notify(view.actions.toggle_layout())
-        elif action == "workspace-help":
-            view._notify("操作提示：选择模块后点击控件；所有结果会在底部提示")
 
 
 __all__ = ["MainActionRouter"]

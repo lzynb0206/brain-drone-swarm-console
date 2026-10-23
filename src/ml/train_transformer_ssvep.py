@@ -3,7 +3,7 @@
 Production/cross-session evaluation (default)::
 
     python -m src.ml.train_transformer_ssvep \
-      --index data/sessions/raw_trials_index.csv --split-mode session
+      --index data/research_experiments/sessions/raw_trials_index.csv --split-mode session
 
 For a small pipeline smoke test only, ``--split-mode stratified`` permits a
 within-session trial split.  It must not be reported as cross-session evidence.
@@ -425,7 +425,11 @@ def train(args) -> dict[str, object]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="训练论文适配版 Transformer-SSVEP")
-    parser.add_argument("--index", type=Path, default=Path("data/sessions/raw_trials_index.csv"))
+    parser.add_argument(
+        "--index",
+        type=Path,
+        default=Path("data/research_experiments/sessions/raw_trials_index.csv"),
+    )
     parser.add_argument("--model-out", type=Path, default=Path("models/transformer_ssvep.pt"))
     parser.add_argument(
         "--metadata-out", type=Path, default=Path("models/transformer_ssvep_metadata.json")

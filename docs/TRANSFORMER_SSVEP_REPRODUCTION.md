@@ -42,7 +42,8 @@ SSVEP 是视觉刺激范式，Transformer 只替换 FBCCA 所在的解码环节�
 ## 采集要求
 
 必须采集七类：`空闲、起飞、前进、后退、左移、右移、降落`。试次文件默认位于
-`data/raw_trials/`，索引位于 `data/sessions/raw_trials_index.csv`。
+`data/research_experiments/raw_trials/`，索引位于
+`data/research_experiments/sessions/raw_trials_index.csv`。
 
 正式数据至少需要两个具有不同 `session_id` 的会话。训练脚本默认按完整会话分组，
 同一会话不会同时落入训练集和验证集。`--split-mode stratified` 只用于少量数据的
@@ -79,7 +80,7 @@ repetition、retry、seed 以及 cue/stimulus/analysis/rest 时间。若 LSL 只
 ```bash
 python -m pip install -r requirements-ml.txt
 python -m src.ml.train_transformer_ssvep \
-  --index data/sessions/raw_trials_index.csv \
+  --index data/research_experiments/sessions/raw_trials_index.csv \
   --split-mode session
 ```
 

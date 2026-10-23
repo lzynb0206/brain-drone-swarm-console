@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import deque
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -14,6 +13,7 @@ from PySide6.QtWidgets import QStackedWidget, QWidget
 from src.bci.preprocessing import assess_signal_quality
 from src.bci.config import (
     DECISION_STEP_SECONDS,
+    RESEARCH_DATA_ROOT,
     SSVEP_CHANNEL_NAMES,
     WINDOW_SECONDS,
 )
@@ -63,6 +63,8 @@ class MainView(
         eeg_stream: EEGStream | None = None,
         intent_decoder: IntentDecoder | None = None,
         experiment_recorder: ExperimentRecorder | None = None,
+        ssvep_test_recorder: ExperimentRecorder | None = None,
+        soldier_ssvep_recorder: ExperimentRecorder | None = None,
         swarm_gateway: SwarmGateway | None = None,
         system_monitor: SystemMonitor | None = None,
         engineer_data_provider: EngineerDataProvider | None = None,
@@ -73,10 +75,16 @@ class MainView(
         self.eeg_stream = eeg_stream
         self.intent_decoder = intent_decoder
         self.experiment_recorder = experiment_recorder
+        self.ssvep_test_recorder = ssvep_test_recorder
+        self.soldier_ssvep_recorder = soldier_ssvep_recorder
         self.swarm_gateway = swarm_gateway
         self.system_monitor = system_monitor
         self.engineer_data_provider = engineer_data_provider
-        self.actions = WorkbenchService(swarm_gateway, system_monitor, experiment_recorder)
+        self.actions = WorkbenchService(
+            swarm_gateway,
+            system_monitor,
+            soldier_ssvep_recorder or experiment_recorder,
+        )
         active_decoder = str(getattr(intent_decoder, "active_name", "")).strip()
         if active_decoder:
             self.actions.algorithm = active_decoder
@@ -115,7 +123,7 @@ class MainView(
         csv_root = (
             experiment_recorder.root / "csv_sessions"
             if experiment_recorder is not None
-            else Path.cwd() / "data" / "recordings" / "csv_sessions"
+            else RESEARCH_DATA_ROOT / "csv_sessions"
         )
         self.csv_replay = CSVReplayController(eeg_stream, self)
         self.acquisition = EEGAcquisitionController(
@@ -132,7 +140,7 @@ class MainView(
         analysis_root = (
             experiment_recorder.export_dir / "trial_analysis"
             if experiment_recorder is not None
-            else Path.cwd() / "data" / "exports" / "trial_analysis"
+            else RESEARCH_DATA_ROOT / "exports" / "trial_analysis"
         )
         self.trial_analysis = TrialAnalysisController(self, analysis_root)
         self.action_router = MainActionRouter(self)
@@ -239,12 +247,13 @@ class MainView(
             self._pipeline_worker = None
         if self._pipeline_worker is not None:
             return
-        if self.eeg_stream is None or self.intent_decoder is None or self.experiment_recorder is None:
+        recorder = self._recorder_for_current_role()
+        if self.eeg_stream is None or self.intent_decoder is None or recorder is None:
             return
         worker = EEGWorker(
             self.eeg_stream,
             self.intent_decoder,
-            self.experiment_recorder,
+            recorder,
             window_seconds=WINDOW_SECONDS,
             decision_step_seconds=DECISION_STEP_SECONDS,
             parent=self,
@@ -262,6 +271,15 @@ class MainView(
                 self.user.uid or self.user.username, self._experiment_session_id,
             )
         self._pipeline_worker = worker
+
+    def _recorder_for_current_role(self) -> ExperimentRecorder | None:
+        if (
+            self.user is not None
+            and self.user.role in {Role.SOLDIER, Role.COMMANDER}
+            and self.soldier_ssvep_recorder is not None
+        ):
+            return self.soldier_ssvep_recorder
+        return self.experiment_recorder
 
     def _disconnect_eeg_pipeline(self, stop_csv_recording: bool = True) -> None:
         self.acquisition.disconnect_pipeline(stop_csv_recording)
@@ -300,6 +318,7 @@ class MainView(
             self.acquisition.raw_recorder.stop()
         self.acquisition.continuous_recording = False
         if self._pipeline_worker is not None:
+            self._pipeline_worker.end_session_recording()
             self._pipeline_worker.set_continuous_recording(False)
         if self._pipeline_worker is not None and self._pipeline_worker.isRunning():
             self._pipeline_worker.stop()

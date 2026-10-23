@@ -178,7 +178,9 @@ Qt 静态绘制检查约 60 次/秒，与本机报告的 60 Hz 一致，但仍�
 - `B` 停止刺激并触发应用内急停；`Esc` 退出全屏。
 
 每个试次结束后，程序会把原始帧时间、六路亮度、刷新率、实测频率和频谱
-`.npz/.png` 保存到 `data/stimulus_logs/`。原生 PySide6 实现替代旧工程里的
+`.npz/.png` 按用途保存到 `data/research_experiments/stimulus_logs/`、
+`data/ssvep_realtime_tests/stimulus_logs/` 或 `data/soldier_ssvep_flights/stimulus_logs/`。
+原生 PySide6 实现替代旧工程里的
 PsychoPy/Pygame 双份界面，避免维护三套不同的频率配置。
 
 士兵登录后不需要进入科研界面。点击“启动 SSVEP 驾驶”后，程序自动选择已配对的
@@ -211,12 +213,12 @@ data/
 └── exports/
 ```
 
-- `data/raw_trials/*.npz`：原始 EEG、逐样本 LSL 时间戳、通道名/单位、采样率、范式、被试、会话、真实标签、开始时间、信号质量及识别结果。
-- `data/csv_sessions/lsl_raw_*.csv`：完整原始采集，列为 `sample_index, lsl_timestamp, elapsed_seconds, <各通道>`；同名 JSON 保存会话、被试、来源、采样率和通道元数据。
-- `data/continuous_raw/*.npz`：10 秒原始分块及对应逐样本时间戳和通道元数据。
-- `data/sessions/*.json`：会话元数据；`raw_trials_index.csv` 为试次索引。
-- `data/recognition_logs/recognition_log.csv`：每次 EEG 解码、置信度、margin 和门控结果。
-- `data/exports/`：保留给后续训练/验证集导出。
+- `data/research_experiments/raw_trials/*.npz`：科研实验的原始 EEG、逐样本 LSL 时间戳、通道名/单位、采样率、范式、被试、会话、真实标签、开始时间、信号质量及识别结果。
+- `data/research_experiments/csv_sessions/lsl_raw_*.csv`：完整原始采集，列为 `sample_index, lsl_timestamp, elapsed_seconds, <各通道>`；同名 JSON 保存会话、被试、来源、采样率和通道元数据。
+- 三个用途目录各自的 `continuous_raw/*.npz`：10 秒原始分块及对应逐样本时间戳和通道元数据。
+- 三个用途目录各自的 `sessions/*.json`：会话元数据；科研目录的 `raw_trials_index.csv` 为带标签试次索引。
+- 三个用途目录各自的 `recognition_logs/recognition_log.csv`：每次 EEG 解码、置信度、margin 和门控结果。
+- `data/research_experiments/exports/`：训练、验证与分析导出。
 
 点击科研界面右上角“添加标签”后，程序从点击后的新数据开始采满连续 SSVEP 2秒或 MI 4秒，标签只应用于该独立试次。没有人工标签
 时仍会写识别日志，但不会伪造真实标签，也不会保存成有标签训练试次。
@@ -231,7 +233,7 @@ NPZ 文件路径，不把每个 EEG 采样点写入数据库。
 
 ```bash
 python -m pip install -r requirements-ml.txt
-python -m src.ml.train_fb_eegnet --index data/sessions/raw_trials_index.csv
+python -m src.ml.train_fb_eegnet --index data/research_experiments/sessions/raw_trials_index.csv
 ```
 
 训练会进行分层训练/验证划分、早停，并输出准确率、macro-F1、混淆矩阵和空闲

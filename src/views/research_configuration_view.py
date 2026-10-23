@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt
 
 from src.bci.config import (
     DECISION_STEP_SECONDS,
@@ -96,15 +96,15 @@ class ResearchConfigurationViewMixin:
             self._hit(910, 492, 130, 46, "paradigm-start")
         else:
             c.text(656, 229, 380, 42, "运动想象（MI）采集配置", 19, TEXT, True)
-            c.text(656, 278, 380, 24, "当前阶段：采集与标注，不生成无人机指令", 12, YELLOW, True)
+            c.text(656, 278, 380, 24, "当前阶段：参数预览，不生成无人机指令", 12, YELLOW, True)
             for index, label in enumerate(("静息", "想象左手", "想象右手", "想象双脚")):
                 x = 656 + (index % 2) * 188
                 y = 318 + (index // 2) * 52
                 c.rect(x, y, 174, 39, PANEL_SOFT, BORDER, 3)
                 c.text(x, y, 174, 39, label, 12, TEXT, True, Qt.AlignCenter)
             c.text(656, 428, 380, 23, "建议关注：C3 / Cz / C4（以实际电极帽标注为准）", 11, CYAN)
-            c.text(656, 456, 380, 46, "操作：连接 EEG 采集 → 检查信号质量 →\n点击右上角“添加标签” → 完成 4 秒想象", 11, MUTED)
-            c.button(656, 515, 180, 38, "启用 MI 采集模式", True, accent=CYAN)
+            c.text(656, 456, 380, 46, "当前版本未开放 MI 手动带标签采集；\nSSVEP 数据请前往“数据采集”页面。", 11, MUTED)
+            c.button(656, 515, 180, 38, "查看 MI 参数", True, accent=CYAN)
             c.text(848, 515, 190, 38, "FBCCA 已停用", 12, GREEN, True, Qt.AlignCenter)
             self._hit(656, 515, 180, 38, "paradigm-start")
 
@@ -239,7 +239,7 @@ class ResearchConfigurationViewMixin:
             101,
             850,
             22,
-            "导入采集数据，按动作与具体试次筛选，再自由截取时间段生成完整分析图表。",
+            "导入采集数据，按动作与具体试次筛选，再自由截取时间段并在本页查看分析图表。",
             10,
             MUTED,
         )
@@ -327,7 +327,7 @@ class ResearchConfigurationViewMixin:
             self._hit(x, y, 372, 56, f"analysis-trial:{record_index}")
 
         c.rect(32, 540, 1216, 128, PANEL, BORDER, 4)
-        c.text(54, 552, 260, 26, "3  截取时间段并生成报告", 12, TEXT, True)
+        c.text(54, 552, 300, 26, "3  截取时间段并在本页分析", 12, TEXT, True)
         record = browser.selected_record
         if record is not None:
             c.text(
@@ -358,27 +358,46 @@ class ResearchConfigurationViewMixin:
                     637,
                     690,
                     20,
-                    f"最近报告：候选 {report.candidate_label} · 分数 {report.confidence:.3f} · "
+                    f"当前结果：候选 {report.candidate_label} · 分数 {report.confidence:.3f} · "
                     f"可用通道 {report.usable_channel_count}/{report.total_channel_count}",
                     9,
                     GREEN if report.accepted else YELLOW,
                 )
-        self._light_button(c, 786, 574, 132, 54, "设置时间段", False, BLUE)
-        self._light_button(c, 930, 574, 142, 54, "生成完整图表", True, "#2d8a57")
-        self._light_button(
-            c,
-            1084,
-            574,
-            142,
-            54,
-            "查看最近报告",
-            browser.last_report is not None,
+        self._light_button(c, 834, 574, 170, 54, "设置时间段", False, BLUE)
+        self._light_button(c, 1018, 574, 202, 54, "在本页显示图表", True, "#2d8a57")
+        self._hit(834, 574, 170, 54, "analysis-window")
+        self._hit(1018, 574, 202, 54, "analysis-generate")
+
+        pixmap = browser.report_pixmap
+        if pixmap is None or pixmap.isNull():
+            return
+        report_width = 1184.0
+        report_height = browser.report_display_height(report_width)
+        c.text(32, 692, 360, 34, "当前试次分析结果", 18, TEXT, True)
+        c.text(
+            760,
+            696,
+            468,
+            25,
+            "保持原六联图格式 · 使用滚轮向下查看完整内容 ↓",
+            10,
             CYAN,
+            True,
+            Qt.AlignRight,
         )
-        self._hit(786, 574, 132, 54, "analysis-window")
-        self._hit(930, 574, 142, 54, "analysis-generate")
-        if browser.last_report is not None:
-            self._hit(1084, 574, 142, 54, "analysis-show-report")
+        c.rect(32, 732, 1216, report_height + 32, PANEL, BORDER, 5)
+        c.p.drawPixmap(
+            QRectF(48, 748, report_width, report_height),
+            pixmap,
+            QRectF(pixmap.rect()),
+        )
+
+    def _research_data_max_scroll(self) -> float:
+        report_height = self.trial_analysis.report_display_height(1184.0)
+        if report_height <= 0:
+            return 0.0
+        content_bottom = 748.0 + report_height + 16.0
+        return max(0.0, content_bottom - 684.0)
 
     def _research_data_empty_state(self, c: Canvas) -> None:
         c.rect(32, 230, 1216, 438, PANEL, BORDER, 5)
@@ -386,7 +405,7 @@ class ResearchConfigurationViewMixin:
         steps = (
             ("1", "选择动作", "例如起飞、右移或降落"),
             ("2", "选择具体试次", "同一动作的每一段都可单独选择"),
-            ("3", "截取并生成", "自由设置起止时间，输出六联图"),
+            ("3", "截取并分析", "自由设置起止时间，本页显示六联图"),
         )
         for index, (number, title, description) in enumerate(steps):
             x = 112 + index * 374
@@ -401,7 +420,7 @@ class ResearchConfigurationViewMixin:
             920,
             56,
             "支持项目采集产生的带标签 NPZ：真实标签、原始 EEG、采样率和通道名都会被读取。\n"
-            "生成内容包括原始波形、通道质量表、阈前/陷波后 FFT、滤波子带和六类 FBCCA 分数。",
+            "页面内容包括原始波形、通道质量表、阈前/陷波后 FFT、滤波子带和六类 FBCCA 分数。",
             11,
             MUTED,
             False,

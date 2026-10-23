@@ -163,6 +163,8 @@ class MainDialogsMixin:
 
         if not self._show_ssvep_window("test"):
             return
+        if self._pipeline_worker is not None and self.ssvep_test_recorder is not None:
+            self._pipeline_worker.begin_session_recording(self.ssvep_test_recorder)
         # The recognition controller also suppresses test-window results, but
         # explicitly revoke any earlier authorization as a second safety layer.
         self.actions.bci.disable()
@@ -181,7 +183,18 @@ class MainDialogsMixin:
             self._stimulus_window = None
             self._stimulus_worker = None
         if self._stimulus_window is None:
-            self._stimulus_window = SSVEPStimulusWindow(parent=self)
+            recording_roots = {
+                "experiment": self.experiment_recorder.root / "stimulus_logs"
+                if self.experiment_recorder is not None else None,
+                "test": self.ssvep_test_recorder.root / "stimulus_logs"
+                if self.ssvep_test_recorder is not None else None,
+                "control": self.soldier_ssvep_recorder.root / "stimulus_logs"
+                if self.soldier_ssvep_recorder is not None else None,
+            }
+            self._stimulus_window = SSVEPStimulusWindow(
+                recording_roots={key: value for key, value in recording_roots.items() if value},
+                parent=self,
+            )
             self._stimulus_worker = self._pipeline_worker
             self._stimulus_window.status_changed.connect(self._on_eeg_status)
             self._stimulus_window.trial_started.connect(self._pipeline_worker.capture_stimulus_trial)
@@ -210,6 +223,8 @@ class MainDialogsMixin:
         return True
 
     def _on_ssvep_window_stopped(self, label: str, path: str) -> None:
+        if label == "指令测试" and self._pipeline_worker is not None:
+            self._pipeline_worker.end_session_recording()
         prefix = (
             "SSVEP 在线驾驶已结束" if label == "在线控制" else
             "SSVEP 指令测试已结束（未执行无人机）" if label == "指令测试" else

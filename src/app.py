@@ -31,6 +31,8 @@ class CommandConsoleWindow(QMainWindow):
             eeg_stream=self.container.eeg_stream,
             intent_decoder=self.container.intent_decoder,
             experiment_recorder=self.container.experiment_recorder,
+            ssvep_test_recorder=self.container.ssvep_test_recorder,
+            soldier_ssvep_recorder=self.container.soldier_ssvep_recorder,
             swarm_gateway=self.container.swarm_gateway,
             system_monitor=self.container.system_monitor,
             engineer_data_provider=self.container.engineer_data_provider,

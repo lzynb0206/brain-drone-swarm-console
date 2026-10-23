@@ -55,6 +55,8 @@ from src.bci.config import (
     TRANSFORMER_MIN_CONFIDENCE,
     TRANSFORMER_MODEL_PATH,
     TRANSFORMER_REQUIRED_WINDOWS,
+    SOLDIER_SSVEP_DATA_ROOT,
+    SSVEP_TEST_DATA_ROOT,
 )
 from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
 from src.services.auth_service import AuthService
@@ -71,6 +73,8 @@ class ApplicationContainer:
     engineer_data_provider: EngineerDataProvider
     intent_decoder: IntentDecoder | None = None
     experiment_recorder: ExperimentRecorder | None = None
+    ssvep_test_recorder: ExperimentRecorder | None = None
+    soldier_ssvep_recorder: ExperimentRecorder | None = None
 
 
 def create_demo_container() -> ApplicationContainer:
@@ -211,4 +215,6 @@ def create_default_container() -> ApplicationContainer:
         engineer_data_provider=engineer_data_provider,
         intent_decoder=intent_decoder,
         experiment_recorder=ExperimentRecorder(RECORDING_ROOT),
+        ssvep_test_recorder=ExperimentRecorder(SSVEP_TEST_DATA_ROOT),
+        soldier_ssvep_recorder=ExperimentRecorder(SOLDIER_SSVEP_DATA_ROOT),
     )
