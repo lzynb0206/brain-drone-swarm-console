@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetricsF
 
 from src.widgets.scifi_canvas import (
@@ -34,7 +34,7 @@ class ToastController:
         generation = self.generation
         display_ms = max(2600, min(18000, 2200 + max(0, len(self.message) - 28) * 260))
         QTimer.singleShot(display_ms, lambda: self.clear(generation))
-        self.host.update()
+        self._update_toast_region()
 
     def paint(self, canvas: Canvas) -> None:
         if canvas.light_theme:
@@ -70,7 +70,7 @@ class ToastController:
 
     def animate(self) -> None:
         if self.message:
-            self.host.update()
+            self._update_toast_region()
         else:
             self.timer.stop()
 
@@ -78,7 +78,23 @@ class ToastController:
         if generation == self.generation:
             self.message = ""
             self.timer.stop()
+            self._update_toast_region()
+
+    def _update_toast_region(self) -> None:
+        """Repaint only the toast instead of a potentially huge report."""
+
+        role_stack = getattr(self.host, "_role_stack", None)
+        widget = role_stack.currentWidget() if role_stack is not None else None
+        if widget is None:
             self.host.update()
+            return
+        width = max(1, widget.width())
+        height = max(1, widget.height())
+        left = int(375 * width / 1280)
+        top = int(642 * height / 720)
+        right = int(905 * width / 1280) + 1
+        bottom = int(711 * height / 720) + 1
+        widget.update(QRect(left, top, right - left, bottom - top))
 
 
 __all__ = ["ToastController"]

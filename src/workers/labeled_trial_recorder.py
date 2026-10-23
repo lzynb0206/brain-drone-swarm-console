@@ -33,6 +33,12 @@ class TrialCaptureRequest:
 class LabeledTrialRecorder:
     """Own pending-trial state, sample alignment, decoding and persistence."""
 
+    # LSL frames normally contain about 0.13 s of samples (32 samples at
+    # 250 Hz).  Half a second leaves ample scheduling margin while still
+    # rejecting a request that was accidentally applied during the following
+    # rest/cue phase.
+    MAX_ONSET_DELAY_SECONDS = 0.5
+
     def __init__(
         self,
         recorder: ExperimentRecorder,
@@ -240,6 +246,13 @@ class LabeledTrialRecorder:
         )
         if values.shape[1] == 0:
             return
+        self._validate_capture_onset(
+            timestamps,
+            stimulus_lsl_time,
+            sample_rate_hz,
+            generation,
+            trial_metadata,
+        )
         self._append(values, timestamps, generation)
         self._mark_analysis_start(
             generation,
@@ -275,6 +288,38 @@ class LabeledTrialRecorder:
                     "unverified_fallback",
                 )
         return values, timestamps
+
+    def _validate_capture_onset(
+        self,
+        timestamps: np.ndarray,
+        stimulus_lsl_time: float,
+        sample_rate_hz: float,
+        generation: int,
+        trial_metadata: dict[str, object],
+    ) -> None:
+        """Reject trials whose first available sample missed stimulus onset."""
+
+        if generation == self._active_capture_generation:
+            return
+        if (
+            not timestamps.size
+            or stimulus_lsl_time <= 0.0
+            or trial_metadata.get("sample_clock_alignment") == "unverified_fallback"
+        ):
+            return
+        onset_delay = float(timestamps[0]) - float(stimulus_lsl_time)
+        sample_tolerance = 2.0 / max(float(sample_rate_hz), 1.0)
+        allowed_delay = max(self.MAX_ONSET_DELAY_SECONDS, sample_tolerance)
+        trial_metadata["capture_onset_delay_seconds"] = onset_delay
+        with self._state_lock:
+            if self._capture_generation == generation:
+                self._active_metadata["capture_onset_delay_seconds"] = onset_delay
+        if onset_delay > allowed_delay:
+            raise ValueError(
+                "EEG试次起点与视觉刺激错位："
+                f"首个样本晚了 {onset_delay:.3f} 秒（允许≤{allowed_delay:.3f}秒）。"
+                "本试次未保存，请检查 LSL 时间戳和数据流。"
+            )
 
     def _append(
         self,

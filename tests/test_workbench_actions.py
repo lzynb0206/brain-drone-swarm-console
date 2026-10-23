@@ -424,8 +424,8 @@ class MainViewActionRoutingTest(unittest.TestCase):
             generated_pngs = list((root / "exports").rglob("*.png"))
 
         self.assertEqual("起飞", self.view.trial_analysis.selected_label)
-        self.assertEqual(0.8, self.view.trial_analysis.window_start_seconds)
-        self.assertEqual(4.2, self.view.trial_analysis.window_end_seconds)
+        self.assertEqual(0.0, self.view.trial_analysis.window_start_seconds)
+        self.assertEqual(5.0, self.view.trial_analysis.window_end_seconds)
         self.assertIn("analysis-label:起飞", actions)
         self.assertIn("analysis-trial:0", actions)
         self.assertIn("analysis-window", actions)
@@ -445,6 +445,58 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
         self.assertEqual(72.0, self.view.research_widget.research_scroll_offset)
         event.accept.assert_called_once()
+
+    def test_cleared_report_cannot_leave_trial_hit_regions_at_old_scroll_offset(self) -> None:
+        record = SimpleNamespace(
+            true_label="起飞",
+            start_time="",
+            trial_id="trial-0001",
+            trial_index="1",
+            duration_seconds=5.0,
+            sample_rate_hz=250.0,
+            channel_count=8,
+        )
+        browser = self.view.trial_analysis
+        browser.records = [record]
+        browser.selected_label = "起飞"
+        browser.selected_record_index = 0
+        browser.window_end_seconds = 5.0
+        self.view.research_page = "数据分析"
+        self.view.research_widget._research_scroll_offset = 600.0
+        browser.report_pixmap = None
+
+        actions = self._render_page(self.view.research_widget, "_paint_research")
+
+        self.assertIn("analysis-trial:0", actions)
+
+    def test_selecting_trial_resets_data_analysis_scroll(self) -> None:
+        record = SimpleNamespace(
+            true_label="起飞",
+            start_time="",
+            trial_id="trial-0001",
+            trial_index="1",
+            duration_seconds=5.0,
+            sample_rate_hz=250.0,
+            channel_count=8,
+        )
+        browser = self.view.trial_analysis
+        browser.records = [record]
+        browser.selected_label = "起飞"
+        browser.selected_record_index = 0
+        self.view.research_widget._research_scroll_offset = 600.0
+
+        browser.select_record(0)
+
+        self.assertEqual(0.0, self.view.research_widget.research_scroll_offset)
+
+    def test_runtime_timer_does_not_repaint_static_data_analysis_page(self) -> None:
+        self.view.research_page = "数据分析"
+
+        with patch.object(self.view, "update") as repaint:
+            self.view._refresh_runtime()
+            self.view._refresh_live_page()
+
+        repaint.assert_not_called()
 
     def test_acquisition_setup_keeps_primary_actions_available(self) -> None:
         self.view.acquisition_stage = "setup"

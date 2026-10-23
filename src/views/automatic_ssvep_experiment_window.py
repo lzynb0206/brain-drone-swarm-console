@@ -382,13 +382,18 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
             if trial is not None else f"0/{self.protocol.total_trials}"
         )
         state = "已暂停" if self.protocol.paused else phase_labels[self.protocol.phase]
+        analysis_text = (
+            "分析完整刺激段"
+            if self.config.discard_seconds <= 0.0
+            else f"分析起点 {self.config.discard_seconds:g}s"
+        )
         draw_ssvep_header(
             painter,
             self.width(),
             f"SSVEP 自动随机采集 · {progress} · 标签：{label} · {state}",
             (
                 f"提示 {self.config.cue_seconds:g}s · 刺激 {self.config.stimulus_seconds:g}s · "
-                f"分析丢弃前 {self.config.discard_seconds:g}s · 休息 {self.config.rest_seconds:g}s · "
+                f"{analysis_text} · 休息 {self.config.rest_seconds:g}s · "
                 "P 暂停/继续 · Esc 中止"
             ),
         )

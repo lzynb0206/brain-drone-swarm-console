@@ -18,6 +18,13 @@ from src.ml.train_transformer_ssvep import _analysis_aligned_eeg, _rejected_tria
 
 
 class BalancedPlanTest(unittest.TestCase):
+    def test_default_protocol_uses_the_complete_five_second_stimulus(self) -> None:
+        config = AutomaticExperimentConfig()
+
+        self.assertEqual(5.0, config.stimulus_seconds)
+        self.assertEqual(0.0, config.discard_seconds)
+        self.assertEqual(5.0, config.analysis_seconds)
+
     def test_plan_is_seeded_balanced_and_avoids_adjacent_duplicates(self) -> None:
         config = AutomaticExperimentConfig(repetitions_per_label=8, random_seed=73)
 

@@ -133,7 +133,7 @@ class ResearchConfigurationViewMixin:
             ("试次总数", str(config.trial_count)),
             ("提示时间", f"{config.cue_seconds:g} s"),
             ("刺激时间", f"{config.stimulus_seconds:g} s"),
-            ("前段丢弃", f"{config.discard_seconds:g} s"),
+            ("分析起点", f"{config.discard_seconds:g} s"),
             ("休息时间", f"{config.rest_seconds:g} s"),
         )
         for index, (label, value) in enumerate(metrics):

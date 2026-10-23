@@ -13,7 +13,7 @@ class SingleTargetCalibrationConfig:
     repetitions_per_command: int = 10
     cue_seconds: float = 1.0
     stimulus_seconds: float = 5.0
-    discard_seconds: float = 1.0
+    discard_seconds: float = 0.0
     rest_seconds: float = 1.5
     random_seed: int = 20261018
 

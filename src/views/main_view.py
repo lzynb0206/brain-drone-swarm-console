@@ -156,7 +156,7 @@ class MainView(
             RawEEGCsvRecorder(csv_root),
             self,
         )
-        self.lsl_collector.changed.connect(self.update)
+        self.lsl_collector.changed.connect(self._refresh_lsl_collector_page)
         self.lsl_collector.notification_requested.connect(self._notify)
         self._role_stack = QStackedWidget(self)
         self.research_widget = ResearchPage(self, self._role_stack)
@@ -335,7 +335,8 @@ class MainView(
             frame,
             publish_outlet=not self.soldier_bci.outlet_started_here,
         )
-        self.update()
+        if not self._static_data_analysis_is_visible():
+            self.update()
 
     def _on_recognition(self, result: IntentResult) -> None:
         self.recognition.process(result)
@@ -469,6 +470,10 @@ class MainView(
         super().keyPressEvent(event)
 
     def _refresh_runtime(self) -> None:
+        # The data-analysis page is event-driven. Repainting its large report
+        # on this 300 ms telemetry timer wastes CPU and can starve mouse input.
+        if self._static_data_analysis_is_visible():
+            return
         health = getattr(self.eeg_stream, "health_snapshot", None)
         if callable(health):
             try:
@@ -488,6 +493,31 @@ class MainView(
         if self.soldier_bci.stop_if_stale():
             return
         self.update()
+
+    def _static_data_analysis_is_visible(self) -> bool:
+        role_stack = getattr(self, "_role_stack", None)
+        research_widget = getattr(self, "research_widget", None)
+        return (
+            role_stack is not None
+            and research_widget is not None
+            and role_stack.currentWidget() is research_widget
+            and self.research_page == "数据分析"
+        )
+
+    def _refresh_lsl_collector_page(self) -> None:
+        role_stack = getattr(self, "_role_stack", None)
+        if (
+            role_stack is not None
+            and role_stack.currentWidget() is self.research_widget
+            and self.research_page == "LSL收集"
+        ):
+            self.update()
+
+    def _refresh_live_page(self) -> None:
+        """Refresh live telemetry pages without repainting static analysis."""
+
+        if not self._static_data_analysis_is_visible():
+            self.update()
 
     def update(self, *args) -> None:  # type: ignore[override]
         """Refresh the shell and whichever concrete role widget is visible."""

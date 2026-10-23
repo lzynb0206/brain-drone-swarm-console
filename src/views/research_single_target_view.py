@@ -55,7 +55,7 @@ class ResearchSingleTargetViewMixin:
             448, 354, 744, 28,
             f"共{controller.config.trial_count}轮 · 提示{controller.config.cue_seconds:g}s · "
             f"闪烁/记录{controller.config.stimulus_seconds:g}s · "
-            f"丢弃前{controller.config.discard_seconds:g}s · "
+            f"分析起点{controller.config.discard_seconds:g}s · "
             f"休息{controller.config.rest_seconds:g}s",
             10, MUTED, False, Qt.AlignCenter,
         )

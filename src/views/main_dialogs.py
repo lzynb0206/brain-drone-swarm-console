@@ -64,7 +64,7 @@ class MainDialogsMixin:
         rest = seconds_box(current.rest_seconds, 0.1, 60.0)
         form.addRow("提示时长", cue)
         form.addRow("刺激/原始采集时长", stimulus)
-        form.addRow("分析时丢弃起始段", discard)
+        form.addRow("分析起点（0=完整段）", discard)
         form.addRow("试次间休息", rest)
 
         seed = QSpinBox(dialog)

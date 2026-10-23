@@ -107,6 +107,7 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
     def __init__(self, context: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(context, parent)
         self._research_scroll_offset = 0.0
+        self._research_effective_scroll_offset = 0.0
         self._research_content_scrolling = False
         self._research_section_y_offset = 0.0
 
@@ -114,13 +115,19 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
     def research_scroll_offset(self) -> float:
         return self._research_scroll_offset
 
-    def reset_research_scroll(self) -> None:
+    def reset_research_scroll(self, repaint: bool = True) -> None:
         self._research_scroll_offset = 0.0
-        self.update()
+        self._research_effective_scroll_offset = 0.0
+        if repaint:
+            self.update()
 
     def _hit(self, x: float, y: float, w: float, h: float, action: str) -> None:
         if self._research_content_scrolling:
-            y += self._research_section_y_offset - self._research_scroll_offset
+            # Painting clamps the stored scroll position to the current page's
+            # content height.  Hit testing must use that same effective value;
+            # otherwise clearing a tall report leaves invisible, displaced hit
+            # regions behind even though the page has visibly returned to top.
+            y += self._research_section_y_offset - self._research_effective_scroll_offset
             if y + h < 56 or y > 720:
                 return
         super()._hit(x, y, w, h, action)

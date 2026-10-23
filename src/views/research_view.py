@@ -70,11 +70,13 @@ class ResearchViewMixin(
         try:
             c.p.setClipRect(QRectF(0, 56, 1280, 664))
             c.p.translate(0, -scroll_offset)
+            self._research_effective_scroll_offset = scroll_offset
             self._research_content_scrolling = True
             self._research_section_y_offset = 0.0
             renderer(c)
         finally:
             self._research_content_scrolling = False
+            self._research_effective_scroll_offset = 0.0
             self._research_section_y_offset = 0.0
             c.p.restore()
         if max_scroll > 0:

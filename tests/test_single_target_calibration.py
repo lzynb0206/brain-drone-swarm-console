@@ -25,9 +25,12 @@ from src.services.single_target_template_analysis import evaluate_single_target_
 
 class SingleTargetPlanTest(unittest.TestCase):
     def test_default_plan_collects_ten_trials_for_each_command(self) -> None:
-        plan = build_single_target_plan(SingleTargetCalibrationConfig())
+        config = SingleTargetCalibrationConfig()
+        plan = build_single_target_plan(config)
 
         self.assertEqual(60, len(plan))
+        self.assertEqual(5.0, config.stimulus_seconds)
+        self.assertEqual(0.0, config.discard_seconds)
         self.assertEqual(
             {label: 10 for label in COMMANDS},
             dict(Counter(trial.label for trial in plan)),

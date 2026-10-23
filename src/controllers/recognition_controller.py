@@ -20,6 +20,7 @@ class RecognitionHost(Protocol):
     _stimulus_window: object | None
 
     def _notify(self, message: str) -> None: ...
+    def _refresh_live_page(self) -> None: ...
     def update(self, *args) -> None: ...
 
 
@@ -54,7 +55,7 @@ class RecognitionController:
                 host._eeg_events.appendleft(
                     f"SSVEP 模拟指令：{result.label}（未发送无人机）"
                 )
-            host.update()
+            host._refresh_live_page()
             return
         if (
             stimulus_window is not None
@@ -63,7 +64,7 @@ class RecognitionController:
             show_result = getattr(stimulus_window, "show_recognition_result", None)
             if callable(show_result):
                 show_result(result)
-            host.update()
+            host._refresh_live_page()
             return
         if (
             stimulus_window is not None
@@ -75,7 +76,7 @@ class RecognitionController:
                 observe_idle = getattr(host.intent_decoder, "observe_idle", None)
                 if callable(observe_idle):
                     observe_idle(result)
-            host.update()
+            host._refresh_live_page()
             return
         if (
             stimulus_window is not None
@@ -90,11 +91,11 @@ class RecognitionController:
         ):
             message = "当前模型尚未通过独立实机验证；仅显示识别结果，不派发飞控命令"
             host._eeg_events.appendleft(message)
-            host.update()
+            host._refresh_live_page()
             return
         if host.actions.is_single_uav_mission(result):
             self.handle_single_uav_mission(result)
-            host.update()
+            host._refresh_live_page()
             return
 
         worker = host._pipeline_worker
@@ -117,7 +118,7 @@ class RecognitionController:
                 host.actions.bci.command_cooldown_seconds,
                 result.label,
             )
-        host.update()
+        host._refresh_live_page()
 
     def handle_single_uav_mission(self, result: IntentResult) -> None:
         host = self.host

@@ -244,6 +244,48 @@ class ExperimentTrialTimingTest(unittest.TestCase):
             self.assertEqual([], list((Path(directory) / "raw_trials").glob("*.npz")))
             self.assertEqual("", worker.pending_true_label())
 
+    def test_late_first_sample_is_rejected_instead_of_using_the_next_phase(self) -> None:
+        class Stream:
+            source_name = "LSL · test"
+
+        class Decoder:
+            @staticmethod
+            def decode(window, _sample_rate_hz):
+                return _result(window.shape[1])
+
+        class MarkerOutlet:
+            @staticmethod
+            def publish(*_args, **_kwargs):
+                return True
+
+            @staticmethod
+            def stop():
+                return None
+
+        with tempfile.TemporaryDirectory() as directory:
+            worker = EEGWorker(
+                Stream(), Decoder(), ExperimentRecorder(directory),
+                experiment_clock=ExperimentClock(
+                    local_clock=lambda: 100.0,
+                    unix_clock=lambda: 1_000.0,
+                ),
+                marker_outlet=MarkerOutlet(),
+            )
+            worker.capture_experiment_trial(
+                "起飞", 8.0, marker_timestamp=10.0,
+                duration_seconds=5.0, discard_seconds=0.0,
+                metadata={"trial_id": "trial-late-onset-001"},
+            )
+            worker._apply_pending_stimulus(None, np.asarray([], dtype=np.float64), 0)
+            timestamps = 16.0 + np.arange(32) / 250.0
+
+            with self.assertRaisesRegex(ValueError, "起点与视觉刺激错位"):
+                worker._collect_labeled_trial(
+                    np.ones((8, 32)), timestamps, 250.0, 1250,
+                )
+
+            self.assertEqual([], list((Path(directory) / "raw_trials").glob("*.npz")))
+
     def test_zero_usable_channels_still_saves_labelled_raw_trial(self) -> None:
         class Stream:
             source_name = "LSL · test"
