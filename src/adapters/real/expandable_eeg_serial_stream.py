@@ -112,6 +112,10 @@ class ExpandableEEGSerialStream:
 
     BAUD_RATE = 115_200
     SAMPLE_RATE_HZ = 250.0
+    # The packet contains only an 8-bit sample counter, not a hardware clock.
+    # Keep counter-based timing stable while it agrees with the host, but
+    # re-anchor when transport buffering or packet loss makes it drift behind.
+    TIMESTAMP_RESYNC_THRESHOLD_SECONDS = 0.25
 
     def __init__(
         self,
@@ -130,6 +134,7 @@ class ExpandableEEGSerialStream:
         frame_timeout_seconds: float = 1.0,
         reset_fallback: bool = True,
         rfcomm_factory: Callable[..., Any] | None = None,
+        wall_clock: Callable[[], float] | None = None,
     ) -> None:
         self.serial_port = str(serial_port)
         self.frame_size = max(1, int(frame_size))
@@ -147,6 +152,7 @@ class ExpandableEEGSerialStream:
         self.frame_timeout_seconds = max(0.05, float(frame_timeout_seconds))
         self.reset_fallback = bool(reset_fallback)
         self._rfcomm_factory = rfcomm_factory
+        self._wall_clock = wall_clock or time.time
         self.sample_rate_hz = self.SAMPLE_RATE_HZ
         self.source_name = "ExpandableEEG Native · 未选择串口"
         self._serial: Any | None = None
@@ -160,6 +166,9 @@ class ExpandableEEGSerialStream:
         self._out_of_order_packets = 0
         self._last_sample_index: int | None = None
         self._last_timestamp: float | None = None
+        self._timestamp_resync_count = 0
+        self._max_timestamp_drift_seconds = 0.0
+        self._last_timestamp_drift_seconds = 0.0
         self._last_startup_sequence = ""
         self._transport = "serial"
 
@@ -355,15 +364,25 @@ class ExpandableEEGSerialStream:
         ]
         samples = [[] for _ in range(8)]
         timestamps: list[float] = []
-        anchor = time.time() - (len(packets) - 1) / self.sample_rate_hz
-        for packet in packets:
-            timestamp = self._accept_sample_index(packet.sample_index, anchor)
+        # Estimate this frame directly from its host arrival time.  Do not
+        # derive the next frame's host anchor from the previously synthesized
+        # timestamp: doing so allowed packet-counter errors to accumulate and
+        # eventually placed EEG samples several seconds in the future.
+        host_frame_start = (
+            float(self._wall_clock())
+            - (len(packets) - 1) / self.sample_rate_hz
+        )
+        for offset, packet in enumerate(packets):
+            host_timestamp = host_frame_start + offset / self.sample_rate_hz
+            timestamp = self._accept_sample_index(
+                packet.sample_index,
+                host_timestamp,
+            )
             if timestamp is None:
                 continue
             for channel, value in enumerate(packet.eeg_uv):
                 samples[channel].append(float(value))
             timestamps.append(timestamp)
-            anchor = timestamp + 1.0 / self.sample_rate_hz
         if not timestamps:
             raise TimeoutError("ExpandableEEG仅返回重复数据包")
         self._total_samples += len(timestamps)
@@ -409,6 +428,9 @@ class ExpandableEEGSerialStream:
             "duplicate_packets": self._duplicate_packets,
             "non_monotonic_timestamps": self._out_of_order_packets,
             "last_sample_index": self._last_sample_index,
+            "timestamp_resync_count": self._timestamp_resync_count,
+            "last_timestamp_drift_seconds": self._last_timestamp_drift_seconds,
+            "max_timestamp_drift_seconds": self._max_timestamp_drift_seconds,
             "startup_sequence": self._last_startup_sequence,
             "channel_names": self.channel_names,
             "channel_units": ("uV",) * 8,
@@ -480,6 +502,7 @@ class ExpandableEEGSerialStream:
         if self._last_sample_index is None or self._last_timestamp is None:
             self._last_sample_index = sample_index
             self._last_timestamp = suggested_timestamp
+            self._last_timestamp_drift_seconds = 0.0
             return suggested_timestamp
         delta = (sample_index - self._last_sample_index) & 0xFF
         if delta == 0:
@@ -494,7 +517,30 @@ class ExpandableEEGSerialStream:
             self._max_gap_seconds = max(
                 self._max_gap_seconds, missing / self.sample_rate_hz,
             )
-        timestamp = self._last_timestamp + delta / self.sample_rate_hz
+        predicted_timestamp = self._last_timestamp + delta / self.sample_rate_hz
+        drift = predicted_timestamp - suggested_timestamp
+        self._last_timestamp_drift_seconds = float(drift)
+        self._max_timestamp_drift_seconds = max(
+            self._max_timestamp_drift_seconds,
+            abs(float(drift)),
+        )
+
+        # A received serial sample cannot genuinely be acquired after the host
+        # time at which it was read.  Clamp any future estimate immediately.
+        # When the counter estimate is substantially behind (for example after
+        # a blocked transport), re-anchor as well instead of carrying a stale
+        # absolute time into the experiment marker domain.
+        should_reanchor = (
+            predicted_timestamp > suggested_timestamp
+            or suggested_timestamp - predicted_timestamp
+            > self.TIMESTAMP_RESYNC_THRESHOLD_SECONDS
+        )
+        timestamp = suggested_timestamp if should_reanchor else predicted_timestamp
+        if (
+            should_reanchor
+            and abs(drift) > 1.0 / self.sample_rate_hz
+        ):
+            self._timestamp_resync_count += 1
         self._last_sample_index = sample_index
         self._last_timestamp = timestamp
         return timestamp
@@ -510,6 +556,9 @@ class ExpandableEEGSerialStream:
         self._out_of_order_packets = 0
         self._last_sample_index = None
         self._last_timestamp = None
+        self._timestamp_resync_count = 0
+        self._max_timestamp_drift_seconds = 0.0
+        self._last_timestamp_drift_seconds = 0.0
         self._last_startup_sequence = ""
 
 

@@ -46,7 +46,13 @@ def notch_mains(
 
 
 def assess_signal_quality(samples, sample_rate_hz: float, *, deduplicate_channels=None) -> dict[str, object]:
-    """Measure per-channel amplitude, variance and 50 Hz interference."""
+    """Measure per-channel amplitude, variance and residual 50 Hz interference.
+
+    Raw mains power is retained for diagnostics, but a channel is rejected only
+    when 50 Hz still dominates after applying the same notch used by FBCCA.  A
+    strong removable mains component must not cause an otherwise usable channel
+    to be discarded before preprocessing gets a chance to suppress it.
+    """
 
     data = np.asarray(samples, dtype=float)
     if data.ndim != 2 or data.shape[1] < 32:
@@ -56,18 +62,39 @@ def assess_signal_quality(samples, sample_rate_hz: float, *, deduplicate_channel
     std_uv = np.nanstd(centered, axis=1)
     max_amplitude_uv = np.nanmax(np.abs(centered), axis=1)
     detrended = remove_linear_drift(np.nan_to_num(data))
-    filtered = fft_bandpass(detrended, sample_rate_hz, 6.0, min(48.0, sample_rate_hz * 0.48))
+    notched = notch_mains(detrended, sample_rate_hz)
+    filtered = fft_bandpass(notched, sample_rate_hz, 6.0, min(48.0, sample_rate_hz * 0.48))
     filtered_variance = np.nanvar(filtered, axis=1)
 
     frequencies = np.fft.rfftfreq(data.shape[1], d=1.0 / float(sample_rate_hz))
-    power = np.abs(np.fft.rfft(np.nan_to_num(centered), axis=1)) ** 2
     total_band = (frequencies >= 1.0) & (frequencies <= min(80.0, sample_rate_hz * 0.48))
     mains_band = (frequencies >= 49.0) & (frequencies <= 51.0)
-    total_power = np.sum(power[:, total_band], axis=1)
-    mains_power = np.sum(power[:, mains_band], axis=1) if np.any(mains_band) else np.zeros(data.shape[0])
-    mains_ratio = np.divide(mains_power, total_power, out=np.zeros_like(mains_power), where=total_power > 0)
 
-    usable = finite & (std_uv >= 0.5) & (filtered_variance >= 0.04) & (max_amplitude_uv <= 2500.0) & (mains_ratio <= 0.5)
+    def mains_fraction(values: np.ndarray) -> np.ndarray:
+        power = np.abs(np.fft.rfft(values, axis=1)) ** 2
+        total_power = np.sum(power[:, total_band], axis=1)
+        mains_power = (
+            np.sum(power[:, mains_band], axis=1)
+            if np.any(mains_band)
+            else np.zeros(values.shape[0])
+        )
+        return np.divide(
+            mains_power,
+            total_power,
+            out=np.zeros_like(mains_power),
+            where=total_power > 0,
+        )
+
+    raw_mains_ratio = mains_fraction(detrended)
+    residual_mains_ratio = mains_fraction(notched)
+
+    usable = (
+        finite
+        & (std_uv >= 0.5)
+        & (filtered_variance >= 0.04)
+        & (max_amplitude_uv <= 2500.0)
+        & (residual_mains_ratio <= 0.5)
+    )
     # Remove redundant inputs, not whole trials: nearby electrodes can genuinely
     # share an SSVEP. Keeping one representative avoids whitening tiny residuals.
     duplicate_of: dict[int, int] = {}
@@ -98,15 +125,19 @@ def assess_signal_quality(samples, sample_rate_hz: float, *, deduplicate_channel
             issues.append(f"与通道{duplicate_of[index] + 1}近乎重复")
         if max_amplitude_uv[index] > 2500.0:
             issues.append("振幅过大")
-        if mains_ratio[index] > 0.5:
-            issues.append("50Hz工频占比过高")
+        if residual_mains_ratio[index] > 0.5:
+            issues.append("50Hz陷波后工频占比仍过高")
         channels.append({
             "channel": index + 1,
             "usable": bool(usable[index]),
             "std_uv": float(std_uv[index]),
             "max_centered_amplitude_uv": float(max_amplitude_uv[index]),
             "filtered_variance_uv2": float(filtered_variance[index]),
-            "mains_50hz_ratio": float(mains_ratio[index]),
+            # Compatibility field: from now on this is the post-notch residual
+            # ratio used for the pass/fail decision.
+            "mains_50hz_ratio": float(residual_mains_ratio[index]),
+            "raw_mains_50hz_ratio": float(raw_mains_ratio[index]),
+            "residual_mains_50hz_ratio": float(residual_mains_ratio[index]),
             "issues": issues,
         })
     return {

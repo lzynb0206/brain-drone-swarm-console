@@ -36,7 +36,7 @@ class StimulusMeasurementTest(unittest.TestCase):
 
 
 class SignalQualityTest(unittest.TestCase):
-    def test_flags_flat_and_50hz_dominated_channels(self) -> None:
+    def test_flags_flat_and_residual_50hz_dominated_channels(self) -> None:
         fs = 250.0
         timeline = np.arange(1000) / fs
         data = np.vstack((
@@ -46,8 +46,24 @@ class SignalQualityTest(unittest.TestCase):
         ))
         quality = assess_signal_quality(data, fs)
         self.assertIn("平坦/方差过低", quality["channels"][0]["issues"])
-        self.assertIn("50Hz工频占比过高", quality["channels"][1]["issues"])
+        self.assertIn("50Hz陷波后工频占比仍过高", quality["channels"][1]["issues"])
         self.assertTrue(quality["channels"][2]["usable"])
+
+    def test_removable_raw_50hz_does_not_discard_channel_before_notch(self) -> None:
+        fs = 250.0
+        timeline = np.arange(1000) / fs
+        data = np.asarray([
+            10.0 * np.sin(2.0 * np.pi * 13.0 * timeline)
+            + 80.0 * np.sin(2.0 * np.pi * 50.0 * timeline)
+        ])
+
+        quality = assess_signal_quality(data, fs)
+        channel = quality["channels"][0]
+
+        self.assertGreater(channel["raw_mains_50hz_ratio"], 0.5)
+        self.assertLess(channel["residual_mains_50hz_ratio"], 0.5)
+        self.assertTrue(channel["usable"])
+        self.assertNotIn("50Hz陷波后工频占比仍过高", channel["issues"])
 
 
 class StimulusWindowModeTest(unittest.TestCase):

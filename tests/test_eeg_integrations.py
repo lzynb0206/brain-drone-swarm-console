@@ -667,6 +667,44 @@ class ExpandableEEGSerialStreamTest(unittest.TestCase):
         self.assertEqual("expandable-native", health["driver"])
         self.assertTrue(serial_link.closed)
 
+    def test_native_stream_reanchors_counter_timestamp_that_drifted_into_future(self) -> None:
+        raw = b"".join(
+            self._packet(index, tuple(index + channel for channel in range(8)))
+            for index in range(1, 33)
+        )
+        serial_link = self.Serial(raw)
+        host_time = 1_000.0
+        stream = ExpandableEEGSerialStream(
+            frame_size=32,
+            serial_factory=lambda **_kwargs: serial_link,
+            settle_seconds=0,
+            startup_timeout_seconds=0.1,
+            reset_delay_seconds=0,
+            handshake_delay_seconds=0,
+            configure_delay_seconds=0,
+            stream_start_delay_seconds=0,
+            frame_timeout_seconds=0.1,
+            wall_clock=lambda: host_time,
+        )
+        stream.configure_serial_port("/dev/cu.ExpandableEEGBT")
+        stream.connect()
+
+        # Reproduce the observed failure: the old implementation carried an
+        # already-drifted counter clock forward and returned samples about
+        # 6.7 seconds later than the actual host time.
+        stream._last_sample_index = 0
+        stream._last_timestamp = host_time + 6.675
+        frame = stream.read_frame()
+        health = stream.health_snapshot()
+        stream.disconnect()
+
+        timestamps = np.asarray(frame.sample_timestamps, dtype=float)
+        self.assertTrue(np.all(np.diff(timestamps) > 0.0))
+        self.assertLessEqual(float(timestamps[-1]), host_time)
+        self.assertAlmostEqual(host_time, float(timestamps[-1]), places=6)
+        self.assertGreaterEqual(int(health["timestamp_resync_count"]), 1)
+        self.assertGreater(float(health["max_timestamp_drift_seconds"]), 6.0)
+
     def test_native_stream_reports_silent_serial_link_and_closes_it(self) -> None:
         serial_link = self.Serial(b"")
         stream = ExpandableEEGSerialStream(
