@@ -191,13 +191,17 @@ class ResearchConfigurationViewMixin:
         transformer_selected = self.actions.algorithm == "Transformer-SSVEP"
         template_selected = self.actions.algorithm == "个人模板-SSVEP"
         score_calibration_selected = self.actions.algorithm == "个人校准融合"
+        lzy_selected = self.actions.algorithm == "个人算法-Lzy"
+        xz_selected = self.actions.algorithm == "个人算法-Xz"
         selected_name = (
             "Transformer-SSVEP" if transformer_selected else
-            "个人模板-SSVEP" if template_selected else "纯 FBCCA"
+            "个人模板-SSVEP" if template_selected else
+            "Xz个人双FBCCA校准" if xz_selected else
+            "Lzy重叠窗个人校准" if lzy_selected else "纯 FBCCA"
         )
         if score_calibration_selected:
             selected_name = "双FBCCA分数＋个人LogReg"
-        selected_window_seconds = 5.0 if score_calibration_selected else WINDOW_SECONDS
+        selected_window_seconds = 5.0 if (score_calibration_selected or lzy_selected or xz_selected) else WINDOW_SECONDS
         if selected_window_seconds <= 0.0:
             selected_window_seconds = WINDOW_SECONDS
         status_reader = getattr(self.intent_decoder, "algorithm_statuses", None)
@@ -205,12 +209,17 @@ class ResearchConfigurationViewMixin:
         selected_type = (
             "监督训练模型" if transformer_selected else
             "个人多试次模板" if template_selected else
-            "个人分数校准" if score_calibration_selected else "无训练模型"
+            "个人非目标标定" if lzy_selected else
+            "个人分数校准" if (score_calibration_selected or xz_selected) else "无训练模型"
         )
-        reported_accuracy = statuses.get("个人校准融合", {}).get("evaluation_accuracy")
+        status_name = (
+            "个人算法-Xz" if xz_selected else
+            "个人算法-Lzy" if lzy_selected else "个人校准融合"
+        )
+        reported_accuracy = statuses.get(status_name, {}).get("evaluation_accuracy")
         accuracy_text = (
             f"{float(reported_accuracy) * 100:.1f}%（内部）"
-            if score_calibration_selected and isinstance(reported_accuracy, (float, int))
+            if (score_calibration_selected or lzy_selected or xz_selected) and isinstance(reported_accuracy, (float, int))
             else "待真实标签评估"
         )
         metadata = [("名称:", selected_name, 73, 207), ("类型:", selected_type, 356, 207),
@@ -224,7 +233,10 @@ class ResearchConfigurationViewMixin:
         c.line(73, 310, 1207, 310, "#dce3eb")
         c.rect(48, 376, 1184, 295, PANEL, BORDER, 3)
         c.text(73, 394, 200, 37, "算法库", 17, TEXT, True)
-        algorithms = ["FBCCA", "个人校准融合", "个人模板-SSVEP", "Transformer-SSVEP"]
+        algorithms = [
+            "FBCCA", "个人算法-Lzy", "个人算法-Xz",
+            "个人校准融合", "个人模板-SSVEP", "Transformer-SSVEP",
+        ]
         for i, name in enumerate(algorithms):
             x = 73 + i * 176
             selected = name == self.actions.algorithm
@@ -252,7 +264,7 @@ class ResearchConfigurationViewMixin:
             101,
             850,
             22,
-            "导入采集数据，按动作与具体试次筛选，再自由截取时间段并在本页查看分析图表。",
+            "导入采集数据，按动作、实验时间和具体试次逐级筛选，再截取时间段分析。",
             10,
             MUTED,
         )
@@ -282,11 +294,77 @@ class ResearchConfigurationViewMixin:
             c.button(x, 248, 98, 45, f"{label}  {counts[label]}", selected)
             self._hit(x, 248, 98, 45, f"analysis-label:{label}")
 
-        c.rect(32, 326, 1216, 198, PANEL, BORDER, 4)
-        c.text(54, 338, 250, 27, "2  选择该动作的具体试次", 12, TEXT, True)
+        c.rect(32, 326, 1216, 110, PANEL, BORDER, 4)
+        c.text(54, 337, 310, 27, "2  选择该动作的实验时间", 12, TEXT, True)
         c.text(
             895,
-            338,
+            337,
+            170,
+            27,
+            f"第 {browser.experiment_page + 1}/{browser.experiment_page_count} 页",
+            10,
+            MUTED,
+            False,
+            Qt.AlignRight,
+        )
+        c.button(
+            1077,
+            335,
+            64,
+            30,
+            "上一页",
+            disabled=browser.experiment_page <= 0,
+        )
+        c.button(
+            1149,
+            335,
+            64,
+            30,
+            "下一页",
+            disabled=browser.experiment_page >= browser.experiment_page_count - 1,
+        )
+        if browser.experiment_page > 0:
+            self._hit(1077, 335, 64, 30, "analysis-experiment-page-previous")
+        if browser.experiment_page < browser.experiment_page_count - 1:
+            self._hit(1149, 335, 64, 30, "analysis-experiment-page-next")
+
+        for index, group in enumerate(browser.visible_experiments):
+            x, y = 54 + index * 284, 370
+            selected = group.experiment_id == browser.selected_experiment_id
+            c.rect(
+                x,
+                y,
+                268,
+                52,
+                "#eef4ff" if selected else PANEL_SOFT,
+                BLUE if selected else BORDER,
+                4,
+                2 if selected else 1,
+            )
+            c.text(x + 12, y + 2, 244, 25, group.display_time, 10, TEXT, True)
+            short_id = group.experiment_id.rsplit("-", 1)[-1]
+            c.text(
+                x + 12,
+                y + 26,
+                244,
+                19,
+                f"{group.record_count} 个试次 · 批次 {short_id}",
+                9,
+                MUTED,
+            )
+            self._hit(
+                x,
+                y,
+                268,
+                52,
+                f"analysis-experiment:{group.experiment_id}",
+            )
+
+        c.rect(32, 448, 1216, 166, PANEL, BORDER, 4)
+        c.text(54, 458, 250, 27, "3  选择该实验的具体试次", 12, TEXT, True)
+        c.text(
+            895,
+            458,
             170,
             27,
             f"第 {browser.page + 1}/{browser.page_count} 页",
@@ -295,29 +373,29 @@ class ResearchConfigurationViewMixin:
             False,
             Qt.AlignRight,
         )
-        c.button(1077, 336, 64, 30, "上一页", disabled=browser.page <= 0)
+        c.button(1077, 456, 64, 30, "上一页", disabled=browser.page <= 0)
         c.button(
             1149,
-            336,
+            456,
             64,
             30,
             "下一页",
             disabled=browser.page >= browser.page_count - 1,
         )
         if browser.page > 0:
-            self._hit(1077, 336, 64, 30, "analysis-page-previous")
+            self._hit(1077, 456, 64, 30, "analysis-page-previous")
         if browser.page < browser.page_count - 1:
-            self._hit(1149, 336, 64, 30, "analysis-page-next")
+            self._hit(1149, 456, 64, 30, "analysis-page-next")
 
         for index, (record_index, record) in enumerate(browser.visible_records):
             column, row = index % 3, index // 3
-            x, y = 54 + column * 393, 377 + row * 66
+            x, y = 54 + column * 393, 494 + row * 56
             selected = record_index == browser.selected_record_index
             c.rect(
                 x,
                 y,
                 372,
-                56,
+                46,
                 "#eef4ff" if selected else PANEL_SOFT,
                 BLUE if selected else BORDER,
                 4,
@@ -326,26 +404,26 @@ class ResearchConfigurationViewMixin:
             sequence = browser.page * browser.PAGE_SIZE + index + 1
             identity = record.trial_index or f"{sequence:02d}"
             short_id = record.trial_id[-28:]
-            c.text(x + 14, y + 4, 338, 25, f"第 {identity} 段 · {short_id}", 10, TEXT, True)
+            c.text(x + 14, y + 1, 338, 23, f"第 {identity} 段 · {short_id}", 10, TEXT, True)
             c.text(
                 x + 14,
-                y + 29,
+                y + 23,
                 338,
-                19,
+                18,
                 f"{record.duration_seconds:.2f} s · {record.sample_rate_hz:g} Hz · "
                 f"{record.channel_count} 通道",
                 9,
                 MUTED,
             )
-            self._hit(x, y, 372, 56, f"analysis-trial:{record_index}")
+            self._hit(x, y, 372, 46, f"analysis-trial:{record_index}")
 
-        c.rect(32, 540, 1216, 128, PANEL, BORDER, 4)
-        c.text(54, 552, 300, 26, "3  截取时间段并在本页分析", 12, TEXT, True)
+        c.rect(32, 628, 1216, 132, PANEL, BORDER, 4)
+        c.text(54, 638, 300, 26, "4  截取时间段并在本页分析", 12, TEXT, True)
         record = browser.selected_record
         if record is not None:
             c.text(
                 54,
-                583,
+                668,
                 690,
                 23,
                 f"已选：{record.true_label} · {record.trial_id}",
@@ -355,7 +433,7 @@ class ResearchConfigurationViewMixin:
             )
             c.text(
                 54,
-                610,
+                693,
                 690,
                 22,
                 f"分析窗口：{browser.window_start_seconds:.2f}–"
@@ -368,7 +446,7 @@ class ResearchConfigurationViewMixin:
                 report = browser.last_report
                 c.text(
                     54,
-                    637,
+                    718,
                     690,
                     20,
                     f"当前结果：候选 {report.candidate_label} · 分数 {report.confidence:.3f} · "
@@ -376,20 +454,20 @@ class ResearchConfigurationViewMixin:
                     9,
                     GREEN if report.accepted else YELLOW,
                 )
-        self._light_button(c, 834, 574, 170, 54, "设置时间段", False, BLUE)
-        self._light_button(c, 1018, 574, 202, 54, "在本页显示图表", True, "#2d8a57")
-        self._hit(834, 574, 170, 54, "analysis-window")
-        self._hit(1018, 574, 202, 54, "analysis-generate")
+        self._light_button(c, 834, 667, 170, 54, "设置时间段", False, BLUE)
+        self._light_button(c, 1018, 667, 202, 54, "在本页显示图表", True, "#2d8a57")
+        self._hit(834, 667, 170, 54, "analysis-window")
+        self._hit(1018, 667, 202, 54, "analysis-generate")
 
         pixmap = browser.report_pixmap
         if pixmap is None or pixmap.isNull():
             return
         report_width = 1184.0
         report_height = browser.report_display_height(report_width)
-        c.text(32, 692, 360, 34, "当前试次分析结果", 18, TEXT, True)
+        c.text(32, 784, 360, 34, "当前试次分析结果", 18, TEXT, True)
         c.text(
             760,
-            696,
+            788,
             468,
             25,
             "保持原六联图格式 · 使用滚轮向下查看完整内容 ↓",
@@ -398,35 +476,38 @@ class ResearchConfigurationViewMixin:
             True,
             Qt.AlignRight,
         )
-        c.rect(32, 732, 1216, report_height + 32, PANEL, BORDER, 5)
+        c.rect(32, 824, 1216, report_height + 32, PANEL, BORDER, 5)
         c.p.drawPixmap(
-            QRectF(48, 748, report_width, report_height),
+            QRectF(48, 840, report_width, report_height),
             pixmap,
             QRectF(pixmap.rect()),
         )
 
     def _research_data_max_scroll(self) -> float:
         report_height = self.trial_analysis.report_display_height(1184.0)
-        if report_height <= 0:
+        if not self.trial_analysis.records and report_height <= 0:
             return 0.0
-        content_bottom = 748.0 + report_height + 16.0
+        content_bottom = (
+            760.0 if report_height <= 0 else 840.0 + report_height + 16.0
+        )
         return max(0.0, content_bottom - 684.0)
 
     def _research_data_empty_state(self, c: Canvas) -> None:
         c.rect(32, 230, 1216, 438, PANEL, BORDER, 5)
-        c.text(430, 267, 420, 42, "导入后按三步完成分析", 18, TEXT, True, Qt.AlignCenter)
+        c.text(430, 267, 420, 42, "导入后按四步完成分析", 18, TEXT, True, Qt.AlignCenter)
         steps = (
             ("1", "选择动作", "例如起飞、右移或降落"),
-            ("2", "选择具体试次", "同一动作的每一段都可单独选择"),
-            ("3", "截取并分析", "自由设置起止时间，本页显示六联图"),
+            ("2", "选择实验时间", "先进入某年某月某日的采集批次"),
+            ("3", "选择具体试次", "只显示该次实验包含的数据"),
+            ("4", "截取并分析", "自由设置起止时间并显示图表"),
         )
         for index, (number, title, description) in enumerate(steps):
-            x = 112 + index * 374
-            c.rect(x, 348, 330, 134, PANEL_SOFT, BORDER, 5)
-            c.circle(x + 40, 389, 18, "#e7f1ff", BLUE)
-            c.text(x + 22, 371, 36, 36, number, 11, BLUE, True, Qt.AlignCenter)
-            c.text(x + 72, 360, 226, 38, title, 14, TEXT, True)
-            c.text(x + 72, 400, 226, 44, description, 10, MUTED)
+            x = 62 + index * 296
+            c.rect(x, 348, 274, 134, PANEL_SOFT, BORDER, 5)
+            c.circle(x + 34, 389, 18, "#e7f1ff", BLUE)
+            c.text(x + 16, 371, 36, 36, number, 11, BLUE, True, Qt.AlignCenter)
+            c.text(x + 62, 360, 194, 38, title, 13, TEXT, True)
+            c.text(x + 62, 400, 194, 44, description, 9, MUTED)
         c.text(
             180,
             518,

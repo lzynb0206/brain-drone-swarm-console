@@ -245,6 +245,40 @@ python -m src.ml.train_transformer_ssvep \
 `models/transformer_ssvep_metadata.json`。随后可在科研“范式算法”页加载，或使用
 `BDS_INTENT_DECODER=transformer python main.py` 显式启用。
 
+### 训练并启用个人算法-Lzy
+
+“个人算法-Lzy”与通用“个人校准融合”使用独立模型文件，不会互相覆盖。它使用完整
+5 秒数据，分别计算 0–4、0.5–4.5、1–5 秒三个重叠窗的 FBCCA 分数，取逐类中位数，
+再使用本人训练集学得的逐频率非目标基线校准。
+
+```bash
+.venv312/bin/python scripts/train_lzy_personal_algorithm.py \
+  --run-id auto-20261025-205949-2b713f
+BDS_INTENT_DECODER=lzy .venv312/bin/python main.py
+```
+
+也可正常启动后，在科研“范式算法”页选择“个人算法-Lzy”并点击“加载算法”。个人模型
+默认是科研分析模式；metadata 未经独立会话验证并批准前，识别结果不会派发到无人机。
+
+### 训练并启用个人算法-Xz
+
+“个人算法-Xz”使用独立模型文件，采用完整 5 秒 EEG、50 Hz 陷波、两套 FBCCA
+六类分数和个人 Logistic Regression。下面的命令只使用指定运行的前 60 条保存试次，
+避免把额外保存的第 61 条混入训练：
+
+```bash
+.venv312/bin/python scripts/train_personal_score_calibration.py \
+  --run-id auto-20261025-215910-076676 \
+  --algorithm-name '个人算法-Xz' \
+  --maximum-trial-index 60 \
+  --model-path models/personal_algorithm_xz_experimental.npz \
+  --metadata-path models/personal_algorithm_xz_experimental_metadata.json
+BDS_INTENT_DECODER=xz .venv312/bin/python main.py
+```
+
+也可在科研“范式算法”页选择“个人算法-Xz”并加载。该入口保持科研模式，默认不能直接
+放行无人机动作。
+
 ### 训练并启用旧版 FB-EEGNet
 
 采集每个类别（含“空闲”）的足量真实试次后：

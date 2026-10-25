@@ -61,6 +61,16 @@ class ResearchWorkbenchService:
         return self._record(f"默认算法已设为 {self.algorithm}")
 
     def benchmark_algorithm(self) -> str:
+        if self.algorithm == "个人算法-Xz":
+            return self._record(
+                "个人算法-Xz使用最新60条中的51条主动指令训练双FBCCA分数＋LogReg；"
+                "整块留一准确率为内部估计，当前模型仅限科研分析"
+            )
+        if self.algorithm == "个人算法-Lzy":
+            return self._record(
+                "个人算法-Lzy使用完整5秒、三个重叠4秒FBCCA窗及本人非目标分数基线；"
+                "整块留一结果为探索性内部验证，仍需新会话复测"
+            )
         if self.algorithm == "个人校准融合":
             return self._record(
                 "个人校准融合使用完整5秒、两套FBCCA分数和LogReg；"

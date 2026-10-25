@@ -32,6 +32,7 @@ from src.adapters.mock import (
 from src.bci import (
     ConsecutiveWindowGate,
     FBCCADecoder,
+    LzyPersonalDecoder,
     PersonalScoreCalibrationDecoder,
     RuntimeIntentDecoder,
 )
@@ -49,6 +50,8 @@ from src.bci.config import (
     FB_EEGNET_METADATA_PATH,
     FB_EEGNET_MODEL_PATH,
     INTENT_DECODER,
+    LZY_PERSONAL_METADATA_PATH,
+    LZY_PERSONAL_MODEL_PATH,
     PERSONAL_TEMPLATE_METADATA_PATH,
     PERSONAL_TEMPLATE_MODEL_PATH,
     PERSONAL_SCORE_METADATA_PATH,
@@ -58,6 +61,8 @@ from src.bci.config import (
     TRANSFORMER_MIN_CONFIDENCE,
     TRANSFORMER_MODEL_PATH,
     TRANSFORMER_REQUIRED_WINDOWS,
+    XZ_PERSONAL_METADATA_PATH,
+    XZ_PERSONAL_MODEL_PATH,
     SOLDIER_SSVEP_DATA_ROOT,
     SSVEP_TEST_DATA_ROOT,
 )
@@ -197,11 +202,33 @@ def create_default_container() -> ApplicationContainer:
             PERSONAL_SCORE_METADATA_PATH,
         )
     )
+    xz_personal_decoder = PersonalScoreCalibrationDecoder(
+        PersonalScoreCalibrationModel(
+            XZ_PERSONAL_MODEL_PATH,
+            XZ_PERSONAL_METADATA_PATH,
+            algorithm_name="个人算法-Xz",
+        ),
+        algorithm_name="个人算法-Xz",
+    )
+    from src.ml.lzy_personal_model import LzyPersonalModel
+
+    lzy_personal_decoder = LzyPersonalDecoder(
+        LzyPersonalModel(
+            LZY_PERSONAL_MODEL_PATH,
+            LZY_PERSONAL_METADATA_PATH,
+        )
+    )
     decoder_aliases = {
         "fbcca": "FBCCA",
+        "lzy": "个人算法-Lzy",
+        "personal-lzy": "个人算法-Lzy",
+        "lzy-personal": "个人算法-Lzy",
         "personal-score": "个人校准融合",
         "score-calibration": "个人校准融合",
         "dual-fbcca-logreg": "个人校准融合",
+        "xz": "个人算法-Xz",
+        "personal-xz": "个人算法-Xz",
+        "xz-personal": "个人算法-Xz",
         "personal": "个人模板-SSVEP",
         "personal-template": "个人模板-SSVEP",
         "template": "个人模板-SSVEP",
@@ -210,12 +237,14 @@ def create_default_container() -> ApplicationContainer:
     }
     if INTENT_DECODER not in decoder_aliases:
         raise ValueError(
-            "BDS_INTENT_DECODER must be one of: fbcca, personal-score, "
+            "BDS_INTENT_DECODER must be one of: fbcca, lzy, xz, personal-score, "
             "personal-template, transformer"
         )
     intent_decoder: IntentDecoder = RuntimeIntentDecoder(
         {
             "FBCCA": baseline_decoder,
+            "个人算法-Lzy": lzy_personal_decoder,
+            "个人算法-Xz": xz_personal_decoder,
             "个人校准融合": personal_score_decoder,
             "个人模板-SSVEP": personal_template_decoder,
             "Transformer-SSVEP": transformer_decoder,

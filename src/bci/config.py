@@ -60,6 +60,30 @@ PERSONAL_SCORE_METADATA_PATH = Path(
         str(PROJECT_ROOT / "models" / "personal_score_calibration_experimental_metadata.json"),
     )
 ).expanduser()
+LZY_PERSONAL_MODEL_PATH = Path(
+    os.getenv(
+        "BDS_LZY_PERSONAL_MODEL",
+        str(PROJECT_ROOT / "models" / "personal_algorithm_lzy_experimental.npz"),
+    )
+).expanduser()
+LZY_PERSONAL_METADATA_PATH = Path(
+    os.getenv(
+        "BDS_LZY_PERSONAL_METADATA",
+        str(PROJECT_ROOT / "models" / "personal_algorithm_lzy_experimental_metadata.json"),
+    )
+).expanduser()
+XZ_PERSONAL_MODEL_PATH = Path(
+    os.getenv(
+        "BDS_XZ_PERSONAL_MODEL",
+        str(PROJECT_ROOT / "models" / "personal_algorithm_xz_experimental.npz"),
+    )
+).expanduser()
+XZ_PERSONAL_METADATA_PATH = Path(
+    os.getenv(
+        "BDS_XZ_PERSONAL_METADATA",
+        str(PROJECT_ROOT / "models" / "personal_algorithm_xz_experimental_metadata.json"),
+    )
+).expanduser()
 # A local model file must never silently become the flight-control default.
 # Personal/neural models remain selectable for research, but require explicit
 # operator selection and independent production approval before hardware use.

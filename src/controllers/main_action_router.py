@@ -145,6 +145,12 @@ class MainActionRouter(QObject):
             view.trial_analysis.choose_files()
         elif action.startswith("analysis-label:"):
             view.trial_analysis.select_label(action.split(":", 1)[1])
+        elif action.startswith("analysis-experiment:"):
+            view.trial_analysis.select_experiment(action.split(":", 1)[1])
+        elif action == "analysis-experiment-page-previous":
+            view.trial_analysis.previous_experiment_page()
+        elif action == "analysis-experiment-page-next":
+            view.trial_analysis.next_experiment_page()
         elif action.startswith("analysis-trial:"):
             view.trial_analysis.select_record(int(action.rsplit(":", 1)[1]))
         elif action == "analysis-page-previous":

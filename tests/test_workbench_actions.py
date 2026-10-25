@@ -427,12 +427,62 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual(0.0, self.view.trial_analysis.window_start_seconds)
         self.assertEqual(5.0, self.view.trial_analysis.window_end_seconds)
         self.assertIn("analysis-label:起飞", actions)
+        self.assertTrue(
+            any(action.startswith("analysis-experiment:") for action in actions)
+        )
         self.assertIn("analysis-trial:0", actions)
         self.assertIn("analysis-window", actions)
         self.assertIn("analysis-generate", actions)
         self.assertNotIn("analysis-show-report", actions)
         self.assertIsNotNone(self.view.trial_analysis.report_pixmap)
         self.assertEqual([], generated_pngs)
+
+    def test_data_analysis_groups_trials_by_experiment_time_before_trial(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            timeline = np.arange(1250, dtype=float) / 250.0
+            eeg = np.asarray([
+                40.0 * np.sin(2 * np.pi * 8.0 * timeline + index * 0.3)
+                for index in range(8)
+            ], dtype=np.float32)
+            runs = (
+                ("auto-20261022-190558-fa4fb5", "2026-10-22T19:06:06+08:00"),
+                ("auto-20261025-205949-2b713f", "2026-10-25T21:00:02+08:00"),
+            )
+            for trial_index, (run_id, start_time) in enumerate(runs, start=1):
+                np.savez_compressed(
+                    root / f"{run_id}-trial-{trial_index:04d}.npz",
+                    eeg=eeg,
+                    fs=np.asarray(250.0),
+                    true_label=np.asarray("起飞"),
+                    start_time=np.asarray(start_time),
+                    channel_names=np.asarray(
+                        ("O1", "Oz", "O2", "PO3", "POz", "PO4", "P3", "P4")
+                    ),
+                    trial_context=np.asarray(json.dumps({
+                        "run_id": run_id,
+                        "trial_index": trial_index,
+                    })),
+                )
+
+            browser = self.view.trial_analysis
+            browser.load_source(root)
+            actions = self._render_page(self.view.research_widget, "_research_data")
+
+            self.assertEqual(2, len(browser.selected_label_experiments))
+            self.assertEqual(
+                "2026年10月25日 20:59",
+                browser.selected_label_experiments[0].display_time,
+            )
+            self.assertEqual(runs[1][0], browser.selected_experiment_id)
+            self.assertIn(f"analysis-experiment:{runs[0][0]}", actions)
+            self.assertIn(f"analysis-experiment:{runs[1][0]}", actions)
+
+            self.view._activate(f"analysis-experiment:{runs[0][0]}")
+
+            self.assertEqual(1, len(browser.selected_label_records))
+            self.assertEqual(runs[0][0], browser.selected_experiment_id)
+            self.assertIn(runs[0][0], browser.selected_record.trial_id)
 
     def test_inline_data_analysis_report_scrolls_inside_research_page(self) -> None:
         self.view.research_page = "数据分析"
