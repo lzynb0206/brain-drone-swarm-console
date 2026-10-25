@@ -32,6 +32,7 @@ from src.adapters.mock import (
 from src.bci import (
     ConsecutiveWindowGate,
     FBCCADecoder,
+    PersonalScoreCalibrationDecoder,
     RuntimeIntentDecoder,
 )
 from src.bci.personal_template_decoder import PersonalTemplateSSVEPDecoder
@@ -50,6 +51,8 @@ from src.bci.config import (
     INTENT_DECODER,
     PERSONAL_TEMPLATE_METADATA_PATH,
     PERSONAL_TEMPLATE_MODEL_PATH,
+    PERSONAL_SCORE_METADATA_PATH,
+    PERSONAL_SCORE_MODEL_PATH,
     TRANSFORMER_COOLDOWN_SECONDS,
     TRANSFORMER_METADATA_PATH,
     TRANSFORMER_MIN_CONFIDENCE,
@@ -186,8 +189,19 @@ def create_default_container() -> ApplicationContainer:
         ),
         FBCCADecoder(),
     )
+    from src.ml.personal_score_calibration import PersonalScoreCalibrationModel
+
+    personal_score_decoder = PersonalScoreCalibrationDecoder(
+        PersonalScoreCalibrationModel(
+            PERSONAL_SCORE_MODEL_PATH,
+            PERSONAL_SCORE_METADATA_PATH,
+        )
+    )
     decoder_aliases = {
         "fbcca": "FBCCA",
+        "personal-score": "个人校准融合",
+        "score-calibration": "个人校准融合",
+        "dual-fbcca-logreg": "个人校准融合",
         "personal": "个人模板-SSVEP",
         "personal-template": "个人模板-SSVEP",
         "template": "个人模板-SSVEP",
@@ -196,11 +210,13 @@ def create_default_container() -> ApplicationContainer:
     }
     if INTENT_DECODER not in decoder_aliases:
         raise ValueError(
-            "BDS_INTENT_DECODER must be one of: fbcca, personal-template, transformer"
+            "BDS_INTENT_DECODER must be one of: fbcca, personal-score, "
+            "personal-template, transformer"
         )
     intent_decoder: IntentDecoder = RuntimeIntentDecoder(
         {
             "FBCCA": baseline_decoder,
+            "个人校准融合": personal_score_decoder,
             "个人模板-SSVEP": personal_template_decoder,
             "Transformer-SSVEP": transformer_decoder,
         },

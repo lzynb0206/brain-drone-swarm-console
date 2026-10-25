@@ -215,6 +215,10 @@ class MainDialogsMixin:
         self._stimulus_window.set_idle_calibration_seconds(
             float(getattr(self.intent_decoder, "idle_calibration_seconds", 12.0))
         )
+        required_window = float(
+            getattr(self.intent_decoder, "required_window_seconds", 0.0) or WINDOW_SECONDS
+        )
+        self._stimulus_window.set_analysis_window_seconds(required_window)
         self._stimulus_window.set_mode(mode)
         self._stimulus_window.showFullScreen()
         self._stimulus_window.raise_()

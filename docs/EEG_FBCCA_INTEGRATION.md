@@ -7,9 +7,9 @@ ExpandableEEG蓝牙虚拟COM/串口 → 原生0xA0/0xCx数据包驱动（直接�
 或 OpenBCI GUI → LSL EEG（兼容模式）
 或 start-1.csv / 已保存的 lsl_raw_*.csv
         ↓ EEGStream
-后台 QThread（连续分块录制、刺激同步试次、SSVEP 2秒滑动窗）
+后台 QThread（连续分块录制、刺激同步试次、按解码器要求生成滑动窗）
         ↓
-带通滤波器组 → 八路枕区/顶枕区通道质量选择 → FBCCA → 意图安全阈值与连续窗口门控
+八路枕区/顶枕区质量检查 → FBCCA基线或个人校准融合 → 意图安全阈值与连续窗口门控
         ↓
 科研界面 + lsl_raw_*.csv + recognition_log.csv + raw_trials/*.npz
         ↓ 仅在实时硬件/LSL、安全条件满足且人工开启时
@@ -24,6 +24,23 @@ CSV 回放被代码硬性禁止驱动实机。没有模型权重时，系统继�
 这里的职责必须分清：OpenBCI 是采集硬件及其配套软件，EEG 是采集到的脑电数据，
 LSL 是把 EEG 和时间戳实时送进本软件的传输通道，FBCCA 是只针对 SSVEP 频率的解码算法。
 运动想象（MI）模式目前只采集、质检和保存带标签原始数据，不运行 FBCCA，也不生成无人机指令。
+
+### 个人校准融合（科研算法）
+
+该算法使用完整5秒、8通道、250 Hz窗口，不丢弃首尾。先去线性漂移并做50 Hz零相位陷波，
+随后并行生成两组六类FBCCA分数：`6/14/22–50 Hz + 标准权重` 与
+`6/14/22–46 Hz + 等权重`。十二个分数经训练集 StandardScaler 后进入个人
+Logistic Regression，最终六类概率由回归模型给出，因此不再直接采用传统FBCCA的最高分。
+
+它仍以FBCCA作为特征提取器，并不是“完全没有FBCCA”。当前模型来自
+`auto-20261024-145545-3730b3`：51个主动试次整块留一为38/51（74.5%）。由于方法是在同一
+运行上比较后选出的，这只是探索性内部结果，不是跨天独立准确率；metadata固定为
+`production_approved=false`，只能用于科研指令测试。重新训练命令：
+
+```bash
+.venv312/bin/python scripts/train_personal_score_calibration.py \
+  --run-id auto-YYYYMMDD-HHMMSS-xxxxxx
+```
 
 ## 科研人员界面的三段式工作流
 

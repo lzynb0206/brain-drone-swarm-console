@@ -61,6 +61,11 @@ class ResearchWorkbenchService:
         return self._record(f"默认算法已设为 {self.algorithm}")
 
     def benchmark_algorithm(self) -> str:
+        if self.algorithm == "个人校准融合":
+            return self._record(
+                "个人校准融合使用完整5秒、两套FBCCA分数和LogReg；"
+                "当前整块留一结果仅是探索性内部验证，需用新会话数据复测"
+            )
         if self.algorithm == "个人模板-SSVEP":
             return self._record(
                 "60段单目标数据已用于个人模板＋FBCCA一致性识别；请在SSVEP测试页另采在线结果评估"

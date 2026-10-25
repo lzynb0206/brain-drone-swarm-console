@@ -23,11 +23,14 @@
 - “CSV回放”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
 - 兼容历史 `start-1.csv` 格式与本项目采集的 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
 - MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
-- 纯 FBCCA 六频基线，以及可训练的 Transformer-SSVEP：2秒/250 Hz八通道输入、
+- 纯 FBCCA 六频基线、个人校准融合和可训练的 Transformer-SSVEP。个人校准融合使用完整5秒、
+  50 Hz陷波后两套固定FBCCA分数（标准50 Hz上限＋等权46 Hz上限）作为12维特征，再由
+  个人Logistic Regression输出六类概率；它不再直接按单套FBCCA最高分下指令。
+  Transformer-SSVEP使用2秒/250 Hz八通道输入、
   频谱分片、自注意力分类、0.60置信度、连续双窗口确认和0.50秒冷却。
-- 解码器可在科研“范式算法”页真实切换；缺少 Transformer 权重时明确拒绝加载，不静默伪装。
+- 解码器可在科研“范式算法”页真实切换；缺少个人校准模型或 Transformer 权重时明确拒绝加载，不静默伪装。
 - “数据”页可导入本项目或外部带标签 NPZ，按动作标签、具体试次和试次内时间段三级筛选，生成原始波形、通道质量、阈前/陷波后 FFT、FBCCA 滤波子带和六类分数六联图，同时保存 JSON 指标与通道质量 CSV。
-- 解码器安全默认固定为 FBCCA。个人模板和 Transformer 即使文件存在也不会自动成为默认模型；
+- 解码器安全默认固定为 FBCCA。个人校准融合、个人模板和 Transformer 即使文件存在也不会自动成为默认模型；
   metadata 未明确标记 `production_approved=true` 时只能做科研识别，不能派发实机命令。
 - 包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
 - 可选 FB-EEGNet 训练/验证/实时推理；没有匹配权重时自动保留真实 FBCCA，不伪造模型结果。
@@ -52,9 +55,9 @@
 ```text
 ExpandableEEG（原生串口直连） / LSL / CSV
     ↓
-EEGWorker（后台采集、4秒窗口化、记录）
+EEGWorker（后台采集、按当前解码器选择4秒或5秒窗口、记录）
     ↓
-FBCCA / 个人模板 / Transformer-SSVEP → 模型准入与连续窗口安全门 → BCIExecutionService
+FBCCA / 个人校准融合 / 个人模板 / Transformer-SSVEP → 模型准入与连续窗口安全门 → BCIExecutionService
                                                ↓
 角色 QWidget → WorkbenchService 应用门面 → SwarmControlService
                                                ↓

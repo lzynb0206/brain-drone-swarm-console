@@ -93,6 +93,7 @@ class SSVEPStimulusWindow(StimulusCanvas):
         self._selected_label = "空闲"
         self._cooldown_until = 0.0
         self._cooldown_label = ""
+        self._analysis_window_seconds = float(WINDOW_SECONDS)
         self._move_distance_m = 0.05
         self._command_cooldown_seconds = 2.5
         self._idle_calibration_seconds = FBCCA_IDLE_CALIBRATION_SECONDS
@@ -185,6 +186,12 @@ class SSVEPStimulusWindow(StimulusCanvas):
 
         self._idle_calibration_seconds = max(0.0, float(seconds))
 
+    def set_analysis_window_seconds(self, seconds: float) -> None:
+        """Keep the visual fresh-window guard aligned with the active decoder."""
+
+        value = float(seconds)
+        self._analysis_window_seconds = value if value > 0.0 else float(WINDOW_SECONDS)
+
     def begin_cooldown(self, seconds: float | None = None, label: str = "") -> None:
         """Pause every visual target after one command has been admitted."""
 
@@ -249,10 +256,10 @@ class SSVEPStimulusWindow(StimulusCanvas):
             if self._idle_calibration_seconds > 0.0:
                 self.begin_cooldown(self._idle_calibration_seconds, "空闲校准")
             else:
-                self._fresh_window_until = time.monotonic() + WINDOW_SECONDS
-                self.fresh_window_requested.emit(WINDOW_SECONDS, "个人模板就绪")
+                self._fresh_window_until = time.monotonic() + self._analysis_window_seconds
+                self.fresh_window_requested.emit(self._analysis_window_seconds, "解码器就绪")
                 self.status_changed.emit(
-                    f"个人模板已加载：请注视目标，先采集完整 {WINDOW_SECONDS:g}s 新窗口"
+                    f"解码器已加载：请注视目标，先采集完整 {self._analysis_window_seconds:g}s 新窗口"
                 )
         self.update()
 
@@ -533,10 +540,10 @@ class SSVEPStimulusWindow(StimulusCanvas):
         )
         self.event_marker.emit(marker, time.time())
         if self._running:
-            self._fresh_window_until = time.monotonic() + WINDOW_SECONDS
-            self.fresh_window_requested.emit(WINDOW_SECONDS, finished_label)
+            self._fresh_window_until = time.monotonic() + self._analysis_window_seconds
+            self.fresh_window_requested.emit(self._analysis_window_seconds, finished_label)
             self.status_changed.emit(
-                f"视觉刺激已恢复：请注视目标，先采集完整 {WINDOW_SECONDS:g}s 新窗口"
+                f"视觉刺激已恢复：请注视目标，先采集完整 {self._analysis_window_seconds:g}s 新窗口"
             )
         self.update()
 

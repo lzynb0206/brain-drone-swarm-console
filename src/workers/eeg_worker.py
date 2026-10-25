@@ -316,7 +316,13 @@ class EEGWorker(QThread):
                 buffer = np.concatenate((buffer, values), axis=1)
                 buffer_timestamps = np.concatenate((buffer_timestamps, frame_timestamps))
                 samples_since_decision += values.shape[1]
-            window_samples = max(100, round(frame.sample_rate_hz * self.window_seconds))
+            decoder_window_seconds = float(
+                getattr(self.decoder, "required_window_seconds", 0.0) or 0.0
+            )
+            active_window_seconds = (
+                decoder_window_seconds if decoder_window_seconds > 0.0 else self.window_seconds
+            )
+            window_samples = max(100, round(frame.sample_rate_hz * active_window_seconds))
             paradigm_type = self._labeled_trial_recorder.paradigm_type
             capture_seconds = self._labeled_trial_recorder.capture_seconds
             labeled_window_samples = max(
@@ -345,7 +351,7 @@ class EEGWorker(QThread):
             try:
                 result: IntentResult = self.decoder.decode(window, frame.sample_rate_hz)
                 subject_id, session_id = self._experiment_context()
-                start_time = (datetime.now().astimezone() - timedelta(seconds=self.window_seconds)).isoformat(
+                start_time = (datetime.now().astimezone() - timedelta(seconds=active_window_seconds)).isoformat(
                     timespec="milliseconds"
                 )
                 self._current_online_recorder().record(

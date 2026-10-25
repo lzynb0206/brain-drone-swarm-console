@@ -44,6 +44,14 @@ class RuntimeIntentDecoder:
             decoder = self._decoders[self._active_name]
         return bool(getattr(decoder, "hardware_control_allowed", True))
 
+    @property
+    def required_window_seconds(self) -> float:
+        """Window required by the active decoder, if it has a fixed contract."""
+
+        with self._lock:
+            decoder = self._decoders[self._active_name]
+        return float(getattr(decoder, "required_window_seconds", 0.0))
+
     def algorithm_statuses(self) -> dict[str, dict[str, object]]:
         statuses = {}
         for name, decoder in self._decoders.items():
@@ -55,6 +63,7 @@ class RuntimeIntentDecoder:
                 "hardware_control_allowed": bool(
                     getattr(decoder, "hardware_control_allowed", True)
                 ),
+                "evaluation_accuracy": getattr(decoder, "evaluation_accuracy", None),
             }
         return statuses
 
@@ -63,6 +72,13 @@ class RuntimeIntentDecoder:
         if normalized not in self._decoders:
             raise ValueError(f"未知解码算法：{normalized}")
         decoder = self._decoders[normalized]
+        if not bool(getattr(decoder, "available", True)):
+            # "加载算法" may be clicked after a trainer has written a model
+            # while the application is already open. Give decoders with a
+            # validated reload hook one chance to discover the new artifact.
+            reload_model = getattr(decoder, "reload", None)
+            if callable(reload_model):
+                reload_model()
         if not bool(getattr(decoder, "available", True)):
             reason = str(getattr(decoder, "backend_status", "模型不可用"))
             raise RuntimeError(f"无法启用 {normalized}：{reason}")

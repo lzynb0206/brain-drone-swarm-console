@@ -190,17 +190,32 @@ class ResearchConfigurationViewMixin:
         c.rect(48, 189, 1184, 171, PANEL, BORDER, 3)
         transformer_selected = self.actions.algorithm == "Transformer-SSVEP"
         template_selected = self.actions.algorithm == "个人模板-SSVEP"
+        score_calibration_selected = self.actions.algorithm == "个人校准融合"
         selected_name = (
             "Transformer-SSVEP" if transformer_selected else
             "个人模板-SSVEP" if template_selected else "纯 FBCCA"
         )
+        if score_calibration_selected:
+            selected_name = "双FBCCA分数＋个人LogReg"
+        selected_window_seconds = 5.0 if score_calibration_selected else WINDOW_SECONDS
+        if selected_window_seconds <= 0.0:
+            selected_window_seconds = WINDOW_SECONDS
+        status_reader = getattr(self.intent_decoder, "algorithm_statuses", None)
+        statuses = status_reader() if callable(status_reader) else {}
         selected_type = (
             "监督训练模型" if transformer_selected else
-            "个人多试次模板" if template_selected else "无训练模型"
+            "个人多试次模板" if template_selected else
+            "个人分数校准" if score_calibration_selected else "无训练模型"
+        )
+        reported_accuracy = statuses.get("个人校准融合", {}).get("evaluation_accuracy")
+        accuracy_text = (
+            f"{float(reported_accuracy) * 100:.1f}%（内部）"
+            if score_calibration_selected and isinstance(reported_accuracy, (float, int))
+            else "待真实标签评估"
         )
         metadata = [("名称:", selected_name, 73, 207), ("类型:", selected_type, 356, 207),
-                    ("数据源:", "硬件 / LSL / CSV", 640, 207), ("准确率:", "待真实标签评估", 922, 207),
-                    ("识别窗:", f"{WINDOW_SECONDS:g}秒", 73, 256),
+                    ("数据源:", "硬件 / LSL / CSV", 640, 207), ("准确率:", accuracy_text, 922, 207),
+                    ("识别窗:", f"{selected_window_seconds:g}秒", 73, 256),
                     ("更新步长:", f"{DECISION_STEP_SECONDS:g}秒", 356, 256),
                     ("频率配置:", SSVEP_PROFILE_NAME, 640, 256)]
         for label, value, x, y in metadata:
@@ -209,9 +224,7 @@ class ResearchConfigurationViewMixin:
         c.line(73, 310, 1207, 310, "#dce3eb")
         c.rect(48, 376, 1184, 295, PANEL, BORDER, 3)
         c.text(73, 394, 200, 37, "算法库", 17, TEXT, True)
-        algorithms = ["FBCCA", "个人模板-SSVEP", "Transformer-SSVEP"]
-        status_reader = getattr(self.intent_decoder, "algorithm_statuses", None)
-        statuses = status_reader() if callable(status_reader) else {}
+        algorithms = ["FBCCA", "个人校准融合", "个人模板-SSVEP", "Transformer-SSVEP"]
         for i, name in enumerate(algorithms):
             x = 73 + i * 176
             selected = name == self.actions.algorithm

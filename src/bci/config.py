@@ -48,6 +48,18 @@ PERSONAL_TEMPLATE_METADATA_PATH = Path(
         str(PROJECT_ROOT / "models" / "personal_template_ssvep_experimental_metadata.json"),
     )
 ).expanduser()
+PERSONAL_SCORE_MODEL_PATH = Path(
+    os.getenv(
+        "BDS_PERSONAL_SCORE_MODEL",
+        str(PROJECT_ROOT / "models" / "personal_score_calibration_experimental.npz"),
+    )
+).expanduser()
+PERSONAL_SCORE_METADATA_PATH = Path(
+    os.getenv(
+        "BDS_PERSONAL_SCORE_METADATA",
+        str(PROJECT_ROOT / "models" / "personal_score_calibration_experimental_metadata.json"),
+    )
+).expanduser()
 # A local model file must never silently become the flight-control default.
 # Personal/neural models remain selectable for research, but require explicit
 # operator selection and independent production approval before hardware use.
