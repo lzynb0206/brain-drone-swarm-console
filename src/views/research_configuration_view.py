@@ -264,7 +264,7 @@ class ResearchConfigurationViewMixin:
             101,
             850,
             22,
-            "导入采集数据，按动作、实验时间和具体试次逐级筛选，再截取时间段分析。",
+            "按受试者、采集日期、动作和具体试次逐级筛选；紧邻采集的不同人员不会再被混合。",
             10,
             MUTED,
         )
@@ -282,89 +282,149 @@ class ResearchConfigurationViewMixin:
             self._research_data_empty_state(c)
             return
 
-        c.rect(32, 230, 1216, 82, PANEL, BORDER, 4)
-        c.text(54, 240, 180, 26, "1  选择动作标签", 12, TEXT, True)
-        counts = {
-            label: sum(record.true_label == label for record in browser.records)
-            for label in browser.labels
-        }
-        for index, label in enumerate(browser.labels[:9]):
-            x = 228 + index * 108
-            selected = label == browser.selected_label
-            c.button(x, 248, 98, 45, f"{label}  {counts[label]}", selected)
-            self._hit(x, 248, 98, 45, f"analysis-label:{label}")
-
-        c.rect(32, 326, 1216, 110, PANEL, BORDER, 4)
-        c.text(54, 337, 310, 27, "2  选择该动作的实验时间", 12, TEXT, True)
+        c.rect(32, 230, 1216, 112, PANEL, BORDER, 4)
+        c.text(54, 240, 230, 27, "1  选择受试者", 12, TEXT, True)
+        selected_subject = browser.selected_subject
+        if selected_subject is not None:
+            c.text(
+                256,
+                240,
+                520,
+                27,
+                f"当前：{selected_subject.display_name} · {selected_subject.record_count} 个试次 · "
+                f"{selected_subject.date_count} 个采集日",
+                10,
+                CYAN,
+                True,
+            )
+        self._light_button(c, 820, 237, 150, 31, "编辑受试者名称", False, BLUE)
+        self._hit(820, 237, 150, 31, "analysis-subject-rename")
         c.text(
-            895,
-            337,
-            170,
+            972,
+            239,
+            96,
             27,
-            f"第 {browser.experiment_page + 1}/{browser.experiment_page_count} 页",
-            10,
+            f"{browser.subject_page + 1}/{browser.subject_page_count} 页",
+            9,
             MUTED,
             False,
             Qt.AlignRight,
         )
-        c.button(
-            1077,
-            335,
-            64,
-            30,
-            "上一页",
-            disabled=browser.experiment_page <= 0,
-        )
+        c.button(1077, 237, 64, 30, "上一页", disabled=browser.subject_page <= 0)
         c.button(
             1149,
-            335,
+            237,
             64,
             30,
             "下一页",
-            disabled=browser.experiment_page >= browser.experiment_page_count - 1,
+            disabled=browser.subject_page >= browser.subject_page_count - 1,
         )
-        if browser.experiment_page > 0:
-            self._hit(1077, 335, 64, 30, "analysis-experiment-page-previous")
-        if browser.experiment_page < browser.experiment_page_count - 1:
-            self._hit(1149, 335, 64, 30, "analysis-experiment-page-next")
-
-        for index, group in enumerate(browser.visible_experiments):
-            x, y = 54 + index * 284, 370
-            selected = group.experiment_id == browser.selected_experiment_id
+        if browser.subject_page > 0:
+            self._hit(1077, 237, 64, 30, "analysis-subject-page-previous")
+        if browser.subject_page < browser.subject_page_count - 1:
+            self._hit(1149, 237, 64, 30, "analysis-subject-page-next")
+        for index, group in enumerate(browser.visible_subjects):
+            x, y = 54 + index * 290, 278
+            selected = group.subject_id == browser.selected_subject_id
             c.rect(
                 x,
                 y,
-                268,
-                52,
+                274,
+                50,
                 "#eef4ff" if selected else PANEL_SOFT,
                 BLUE if selected else BORDER,
                 4,
                 2 if selected else 1,
             )
-            c.text(x + 12, y + 2, 244, 25, group.display_time, 10, TEXT, True)
-            short_id = group.experiment_id.rsplit("-", 1)[-1]
+            c.text(x + 12, y + 2, 250, 24, group.display_name, 10, TEXT, True)
             c.text(
                 x + 12,
-                y + 26,
-                244,
-                19,
-                f"{group.record_count} 个试次 · 批次 {short_id}",
-                9,
+                y + 25,
+                250,
+                18,
+                f"{group.date_count} 个日期 · {group.record_count} 个试次 · {group.subject_id}",
+                8,
                 MUTED,
             )
-            self._hit(
+            self._hit(x, y, 274, 50, f"analysis-subject:{group.subject_id}")
+
+        c.rect(32, 356, 1216, 94, PANEL, BORDER, 4)
+        c.text(54, 366, 260, 27, "2  选择采集日期", 12, TEXT, True)
+        c.text(
+            972,
+            366,
+            96,
+            27,
+            f"{browser.date_page + 1}/{browser.date_page_count} 页",
+            9,
+            MUTED,
+            False,
+            Qt.AlignRight,
+        )
+        c.button(1077, 364, 64, 30, "上一页", disabled=browser.date_page <= 0)
+        c.button(
+            1149,
+            364,
+            64,
+            30,
+            "下一页",
+            disabled=browser.date_page >= browser.date_page_count - 1,
+        )
+        if browser.date_page > 0:
+            self._hit(1077, 364, 64, 30, "analysis-date-page-previous")
+        if browser.date_page < browser.date_page_count - 1:
+            self._hit(1149, 364, 64, 30, "analysis-date-page-next")
+        for index, group in enumerate(browser.visible_dates):
+            x, y = 54 + index * 230, 399
+            selected = group.acquisition_date == browser.selected_date
+            c.rect(
                 x,
                 y,
-                268,
-                52,
-                f"analysis-experiment:{group.experiment_id}",
+                214,
+                38,
+                "#eef4ff" if selected else PANEL_SOFT,
+                BLUE if selected else BORDER,
+                4,
+                2 if selected else 1,
             )
+            c.text(
+                x + 10,
+                y,
+                194,
+                38,
+                f"{group.display_date} · {group.record_count} 条",
+                9,
+                TEXT,
+                selected,
+                Qt.AlignCenter,
+            )
+            self._hit(x, y, 214, 38, f"analysis-date:{group.acquisition_date}")
 
-        c.rect(32, 448, 1216, 166, PANEL, BORDER, 4)
-        c.text(54, 458, 250, 27, "3  选择该实验的具体试次", 12, TEXT, True)
+        c.rect(32, 464, 1216, 82, PANEL, BORDER, 4)
+        c.text(54, 474, 180, 26, "3  选择动作标签", 12, TEXT, True)
+        counts = {
+            label: len([
+                record for record in browser.records
+                if record.true_label == label
+                and str(getattr(record, "subject_id", "")) == browser.selected_subject_id
+                and (
+                    browser.selected_date == browser.ALL_DATES
+                    or str(getattr(record, "acquisition_date", "")) == browser.selected_date
+                )
+            ])
+            for label in browser.labels
+        }
+        for index, label in enumerate(browser.labels[:9]):
+            x = 228 + index * 108
+            selected = label == browser.selected_label
+            c.button(x, 490, 98, 45, f"{label}  {counts[label]}", selected)
+            self._hit(x, 490, 98, 45, f"analysis-label:{label}")
+
+        c.rect(32, 560, 1216, 166, PANEL, BORDER, 4)
+        c.text(54, 570, 250, 27, "4  选择具体试次", 12, TEXT, True)
         c.text(
             895,
-            458,
+            570,
             170,
             27,
             f"第 {browser.page + 1}/{browser.page_count} 页",
@@ -373,23 +433,23 @@ class ResearchConfigurationViewMixin:
             False,
             Qt.AlignRight,
         )
-        c.button(1077, 456, 64, 30, "上一页", disabled=browser.page <= 0)
+        c.button(1077, 568, 64, 30, "上一页", disabled=browser.page <= 0)
         c.button(
             1149,
-            456,
+            568,
             64,
             30,
             "下一页",
             disabled=browser.page >= browser.page_count - 1,
         )
         if browser.page > 0:
-            self._hit(1077, 456, 64, 30, "analysis-page-previous")
+            self._hit(1077, 568, 64, 30, "analysis-page-previous")
         if browser.page < browser.page_count - 1:
-            self._hit(1149, 456, 64, 30, "analysis-page-next")
+            self._hit(1149, 568, 64, 30, "analysis-page-next")
 
         for index, (record_index, record) in enumerate(browser.visible_records):
             column, row = index % 3, index // 3
-            x, y = 54 + column * 393, 494 + row * 56
+            x, y = 54 + column * 393, 606 + row * 56
             selected = record_index == browser.selected_record_index
             c.rect(
                 x,
@@ -417,13 +477,13 @@ class ResearchConfigurationViewMixin:
             )
             self._hit(x, y, 372, 46, f"analysis-trial:{record_index}")
 
-        c.rect(32, 628, 1216, 132, PANEL, BORDER, 4)
-        c.text(54, 638, 300, 26, "4  截取时间段并在本页分析", 12, TEXT, True)
+        c.rect(32, 740, 1216, 132, PANEL, BORDER, 4)
+        c.text(54, 750, 300, 26, "5  截取时间段并在本页分析", 12, TEXT, True)
         record = browser.selected_record
         if record is not None:
             c.text(
                 54,
-                668,
+                780,
                 690,
                 23,
                 f"已选：{record.true_label} · {record.trial_id}",
@@ -433,7 +493,7 @@ class ResearchConfigurationViewMixin:
             )
             c.text(
                 54,
-                693,
+                805,
                 690,
                 22,
                 f"分析窗口：{browser.window_start_seconds:.2f}–"
@@ -446,7 +506,7 @@ class ResearchConfigurationViewMixin:
                 report = browser.last_report
                 c.text(
                     54,
-                    718,
+                    830,
                     690,
                     20,
                     f"当前结果：候选 {report.candidate_label} · 分数 {report.confidence:.3f} · "
@@ -454,20 +514,20 @@ class ResearchConfigurationViewMixin:
                     9,
                     GREEN if report.accepted else YELLOW,
                 )
-        self._light_button(c, 834, 667, 170, 54, "设置时间段", False, BLUE)
-        self._light_button(c, 1018, 667, 202, 54, "在本页显示图表", True, "#2d8a57")
-        self._hit(834, 667, 170, 54, "analysis-window")
-        self._hit(1018, 667, 202, 54, "analysis-generate")
+        self._light_button(c, 834, 779, 170, 54, "设置时间段", False, BLUE)
+        self._light_button(c, 1018, 779, 202, 54, "在本页显示图表", True, "#2d8a57")
+        self._hit(834, 779, 170, 54, "analysis-window")
+        self._hit(1018, 779, 202, 54, "analysis-generate")
 
         pixmap = browser.report_pixmap
         if pixmap is None or pixmap.isNull():
             return
         report_width = 1184.0
         report_height = browser.report_display_height(report_width)
-        c.text(32, 784, 360, 34, "当前试次分析结果", 18, TEXT, True)
+        c.text(32, 896, 360, 34, "当前试次分析结果", 18, TEXT, True)
         c.text(
             760,
-            788,
+            900,
             468,
             25,
             "保持原六联图格式 · 使用滚轮向下查看完整内容 ↓",
@@ -476,9 +536,9 @@ class ResearchConfigurationViewMixin:
             True,
             Qt.AlignRight,
         )
-        c.rect(32, 824, 1216, report_height + 32, PANEL, BORDER, 5)
+        c.rect(32, 936, 1216, report_height + 32, PANEL, BORDER, 5)
         c.p.drawPixmap(
-            QRectF(48, 840, report_width, report_height),
+            QRectF(48, 952, report_width, report_height),
             pixmap,
             QRectF(pixmap.rect()),
         )
@@ -488,7 +548,7 @@ class ResearchConfigurationViewMixin:
         if not self.trial_analysis.records and report_height <= 0:
             return 0.0
         content_bottom = (
-            760.0 if report_height <= 0 else 840.0 + report_height + 16.0
+            872.0 if report_height <= 0 else 952.0 + report_height + 16.0
         )
         return max(0.0, content_bottom - 684.0)
 
@@ -496,9 +556,9 @@ class ResearchConfigurationViewMixin:
         c.rect(32, 230, 1216, 438, PANEL, BORDER, 5)
         c.text(430, 267, 420, 42, "导入后按四步完成分析", 18, TEXT, True, Qt.AlignCenter)
         steps = (
-            ("1", "选择动作", "例如起飞、右移或降落"),
-            ("2", "选择实验时间", "先进入某年某月某日的采集批次"),
-            ("3", "选择具体试次", "只显示该次实验包含的数据"),
+            ("1", "选择受试者", "姓名可编辑，稳定编号不变化"),
+            ("2", "选择采集日期", "同一受试者按自然日自动分组"),
+            ("3", "选择动作与试次", "只显示该人该日的数据"),
             ("4", "截取并分析", "自由设置起止时间并显示图表"),
         )
         for index, (number, title, description) in enumerate(steps):

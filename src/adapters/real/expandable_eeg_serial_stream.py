@@ -158,6 +158,9 @@ class ExpandableEEGSerialStream:
         self._serial: Any | None = None
         self._parser = ExpandableEEGPacketParser()
         self._packets: deque[ExpandableEEGPacket] = deque()
+        # Timestamp estimates are attached at receipt, not when downstream
+        # decoding eventually consumes a frame from the queue.
+        self._packet_timestamps: deque[float] = deque()
         self._bytes_received = 0
         self._total_samples = 0
         self._gap_count = 0
@@ -331,6 +334,7 @@ class ExpandableEEGSerialStream:
     def flush(self) -> int:
         discarded = len(self._packets)
         self._packets.clear()
+        self._packet_timestamps.clear()
         self._parser = ExpandableEEGPacketParser()
         serial_link = self._serial
         if serial_link is not None:
@@ -362,18 +366,14 @@ class ExpandableEEGSerialStream:
             self._packets.popleft()
             for _ in range(min(self.frame_size, len(self._packets)))
         ]
+        arrival_estimates = [self._packet_timestamps.popleft() for _ in packets]
         samples = [[] for _ in range(8)]
         timestamps: list[float] = []
-        # Estimate this frame directly from its host arrival time.  Do not
-        # derive the next frame's host anchor from the previously synthesized
-        # timestamp: doing so allowed packet-counter errors to accumulate and
-        # eventually placed EEG samples several seconds in the future.
-        host_frame_start = (
-            float(self._wall_clock())
-            - (len(packets) - 1) / self.sample_rate_hz
-        )
-        for offset, packet in enumerate(packets):
-            host_timestamp = host_frame_start + offset / self.sample_rate_hz
+        # Receiving 96 packets and consuming them as three 32-sample frames
+        # must NOT assign three different "now" anchors to that same batch.
+        # Host arrival is still only an estimate: Bluetooth latency is unknown
+        # without a hardware clock/trigger. Never claim hardware synchrony.
+        for packet, host_timestamp in zip(packets, arrival_estimates):
             timestamp = self._accept_sample_index(
                 packet.sample_index,
                 host_timestamp,
@@ -431,6 +431,9 @@ class ExpandableEEGSerialStream:
             "timestamp_resync_count": self._timestamp_resync_count,
             "last_timestamp_drift_seconds": self._last_timestamp_drift_seconds,
             "max_timestamp_drift_seconds": self._max_timestamp_drift_seconds,
+            "sample_timestamp_source": "host_receipt_estimate_with_sample_counter",
+            "hardware_synchronized": False,
+            "queued_sample_count": len(self._packets),
             "startup_sequence": self._last_startup_sequence,
             "channel_names": self.channel_names,
             "channel_units": ("uV",) * 8,
@@ -473,6 +476,7 @@ class ExpandableEEGSerialStream:
             reset()
         self._parser = ExpandableEEGPacketParser()
         self._packets.clear()
+        self._packet_timestamps.clear()
 
     def _wait_for_first_packet(self, timeout_seconds: float) -> bool:
         deadline = time.monotonic() + timeout_seconds
@@ -494,8 +498,25 @@ class ExpandableEEGSerialStream:
             raise ConnectionError(f"ExpandableEEG蓝牙串口读取失败：{exc}") from exc
         if not payload:
             return False
+        received_at = float(self._wall_clock())
         self._bytes_received += len(payload)
-        self._packets.extend(self._parser.feed(payload))
+        packets = self._parser.feed(payload)
+        if packets:
+            # A capped serial read may leave newer samples in the transport
+            # buffer. Account for their nominal duration in the host estimate.
+            unread_bytes = max(0, waiting - len(payload))
+            unread_packets = (unread_bytes + self._parser.PACKET_SIZE - 1) // self._parser.PACKET_SIZE
+            latest = received_at - unread_packets / self.sample_rate_hz
+            estimates = [latest] * len(packets)
+            for index in range(len(packets) - 2, -1, -1):
+                delta = (packets[index + 1].sample_index - packets[index].sample_index) & 0xFF
+                # Match the existing forward counter policy. Duplicates share
+                # a timestamp and are discarded by _accept_sample_index.
+                if delta > 127:
+                    delta = 1
+                estimates[index] = estimates[index + 1] - delta / self.sample_rate_hz
+            self._packets.extend(packets)
+            self._packet_timestamps.extend(estimates)
         return True
 
     def _accept_sample_index(self, sample_index: int, suggested_timestamp: float) -> float | None:
@@ -548,6 +569,7 @@ class ExpandableEEGSerialStream:
     def _reset_health(self) -> None:
         self._parser = ExpandableEEGPacketParser()
         self._packets.clear()
+        self._packet_timestamps.clear()
         self._bytes_received = 0
         self._total_samples = 0
         self._gap_count = 0

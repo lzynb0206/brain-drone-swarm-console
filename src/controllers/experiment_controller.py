@@ -10,9 +10,10 @@ from typing import Protocol
 
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtWidgets import QInputDialog, QMessageBox, QWidget
 
 from src.bci.config import SAMPLE_RATE_HZ, SSVEP_CHANNEL_NAMES
+from src.services.subject_catalog import SubjectCatalog
 from src.views.automatic_ssvep_experiment_window import AutomaticSSVEPExperimentWindow
 
 
@@ -181,12 +182,66 @@ class ExperimentController:
         if status == "aborted" and self.host._pipeline_worker is not None:
             self.host._pipeline_worker.cancel_experiment_trial("automatic_protocol_aborted")
         values = summary if isinstance(summary, dict) else {}
+        assignment_message = self._label_completed_run(values)
         self.host._notify(
             f"自动采集{'完成' if status == 'completed' else '中止'}："
             f"已保存 {values.get('saved_trials', 0)}，"
             f"有效 {values.get('valid_trials', 0)}，"
             f"剔除 {values.get('rejected_trials', 0)}"
+            f"{assignment_message}"
         )
+
+    def _label_completed_run(self, values: dict) -> str:
+        """Ask once at run end and persist protected participant metadata."""
+
+        recorder = self.host.experiment_recorder
+        run_id = str(values.get("run_id", "")).strip()
+        saved_trials = int(values.get("saved_trials", 0) or 0)
+        if recorder is None or not run_id or saved_trials <= 0:
+            return ""
+        try:
+            catalog = SubjectCatalog(recorder.root)
+        except (OSError, ValueError) as exc:
+            return f"；受试者标签未保存（{exc}）"
+        default_name = catalog.next_default_name()
+        existing = catalog.assignment_for_run(run_id)
+        if existing is not None:
+            default_name = existing.display_name
+        parent = self.automatic_window
+        name, accepted = QInputDialog.getText(
+            parent,
+            "保存采集数据标签",
+            "一级标签：受试者姓名或编号\n"
+            "二级标签将按本次采集日期自动生成；输入已有姓名会归入同一受试者：",
+            text=default_name,
+        )
+        chosen_name = str(name).strip() if accepted else default_name
+        acquisition_date = self._run_date(run_id)
+        try:
+            assignment = catalog.assign_run(
+                run_id,
+                acquisition_date,
+                chosen_name or default_name,
+                assignment_source="acquisition-finish-dialog",
+            )
+        except (OSError, ValueError) as exc:
+            return f"；受试者标签未保存（{exc}）"
+        browser = getattr(self.host, "trial_analysis", None)
+        if browser is not None and getattr(browser, "source_path", None) is not None:
+            browser.load_project_data()
+        return (
+            f"；已归档到 {assignment.display_name} / "
+            f"{assignment.acquisition_date}"
+        )
+
+    @staticmethod
+    def _run_date(run_id: str) -> str:
+        try:
+            return datetime.strptime(run_id.split("-", 3)[1], "%Y%m%d").strftime(
+                "%Y-%m-%d"
+            )
+        except (IndexError, ValueError):
+            return datetime.now().strftime("%Y-%m-%d")
 
     def _window_destroyed(self, *_args) -> None:
         self.automatic_window = None

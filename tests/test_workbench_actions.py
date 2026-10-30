@@ -17,6 +17,7 @@ from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
 from src.adapters.real import CrazyflieSwarmConfig, CrazyflieSwarmGateway
 from src.domain import IntentResult, Role, User
 from src.services import ExperimentRecorder, WorkbenchService
+from src.services.subject_catalog import SubjectCatalog
 from src.views.main_view import MainView
 from src.widgets.scifi_canvas import (
     Canvas,
@@ -428,8 +429,9 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual(5.0, self.view.trial_analysis.window_end_seconds)
         self.assertIn("analysis-label:起飞", actions)
         self.assertTrue(
-            any(action.startswith("analysis-experiment:") for action in actions)
+            any(action.startswith("analysis-subject:") for action in actions)
         )
+        self.assertTrue(any(action.startswith("analysis-date:") for action in actions))
         self.assertIn("analysis-trial:0", actions)
         self.assertIn("analysis-window", actions)
         self.assertIn("analysis-generate", actions)
@@ -437,7 +439,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertIsNotNone(self.view.trial_analysis.report_pixmap)
         self.assertEqual([], generated_pngs)
 
-    def test_data_analysis_groups_trials_by_experiment_time_before_trial(self) -> None:
+    def test_data_analysis_groups_trials_by_subject_then_date(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             timeline = np.arange(1250, dtype=float) / 250.0
@@ -465,24 +467,63 @@ class MainViewActionRoutingTest(unittest.TestCase):
                     })),
                 )
 
+            SubjectCatalog(root).assign_runs(
+                [run_id for run_id, _start_time in runs],
+                {
+                    runs[0][0]: "2026-10-22",
+                    runs[1][0]: "2026-10-25",
+                },
+                "受试者1号",
+                assignment_source="unit-test",
+            )
+
             browser = self.view.trial_analysis
             browser.load_source(root)
             actions = self._render_page(self.view.research_widget, "_research_data")
 
-            self.assertEqual(2, len(browser.selected_label_experiments))
-            self.assertEqual(
-                "2026年10月25日 20:59",
-                browser.selected_label_experiments[0].display_time,
-            )
-            self.assertEqual(runs[1][0], browser.selected_experiment_id)
-            self.assertIn(f"analysis-experiment:{runs[0][0]}", actions)
-            self.assertIn(f"analysis-experiment:{runs[1][0]}", actions)
+            self.assertEqual(1, len(browser.subjects))
+            self.assertEqual("受试者1号", browser.subjects[0].display_name)
+            self.assertEqual(3, len(browser.dates))
+            self.assertEqual(browser.ALL_DATES, browser.selected_date)
+            self.assertIn(f"analysis-subject:{browser.subjects[0].subject_id}", actions)
+            self.assertIn("analysis-date:2026-10-22", actions)
+            self.assertIn("analysis-date:2026-10-25", actions)
 
-            self.view._activate(f"analysis-experiment:{runs[0][0]}")
+            self.view._activate("analysis-date:2026-10-22")
 
             self.assertEqual(1, len(browser.selected_label_records))
-            self.assertEqual(runs[0][0], browser.selected_experiment_id)
+            self.assertEqual("2026-10-22", browser.selected_date)
             self.assertIn(runs[0][0], browser.selected_record.trial_id)
+
+    def test_data_analysis_routes_top_level_data_to_research_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_root = Path(directory) / "data"
+            research_root = data_root / "research_experiments"
+            raw_trials = research_root / "raw_trials"
+            raw_trials.mkdir(parents=True)
+            timeline = np.arange(1250, dtype=float) / 250.0
+            eeg = np.asarray([
+                40.0 * np.sin(2 * np.pi * 8.0 * timeline + index * 0.3)
+                for index in range(8)
+            ], dtype=np.float32)
+            run_id = "auto-20261029-190545-96e896"
+            np.savez_compressed(
+                raw_trials / f"{run_id}-trial-0001.npz",
+                eeg=eeg,
+                fs=np.asarray(250.0),
+                true_label=np.asarray("起飞"),
+                start_time=np.asarray("2026-10-29T19:05:45+08:00"),
+                trial_context=np.asarray(json.dumps({"run_id": run_id})),
+            )
+
+            self.view.trial_analysis.load_source(data_root)
+
+            self.assertEqual(research_root.resolve(), self.view.trial_analysis.source_path)
+            self.assertEqual(
+                research_root.resolve() / "sessions" / "subject_catalog.json",
+                self.view.trial_analysis.catalog.path,
+            )
+            self.assertFalse((data_root / "sessions" / "subject_catalog.json").exists())
 
     def test_inline_data_analysis_report_scrolls_inside_research_page(self) -> None:
         self.view.research_page = "数据分析"

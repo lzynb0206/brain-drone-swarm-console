@@ -143,6 +143,20 @@ class MainActionRouter(QObject):
             view.trial_analysis.choose_directory()
         elif action == "analysis-import-files":
             view.trial_analysis.choose_files()
+        elif action.startswith("analysis-subject:"):
+            view.trial_analysis.select_subject(action.split(":", 1)[1])
+        elif action == "analysis-subject-rename":
+            view.trial_analysis.edit_selected_subject_name()
+        elif action == "analysis-subject-page-previous":
+            view.trial_analysis.previous_subject_page()
+        elif action == "analysis-subject-page-next":
+            view.trial_analysis.next_subject_page()
+        elif action.startswith("analysis-date:"):
+            view.trial_analysis.select_date(action.split(":", 1)[1])
+        elif action == "analysis-date-page-previous":
+            view.trial_analysis.previous_date_page()
+        elif action == "analysis-date-page-next":
+            view.trial_analysis.next_date_page()
         elif action.startswith("analysis-label:"):
             view.trial_analysis.select_label(action.split(":", 1)[1])
         elif action.startswith("analysis-experiment:"):
