@@ -29,6 +29,7 @@ class LSLEEGStream:
         expected_channel_count: int | None = 8,
         resolver: Callable[..., list[Any]] | None = None,
         inlet_factory: Callable[..., Any] | None = None,
+        montage_names: tuple[str, ...] = SSVEP_CHANNEL_NAMES,
     ) -> None:
         self.stream_name = stream_name
         self.stream_type = stream_type
@@ -37,6 +38,7 @@ class LSLEEGStream:
         self.expected_channel_count = (
             int(expected_channel_count) if expected_channel_count is not None else None
         )
+        self.montage_names = tuple(montage_names)
         self._resolver = resolver
         self._inlet_factory = inlet_factory
         self._inlet = None
@@ -150,7 +152,7 @@ class LSLEEGStream:
         self._original_channel_names = descriptor.channel_names or tuple(
             f"CH{i + 1}" for i in range(self._channel_count)
         )
-        self._channel_names = self._configured_montage_names(self._original_channel_names)
+        self._channel_names = self._configured_montage_names(self._original_channel_names, self.montage_names)
         self._channel_units = descriptor.channel_units or tuple("" for _ in self._channel_names)
         self._source_id = descriptor.source_id
         self._uid = descriptor.uid
@@ -318,10 +320,10 @@ class LSLEEGStream:
         return f"{name}\0{source_id}"
 
     @staticmethod
-    def _configured_montage_names(names: tuple[str, ...]) -> tuple[str, ...]:
+    def _configured_montage_names(names: tuple[str, ...], montage_names=SSVEP_CHANNEL_NAMES) -> tuple[str, ...]:
         """Map only unambiguous generic 8-channel labels to the fixed montage."""
 
-        if len(names) != len(SSVEP_CHANNEL_NAMES):
+        if len(names) != len(montage_names):
             return names
         generic_patterns = (
             re.compile(r"CH\d+"),
@@ -331,7 +333,7 @@ class LSLEEGStream:
         )
         compact = [re.sub(r"[^A-Z0-9]", "", name.upper()) for name in names]
         if all(any(pattern.fullmatch(name) for pattern in generic_patterns) for name in compact):
-            return tuple(SSVEP_CHANNEL_NAMES)
+            return tuple(montage_names)
         return names
 
     def _calibrated_sample_rate(self) -> float | None:

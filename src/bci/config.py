@@ -88,6 +88,12 @@ XZ_PERSONAL_METADATA_PATH = Path(
 # Personal/neural models remain selectable for research, but require explicit
 # operator selection and independent production approval before hardware use.
 INTENT_DECODER = os.getenv("BDS_INTENT_DECODER", "fbcca").strip().lower()
+BN_FBCCA_GATE_A_PATH = Path(os.getenv(
+    "BDS_BN_FBCCA_GATE_A", str(PROJECT_ROOT / "models" / "bn_fbcca_a_gate.json")
+)).expanduser()
+BN_FBCCA_GATE_B_PATH = Path(os.getenv(
+    "BDS_BN_FBCCA_GATE_B", str(PROJECT_ROOT / "models" / "bn_fbcca_b_gate.json")
+)).expanduser()
 TRANSFORMER_MODEL_PATH = Path(
     os.getenv(
         "BDS_TRANSFORMER_MODEL",

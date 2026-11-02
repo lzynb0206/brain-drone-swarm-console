@@ -454,7 +454,9 @@ class EEGAcquisitionController(QObject):
         self.display_processor.reset()
         self._display_filter_failed = False
         self.host._eeg_sample_rate = 0.0
-        self.host._eeg_channel_names = tuple(SSVEP_CHANNEL_NAMES)
+        from src.bci.montage import LEGACY, MONTAGES
+        montage_id = getattr(self.host.actions, "montage_id", LEGACY.id)
+        self.host._eeg_channel_names = MONTAGES[montage_id].names
         self.host._eeg_channel_units = ("uV",) * 8
         self.host._eeg_health = {}
         self.host._latest_recognition = None

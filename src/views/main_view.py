@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.bci.montage import HYBRID_IDS
+
 from collections import deque
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -265,7 +267,7 @@ class MainView(
         worker.labeled_trial_saved.connect(self._on_labeled_trial_saved)
         worker.continuous_chunk_saved.connect(self._on_continuous_chunk_saved)
         worker.finished.connect(lambda active_worker=worker: self._on_eeg_worker_finished(active_worker))
-        worker.set_paradigm_type(self.actions.paradigm_type)
+        worker.set_paradigm_type("SSVEP+MI混合" if self.actions.montage_id in HYBRID_IDS else self.actions.paradigm_type)
         if self.user is not None and self._experiment_session_id:
             worker.set_experiment_context(
                 self.user.uid or self.user.username, self._experiment_session_id,

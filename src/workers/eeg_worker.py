@@ -164,7 +164,8 @@ class EEGWorker(QThread):
             "unix_timestamp": stamp.unix_seconds,
             "clock_source": stamp.clock_source,
         })
-        return {**stamp.as_dict(), "name": str(name), "published_to_lsl": published}
+        return {**stamp.as_dict(), "name": str(name), "published_to_lsl": published,
+                "local_marker_path": str(self._current_online_recorder().marker_log_path)}
 
     def record_trial_phase(
         self,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt
+from src.bci.montage import HYBRID
 
 from src.bci.config import (
     DECISION_STEP_SECONDS,
@@ -95,22 +96,28 @@ class ResearchConfigurationViewMixin:
             self._hit(783, 492, 116, 46, "paradigm-reset")
             self._hit(910, 492, 130, 46, "paradigm-start")
         else:
-            c.text(656, 229, 380, 42, "运动想象（MI）采集配置", 19, TEXT, True)
-            c.text(656, 278, 380, 24, "当前阶段：参数预览，不生成无人机指令", 12, YELLOW, True)
-            for index, label in enumerate(("静息", "想象左手", "想象右手", "想象双脚")):
-                x = 656 + (index % 2) * 188
-                y = 318 + (index // 2) * 52
-                c.rect(x, y, 174, 39, PANEL_SOFT, BORDER, 3)
-                c.text(x, y, 174, 39, label, 12, TEXT, True, Qt.AlignCenter)
-            c.text(656, 428, 380, 23, "建议关注：C3 / Cz / C4（以实际电极帽标注为准）", 11, CYAN)
-            c.text(656, 456, 380, 46, "当前版本未开放 MI 手动带标签采集；\nSSVEP 数据请前往“数据采集”页面。", 11, MUTED)
-            c.button(656, 515, 180, 38, "查看 MI 参数", True, accent=CYAN)
-            c.text(848, 515, 190, 38, "FBCCA 已停用", 12, GREEN, True, Qt.AlignCenter)
-            self._hit(656, 515, 180, 38, "paradigm-start")
+            c.text(656, 229, 380, 42, "MI / 串行配对采集", 19, TEXT, True)
+            ready = self.actions.montage_id == HYBRID.id
+            c.text(656, 278, 380, 24, "已选 5+3 布局" if ready else "先停流、调整电极，再应用 5+3 布局", 11, GREEN if ready else YELLOW, True)
+            c.text(656, 316, 380, 30, "CH1–5：O1 / Oz / O2 / P3 / P4", 12, TEXT, True)
+            c.text(656, 350, 380, 30, "CH6–8：C3 / Cz / C4", 12, TEXT, True)
+            c.text(656, 392, 380, 48, "SSVEP 自动解码并保存置信度；MI 保存原始脑电。\n两个阶段按同一配对编号关联；试采检查在数据采集页。", 10, MUTED)
+            c.button(656, 452, 180, 38, "应用候选 5+3 布局", ready, accent=CYAN)
+            self._hit(656, 452, 180, 38, f"montage:{HYBRID.id}")
+            c.button(848, 452, 180, 38, "恢复枕顶 8 通道")
+            self._hit(848, 452, 180, 38, "montage:posterior8_v1")
+            c.button(656, 510, 180, 38, "配置采集计划")
+            self._hit(656, 510, 180, 38, "hybrid-experiment-config")
+            c.button(848, 510, 180, 38, "开始科研采集", True, accent=CYAN)
+            self._hit(848, 510, 180, 38, "hybrid-experiment-start")
 
 
     def _research_data_collection(self, c: Canvas) -> None:
         """Dedicated automatic labeled-data collection workspace."""
+
+        if self.actions.paradigm_type != "SSVEP":
+            self._research_hybrid_collection(c)
+            return
 
         config = self.actions.automatic_experiment_config
         ssvep_ready = self.actions.paradigm_type == "SSVEP"
@@ -175,6 +182,33 @@ class ResearchConfigurationViewMixin:
         if ssvep_ready:
             self._hit(1024, 574, 194, 54, "automatic-experiment-start")
 
+    def _research_hybrid_collection(self, c: Canvas) -> None:
+        config = self.actions.hybrid_experiment_config
+        serial = self.actions.paradigm_type != "MI"
+        count = config.repetitions * len(config.mi_labels) * (6 if serial else 1)
+        c.text(32, 72, 1100, 36, "SSVEP → MI 串行配对采集" if serial else "MI 单独采集", 19, TEXT, True)
+        c.text(32, 111, 1150, 28, "物理电极按 5+3 布局固定；采集全八路，两个阶段分别分析。", 12, MUTED)
+        c.rect(32, 157, 1216, 470, PANEL, BORDER, 5)
+        c.text(60, 180, 1100, 32, "CH1 O1   CH2 Oz   CH3 O2   CH4 P3   CH5 P4   │   CH6 C3   CH7 Cz   CH8 C4", 13, TEXT, True)
+        c.text(60, 232, 1100, 30, f"任务：{' / '.join(config.mi_labels)} · {count} 组 · 随机种子 {config.random_seed}", 14, TEXT)
+        flow = (f"空闲校准 {config.idle_trials} 窗 → SSVEP {config.ssvep_seconds:g}s → 间隔 {config.gap_seconds:g}s → MI {config.mi_seconds:g}s → 休息 {config.rest_seconds:g}s"
+                if serial else f"提示 {config.cue_seconds:g}s → MI {config.mi_seconds:g}s → 休息 {config.rest_seconds:g}s")
+        c.text(60, 284, 1100, 36, flow, 13, BLUE, True)
+        c.text(60, 343, 1100, 60, "每阶段保存原始 EEG、通道名、时间戳及真实标签。\n串行采集额外保存配对编号与前序 SSVEP 置信度；低置信度仍继续采 MI。", 12, MUTED)
+        resting = (f"本轮先采睁眼 {config.resting_open_seconds:g}s ＋ 闭眼 {config.resting_closed_seconds:g}s 专门静息；再采 5s 短基线。"
+                   if config.include_dedicated_rest else "本轮只采 5s 短基线；专门静息可单独采集，不能用短基线替代。")
+        c.text(60, 419, 1100, 58, resting + "\n启动数据流 → 硬件／时间检查 → 流程试跑（2组） → 正式任务。MI 期间仅显示中央十字。", 12, MUTED)
+        buttons = ((60, 500, 225, "应用候选 5+3 布局", f"montage:{HYBRID.id}"),
+                   (305, 500, 225, "恢复枕顶 8 通道", "montage:posterior8_v1"),
+                   (550, 500, 225, "配置采集计划", "hybrid-experiment-config"),
+                   (795, 500, 390, "硬件／时间检查（约6秒）", "hybrid-preflight"),
+                   (60, 565, 300, "仅采专门静息", "hybrid-rest-start"),
+                   (380, 565, 280, "流程试跑（2组）", "hybrid-pilot-start"),
+                   (980, 565, 225, "开始任务采集", "hybrid-experiment-start"))
+        for x, y, width, label, action in buttons:
+            c.button(x, y, width, 42, label, action == "hybrid-experiment-start", accent=CYAN)
+            self._hit(x, y, width, 42, action)
+
     def _research_algorithm(self, c: Canvas) -> None:
         c.rect(48, 104, 1184, 69, PANEL, BORDER, 3)
         c.text(66, 116, 92, 40, "当前算法:", 14, TEXT)
@@ -193,7 +227,9 @@ class ResearchConfigurationViewMixin:
         score_calibration_selected = self.actions.algorithm == "个人校准融合"
         lzy_selected = self.actions.algorithm == "个人算法-Lzy"
         xz_selected = self.actions.algorithm == "个人算法-Xz"
+        bn_selected = self.actions.algorithm in ("BN-FBCCA-A", "BN-FBCCA-B")
         selected_name = (
+            self.actions.algorithm if bn_selected else
             "Transformer-SSVEP" if transformer_selected else
             "个人模板-SSVEP" if template_selected else
             "Xz个人双FBCCA校准" if xz_selected else
@@ -207,6 +243,7 @@ class ResearchConfigurationViewMixin:
         status_reader = getattr(self.intent_decoder, "algorithm_statuses", None)
         statuses = status_reader() if callable(status_reader) else {}
         selected_type = (
+            "空闲背景校准" if self.actions.algorithm == "BN-FBCCA-B" else
             "监督训练模型" if transformer_selected else
             "个人多试次模板" if template_selected else
             "个人非目标标定" if lzy_selected else
@@ -226,7 +263,7 @@ class ResearchConfigurationViewMixin:
                     ("数据源:", "硬件 / LSL / CSV", 640, 207), ("准确率:", accuracy_text, 922, 207),
                     ("识别窗:", f"{selected_window_seconds:g}秒", 73, 256),
                     ("更新步长:", f"{DECISION_STEP_SECONDS:g}秒", 356, 256),
-                    ("频率配置:", SSVEP_PROFILE_NAME, 640, 256)]
+                    ("频率配置:", f"{min(TARGET_FREQUENCIES_HZ):g}–{max(TARGET_FREQUENCIES_HZ):g} Hz · {len(TARGET_FREQUENCIES_HZ)}类", 640, 256)]
         for label, value, x, y in metadata:
             c.text(x, y, 86, 38, label, 14, TEXT)
             c.text(x + 50 if len(label) <= 3 else x + 80, y, 145, 38, value, 14, TEXT, True)
@@ -234,24 +271,25 @@ class ResearchConfigurationViewMixin:
         c.rect(48, 376, 1184, 295, PANEL, BORDER, 3)
         c.text(73, 394, 200, 37, "算法库", 17, TEXT, True)
         algorithms = [
-            "FBCCA", "个人算法-Lzy", "个人算法-Xz",
+            "FBCCA", "BN-FBCCA-A", "BN-FBCCA-B", "个人算法-Lzy", "个人算法-Xz",
             "个人校准融合", "个人模板-SSVEP", "Transformer-SSVEP",
         ]
         for i, name in enumerate(algorithms):
-            x = 73 + i * 176
+            x = 73 + (i % 4) * 284
+            y = 438 + (i // 4) * 80
             selected = name == self.actions.algorithm
             loaded = name in self.actions.loaded_algorithms
             default = name == self.actions.default_algorithm
             available = bool(statuses.get(name, {}).get("available", name == "FBCCA"))
-            c.rect(x, 441, 160, 96, "#eef4ff" if selected else PANEL, BLUE if selected else BORDER, 3, 2 if selected else 1)
-            c.text(x, 452, 160, 37, name, 13, TEXT, True, Qt.AlignCenter)
-            c.rect(x + 47, 504, 32, 16, GREEN if loaded else "#d3dae3", None, 8)
-            c.circle(x + 72 if loaded else x + 56, 512, 5, "#ffffff" if loaded else TEXT)
-            c.circle(x + 98, 512, 8, YELLOW if default else "#d3dae3")
-            c.circle(x + 124, 512, 7, CYAN if available else RED)
-            self._hit(x, 441, 160, 96, f"algorithm-select:{name}")
-        labels = [("加载算法", 73, 569, 112), ("卸载算法", 201, 569, 114),
-                  ("设为默认", 331, 569, 114), ("性能基准测试", 461, 569, 146)]
+            c.rect(x, y, 260, 70, "#eef4ff" if selected else PANEL, BLUE if selected else BORDER, 3, 2 if selected else 1)
+            c.text(x, y + 3, 260, 32, name, 13, TEXT, True, Qt.AlignCenter)
+            c.rect(x + 92, y + 46, 32, 16, GREEN if loaded else "#d3dae3", None, 8)
+            c.circle(x + 117 if loaded else x + 101, y + 54, 5, "#ffffff" if loaded else TEXT)
+            c.circle(x + 143, y + 54, 8, YELLOW if default else "#d3dae3")
+            c.circle(x + 169, y + 54, 7, CYAN if available else RED)
+            self._hit(x, y, 260, 70, f"algorithm-select:{name}")
+        labels = [("加载算法", 73, 610, 112), ("卸载算法", 201, 610, 114),
+                  ("设为默认", 331, 610, 114), ("性能基准测试", 461, 610, 146)]
         for i, (label, x, y, w) in enumerate(labels):
             c.button(x, y, w, 43, label, i == 0)
             self._hit(x, y, w, 43, ("algorithm-load", "algorithm-unload", "algorithm-default", "algorithm-benchmark")[i])

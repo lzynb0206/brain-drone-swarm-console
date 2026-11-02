@@ -82,7 +82,19 @@ class SelectableEEGStream:
             timeout_seconds=self._lsl.timeout_seconds,
             frame_size=self._lsl.frame_size,
             expected_channel_count=self._lsl.expected_channel_count,
+            montage_names=self._lsl.montage_names,
         )
+
+    def configure_montage(self, names):
+        """Only change future LIVE acquisition labels while disconnected; CSV is untouched."""
+        names = tuple(names)
+        if self.connected or bool(getattr(self._hardware, "connected", False)):
+            raise RuntimeError("请先停止 EEG 数据流，再修改物理通道布局")
+        if len(names) != 8 or len(set(names)) != 8:
+            raise ValueError("采集布局必须有 8 个不同的电极位置")
+        self._lsl.montage_names = names
+        if self._hardware is not None:
+            self._hardware.channel_names = names
 
     def discover_hardware_devices(self) -> list[SerialDeviceDescriptor]:
         if self._hardware is None:

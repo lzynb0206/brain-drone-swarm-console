@@ -23,6 +23,7 @@ class WorkbenchService:
         "algorithm", "algorithm_mode", "loaded_algorithms", "default_algorithm",
         "data_tab", "selected_session", "log_filter",
         "automatic_experiment_config",
+        "hybrid_experiment_config", "montage_id",
     })
     _ADMIN_FIELDS = frozenset({
         "storage_percent", "last_backup", "user_roles", "self_test_run",

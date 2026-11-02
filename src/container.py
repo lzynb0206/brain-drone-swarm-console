@@ -37,6 +37,7 @@ from src.bci import (
     RuntimeIntentDecoder,
 )
 from src.bci.personal_template_decoder import PersonalTemplateSSVEPDecoder
+from src.bci.bn_fbcca import BNFBCCADecoder
 from src.bci.config import (
     EEG_BACKEND,
     EEG_CSV_PATH,
@@ -50,6 +51,8 @@ from src.bci.config import (
     FB_EEGNET_METADATA_PATH,
     FB_EEGNET_MODEL_PATH,
     INTENT_DECODER,
+    BN_FBCCA_GATE_A_PATH,
+    BN_FBCCA_GATE_B_PATH,
     LZY_PERSONAL_METADATA_PATH,
     LZY_PERSONAL_MODEL_PATH,
     PERSONAL_TEMPLATE_METADATA_PATH,
@@ -220,6 +223,9 @@ def create_default_container() -> ApplicationContainer:
     )
     decoder_aliases = {
         "fbcca": "FBCCA",
+        "bn-fbcca": "BN-FBCCA-B",
+        "bn-fbcca-a": "BN-FBCCA-A",
+        "bn-fbcca-b": "BN-FBCCA-B",
         "lzy": "个人算法-Lzy",
         "personal-lzy": "个人算法-Lzy",
         "lzy-personal": "个人算法-Lzy",
@@ -237,12 +243,14 @@ def create_default_container() -> ApplicationContainer:
     }
     if INTENT_DECODER not in decoder_aliases:
         raise ValueError(
-            "BDS_INTENT_DECODER must be one of: fbcca, lzy, xz, personal-score, "
+            "BDS_INTENT_DECODER must be one of: fbcca, bn-fbcca, bn-fbcca-a, bn-fbcca-b, lzy, xz, personal-score, "
             "personal-template, transformer"
         )
     intent_decoder: IntentDecoder = RuntimeIntentDecoder(
         {
             "FBCCA": baseline_decoder,
+            "BN-FBCCA-A": BNFBCCADecoder("a", calibration_path=BN_FBCCA_GATE_A_PATH),
+            "BN-FBCCA-B": BNFBCCADecoder("b", calibration_path=BN_FBCCA_GATE_B_PATH),
             "个人算法-Lzy": lzy_personal_decoder,
             "个人算法-Xz": xz_personal_decoder,
             "个人校准融合": personal_score_decoder,

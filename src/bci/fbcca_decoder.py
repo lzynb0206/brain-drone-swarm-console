@@ -16,6 +16,7 @@ from src.bci.config import (
 )
 from src.bci.preprocessing import (
     FILTER_BANK_HIGH_EDGE_HZ,
+    FILTER_BANK_WEIGHTS,
     filter_bank,
     prepare_ssvep_channels,
 )
@@ -56,6 +57,8 @@ class FBCCADecoder:
         safety_service: IntentSafetyService | None = None,
         min_score: float | None = None,
         min_margin: float | None = None,
+        bank_weights: Sequence[float] = FILTER_BANK_WEIGHTS,
+        filter_method: str = "fft",
     ) -> None:
         if len(frequencies_hz) != len(labels) or len(labels) < 2:
             raise ValueError("FBCCA frequencies and labels must have the same length (at least two)")
@@ -63,6 +66,14 @@ class FBCCADecoder:
         self.labels = tuple(str(value) for value in labels)
         self.channels_1based = tuple(int(value) for value in channels_1based)
         self.harmonics = max(1, int(harmonics))
+        if filter_method not in ("fft", "butter4"):
+            raise ValueError("Unknown FBCCA filter method")
+        self.filter_method = filter_method
+        weights = np.asarray(bank_weights, dtype=float)
+        if (weights.shape != (3,) or not np.isfinite(weights).all()
+                or np.any(weights < 0) or weights.sum() <= 0):
+            raise ValueError("FBCCA requires three finite nonnegative bank weights with positive sum")
+        self.bank_weights = tuple(float(value) for value in weights)
         if safety_service is None:
             kwargs = {}
             if min_score is not None:
@@ -96,7 +107,10 @@ class FBCCADecoder:
         data, used_channels, quality = prepare_ssvep_channels(samples, self.channels_1based, fs)
         references = self._reference_signals(fs, data.shape[1])
         raw_scores = np.zeros(len(self.labels), dtype=float)
-        for filtered, weight in filter_bank(data, fs):
+        from src.bci.ssvep_filters import filtered_banks
+        banks = filter_bank(data, fs) if self.filter_method == "fft" else filtered_banks(data, fs, self.filter_method)
+        for bank, (filtered, _) in enumerate(banks):
+            weight = self.bank_weights[bank]
             for index, reference in enumerate(references):
                 correlation = _canonical_correlation(filtered, reference)
                 raw_scores[index] += weight * correlation * correlation
@@ -112,6 +126,9 @@ class FBCCADecoder:
             accepted = decision.accepted and confidence >= class_threshold
             reason = decision.reason if confidence >= class_threshold else "未超过该频率空闲背景"
         quality.update({
+            "fbcca_harmonics": self.harmonics,
+            "fbcca_filter_method": self.filter_method,
+            "fbcca_bank_weights": list(self.bank_weights),
             "score_threshold": max(float(self.safety_service.min_confidence), class_threshold),
             "margin_threshold": float(self.safety_service.min_margin),
             "background_corrected_scores": {label: float(evidence[i]) for i, label in enumerate(self.labels)},

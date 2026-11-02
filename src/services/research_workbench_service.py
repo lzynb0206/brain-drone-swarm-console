@@ -6,6 +6,8 @@ from collections.abc import Callable
 
 from src.bci.config import TARGET_FREQUENCIES_HZ
 from src.services.ssvep_experiment_protocol import AutomaticExperimentConfig
+from src.services.hybrid_experiment_protocol import HybridExperimentConfig
+from src.bci.montage import LEGACY
 
 
 class ResearchWorkbenchService:
@@ -25,11 +27,13 @@ class ResearchWorkbenchService:
         self.selected_session = 2
         self.log_filter = "INFO"
         self.automatic_experiment_config = AutomaticExperimentConfig()
+        self.hybrid_experiment_config = HybridExperimentConfig()
+        self.montage_id = LEGACY.id
 
     def apply_paradigm(self) -> str:
         if self.paradigm_type != "SSVEP":
             return self._record(
-                f"{self.paradigm_type} 采集模式已应用：仅保存带标签原始 EEG，不运行 FBCCA"
+                f"{self.paradigm_type} 科研采集：请应用 5+3 布局并启动自动采集；MI 模型离线验证"
             )
         return self._record(
             f"范式已应用：{self.paradigm_frequency}Hz，尺寸{self.stimulus_size}%，占空比{self.duty_cycle}%"
@@ -61,6 +65,11 @@ class ResearchWorkbenchService:
         return self._record(f"默认算法已设为 {self.algorithm}")
 
     def benchmark_algorithm(self) -> str:
+        if self.algorithm in ("BN-FBCCA-A", "BN-FBCCA-B"):
+            return self._record(
+                f"{self.algorithm} 请同时评估六类识别率、触发率和空闲误触发率；"
+                "B模式需先进行当前会话的空闲校准，置信度为分数差指标"
+            )
         if self.algorithm == "个人算法-Xz":
             return self._record(
                 "个人算法-Xz使用最新60条中的51条主动指令训练双FBCCA分数＋LogReg；"

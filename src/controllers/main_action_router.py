@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.bci.montage import HYBRID_IDS
+
 from PySide6.QtCore import QObject, Slot
 
 
@@ -16,6 +18,11 @@ class MainActionRouter(QObject):
     def activate(self, action: str, x: float = 0, y: float = 0) -> None:
         """Route every painted control to a stateful application action."""
         view = self.host
+        if (getattr(view.actions, "montage_id", "") in HYBRID_IDS
+                and (action in {"ssvep-command-test", "single-target-calibration-start", "guided-calibration-start"}
+                     or action == "paradigm-start" and view.actions.paradigm_type == "SSVEP")):
+            view._notify("当前为 5+3 布局，请在混合范式中启动配对采集；八通道 SSVEP 工具需要先恢复原布局")
+            return
         if action == "logout":
             view.deactivate()
             view.logout_requested.emit()
@@ -43,9 +50,14 @@ class MainActionRouter(QObject):
             view.actions.paradigm_frequency = float(action.rsplit(":", 1)[1])
             view.update()
         elif action.startswith("paradigm-type:"):
+            if view.experiment.running:
+                view._notify("请先结束当前采集，再切换范式")
+                return
             view.actions.paradigm_type = action.split(":", 1)[1]
             if view._pipeline_worker is not None:
-                view._pipeline_worker.set_paradigm_type(view.actions.paradigm_type)
+                mode = ("SSVEP+MI混合" if getattr(view.actions, "montage_id", "") in HYBRID_IDS
+                        else view.actions.paradigm_type)
+                view._pipeline_worker.set_paradigm_type(mode)
             if view.actions.paradigm_type != "SSVEP":
                 view.actions.bci_control_enabled = False
             view._notify(f"脑控范式已切换：{view.actions.paradigm_type}")
@@ -63,7 +75,19 @@ class MainActionRouter(QObject):
             if view.actions.paradigm_type == "SSVEP":
                 view._open_ssvep_stimulus()
             else:
-                view._notify("MI 参数预览已启用；当前版本未开放手动带标签采集")
+                view.experiment.start_hybrid()
+        elif action.startswith("montage:"):
+            view.experiment.configure_montage(action.split(":", 1)[1])
+        elif action == "hybrid-experiment-config":
+            view.experiment.configure_hybrid()
+        elif action == "hybrid-pilot-start":
+            view.experiment.start_hybrid(pilot=True)
+        elif action == "hybrid-preflight":
+            view.experiment.run_preflight()
+        elif action == "hybrid-rest-start":
+            view.experiment.start_hybrid(mode="rest")
+        elif action == "hybrid-experiment-start":
+            view.experiment.start_hybrid()
         elif action == "ssvep-command-test":
             view._open_ssvep_test()
         elif action == "automatic-experiment-config":

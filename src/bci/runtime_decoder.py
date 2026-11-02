@@ -124,6 +124,10 @@ class RuntimeIntentDecoder:
     def observe_idle(self, result) -> None:
         with self._lock:
             decoder = self._decoders[self._active_name]
+        observe_result = getattr(decoder, "observe_idle_result", None)
+        if callable(observe_result):
+            observe_result(result)
+            return
         callback = getattr(decoder, "observe_idle", None)
         if callable(callback):
             callback(result.confidence, result.margin, scores=result.scores)

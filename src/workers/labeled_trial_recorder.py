@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Callable, Mapping
 
 import numpy as np
 
 from src.bci.preprocessing import assess_signal_quality
+from src.bci.montage import HYBRID_IDS, MONTAGES, research_decoder
 from src.domain import IntentResult
 from src.ports import EEGStream, IntentDecoder
 from src.services.experiment_recorder import ExperimentRecorder
@@ -83,6 +84,8 @@ class LabeledTrialRecorder:
         self._timestamps = np.asarray([], dtype=np.float64)
         self._start_time = ""
         self._paradigm_type = "SSVEP"
+        self._hybrid_decoder = None
+        self._hybrid_contract = None
 
     @property
     def capture_seconds(self) -> float | None:
@@ -386,8 +389,11 @@ class LabeledTrialRecorder:
             return
         labeled_window = self._buffer[:, :window_samples].copy()
         labeled_timestamps = self._timestamps[:window_samples].copy()
-        paradigm_type = self.paradigm_type
-        if paradigm_type == "SSVEP":
+        hybrid_capture = trial_metadata.get("montage_id") in HYBRID_IDS
+        paradigm_type = str(trial_metadata.get("paradigm_type", self.paradigm_type)) if hybrid_capture else self.paradigm_type
+        if hybrid_capture:
+            result = self._decode_hybrid_stage(labeled_window, labeled_timestamps, sample_rate_hz, trial_metadata)
+        elif paradigm_type == "SSVEP":
             try:
                 result = self.decoder.decode(labeled_window, sample_rate_hz)
             except ValueError as exc:
@@ -456,7 +462,7 @@ class LabeledTrialRecorder:
             trial_metadata=trial_metadata,
             clock_source=self.experiment_clock.source,
         )
-        if paradigm_type == "SSVEP":
+        if paradigm_type == "SSVEP" and not hybrid_capture:
             self._recognition_received(result)
         self._trial_saved(label, saved["raw_trial_path"])
         with self._state_lock:
@@ -467,6 +473,53 @@ class LabeledTrialRecorder:
                 self._active_analysis_offset_seconds = 0.0
                 self._active_stimulus_lsl_time = 0.0
         self._reset_buffer()
+
+    def _decode_hybrid_stage(self, eeg, timestamps, fs, metadata):
+        montage = MONTAGES[metadata["montage_id"]]
+        names, _, _ = self._channel_metadata()
+        if tuple(names) != montage.names or eeg.shape[0] != len(montage.names):
+            raise ValueError("采集通道必须与版本化接线一致：" + ", ".join(montage.names))
+        delta = np.diff(timestamps)
+        timing_ok = bool(len(delta) and np.isfinite(delta).all() and np.all(delta > 0) and delta.max() <= .02)
+        stage = metadata.get("stage")
+        if stage == "ssvep":
+            contract = (metadata.get("run_id"), montage.id, float(fs), eeg.shape[1])
+            if not contract[0]:
+                raise ValueError("串行采集缺少 run_id")
+            if self._hybrid_decoder is None or self._hybrid_contract != contract:
+                self._hybrid_decoder = research_decoder(montage.id)
+                self._hybrid_contract = contract
+            try:
+                result = self._hybrid_decoder.decode(eeg, fs)
+            except ValueError as exc:
+                if "没有可用 EEG 通道" not in str(exc):
+                    raise
+                result = IntentResult(timestamp=datetime.now().timestamp(), label="", confidence=0., margin=0.,
+                    accepted=False, reason=str(exc), frequency_hz=0., scores={}, sample_rate_hz=fs,
+                    sample_count=eeg.shape[1], used_channels_1based=(), signal_quality={"status": "bad"})
+            valid = timing_ok and len(result.used_channels_1based) >= 2
+            quality = {**result.signal_quality, "montage_id": montage.id, "timing_ok": timing_ok,
+                       "p_ssvep_valid": valid and result.signal_quality.get("bn_idle_windows", 0) >= self._hybrid_decoder.min_idle_windows,
+                       "selected_channel_names": list(montage.ssvep),
+                       "confidence_is_probability": False, "research_only": True}
+            if not valid:
+                quality["status"] = "bad"
+            if metadata.get("true_label") == "空闲" and valid:
+                # Predict first, then update. Commands and MI never update the background.
+                self._hybrid_decoder.observe_idle_result(result)
+            return replace(result, accepted=False, signal_quality=quality, reason="5 通道 BN-FBCCA-B 科研记录")
+        if stage not in ("mi", "baseline", "rest_open", "rest_closed"):
+            raise ValueError("未知串行采集阶段")
+        indices = montage.indices(names, "MI")
+        quality = assess_signal_quality(eeg[list(indices)], fs)
+        quality.update(montage_id=montage.id, timing_ok=timing_ok, selected_channel_names=list(montage.mi),
+                       mi_model_status="offline_validation", research_only=True)
+        if not timing_ok:
+            quality["status"] = "bad"
+        return IntentResult(timestamp=datetime.now().timestamp(), label="", confidence=0., margin=0.,
+            accepted=False, reason="MI 原始数据及前序 SSVEP 条件已记录；分类模型离线验证",
+            frequency_hz=0., scores={}, sample_rate_hz=fs, sample_count=eeg.shape[1],
+            used_channels_1based=tuple(i+1 for i, ok in zip(indices, quality["usable_mask"]) if ok), signal_quality=quality)
 
     def _reset_buffer(self) -> None:
         self._buffer = None

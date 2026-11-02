@@ -280,6 +280,23 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual("数据浏览", self.view.actions.data_tab)
         self.assertEqual("right", self.gateway.command_log[-1].action)
 
+    def test_bn_algorithms_can_be_selected_and_loaded_from_library(self) -> None:
+        from src.bci.bn_fbcca import BNFBCCADecoder
+        from src.bci.runtime_decoder import RuntimeIntentDecoder
+
+        self.view.intent_decoder = RuntimeIntentDecoder({
+            "BN-FBCCA-A": BNFBCCADecoder("a"),
+            "BN-FBCCA-B": BNFBCCADecoder("b"),
+        }, "BN-FBCCA-A")
+        actions = self._render_page(self.view.research_widget, "_research_algorithm")
+        for mode in ("A", "B"):
+            self.assertIn(f"algorithm-select:BN-FBCCA-{mode}", actions)
+        self.view._activate("algorithm-select:BN-FBCCA-B")
+        self.view._activate("algorithm-load")
+        self.assertEqual("BN-FBCCA-B", self.view.intent_decoder.active_name)
+        self.assertIn("BN-FBCCA-B", self.view.actions.loaded_algorithms)
+        self.assertEqual([], self.gateway.command_log)
+
     def test_research_acquisition_tabs_are_stateful(self) -> None:
         self.view._activate("research:采集")
         self.view._activate("acquisition-tab:LSL")
