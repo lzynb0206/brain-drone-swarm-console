@@ -189,6 +189,10 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
         return self.context.experiment_recorder
 
     @property
+    def experiment(self):
+        return self.context.experiment
+
+    @property
     def trial_analysis(self):
         return self.context.trial_analysis
 

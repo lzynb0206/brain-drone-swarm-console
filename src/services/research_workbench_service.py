@@ -28,7 +28,12 @@ class ResearchWorkbenchService:
         self.log_filter = "INFO"
         self.automatic_experiment_config = AutomaticExperimentConfig()
         self.hybrid_experiment_config = HybridExperimentConfig()
+        self.collection_schemes = {}
         self.montage_id = LEGACY.id
+
+    @property
+    def collection_scheme(self) -> str:
+        return self.collection_schemes.get(self.paradigm_type, "formal")
 
     def apply_paradigm(self) -> str:
         if self.paradigm_type != "SSVEP":

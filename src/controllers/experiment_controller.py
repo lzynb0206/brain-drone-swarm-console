@@ -19,6 +19,7 @@ from src.services.subject_catalog import SubjectCatalog
 from src.views.automatic_ssvep_experiment_window import AutomaticSSVEPExperimentWindow
 from src.views.hybrid_experiment_window import HybridExperimentWindow
 from src.services.hybrid_experiment_protocol import MI_TASK_SETS
+from src.services.collection_plans import collection_schemes, hybrid_collection_config
 from src.bci.montage import HYBRID, LEGACY, MONTAGES
 from src.views.acquisition_preflight_dialog import AcquisitionPreflightDialog
 from src.services.acquisition_preflight import audit_hybrid_run
@@ -53,6 +54,34 @@ class ExperimentController:
     @property
     def running(self) -> bool:
         return bool(self.automatic_window is not None and self.automatic_window.running)
+
+    def select_collection_scheme(self, scheme: str) -> None:
+        if self.running:
+            self.host._notify("请先结束当前采集，再切换实验方案")
+            return
+        options = collection_schemes(self.host.actions.paradigm_type)
+        selected = next((item for item in options if item.id == scheme), None)
+        if selected is None:
+            self.host._notify("当前范式不支持此采集方案")
+            return
+        self.host.actions.collection_schemes[self.host.actions.paradigm_type] = scheme
+        self.host._notify(f"实验方案已切换：{selected.title}")
+
+    def configure_collection(self) -> None:
+        if self.running:
+            self.host._notify("请先结束本次实验再修改采集计划")
+            return
+        if self.host.actions.paradigm_type == "SSVEP":
+            self.host._configure_automatic_ssvep_experiment()
+        else:
+            self.configure_hybrid()
+
+    def start_collection(self) -> None:
+        if self.host.actions.paradigm_type == "SSVEP":
+            self.start_automatic()
+        else:
+            scheme = self.host.actions.collection_scheme
+            self.start_hybrid(mode="rest" if scheme == "rest" else None, pilot=scheme == "pilot")
 
     def start_automatic(self) -> None:
         worker = self.host._pipeline_worker
@@ -109,6 +138,9 @@ class ExperimentController:
         QTimer.singleShot(0, window.start_experiment)
 
     def configure_montage(self, montage_id):
+        if self.running:
+            self.host._notify("请先结束当前实验，再调整采集布局")
+            return
         worker = self.host._pipeline_worker
         if worker is not None and worker.isRunning():
             self.host._notify("请先停止采集数据流，按接线图调整电极后再应用布局")
@@ -126,7 +158,8 @@ class ExperimentController:
         self.host.actions.montage_id = montage.id
         self.preflight = None
         if montage.mi:
-            self.host.actions.paradigm_type = "SSVEP+MI混合"
+            if self.host.actions.paradigm_type != "MI":
+                self.host.actions.paradigm_type = "SSVEP+MI混合"
             self.host.actions.bci_control_enabled = False
         else:
             self.host.actions.paradigm_type = "SSVEP"
@@ -140,42 +173,70 @@ class ExperimentController:
             self.host._notify("请先结束本次实验再修改采集计划")
             return
         config = self.host.actions.hybrid_experiment_config
+        paradigm = self.host.actions.paradigm_type
+        scheme = self.host.actions.collection_scheme
+        serial = paradigm != "MI"
+        rest_only = scheme == "rest"
+        pilot = scheme == "pilot"
         dialog = QDialog(self.host if isinstance(self.host, QWidget) else None)
-        dialog.setWindowTitle("MI / 串行配对采集计划")
+        title = next(item.title for item in collection_schemes(paradigm) if item.id == scheme)
+        dialog.setWindowTitle(f"{paradigm} · {title}")
+        dialog.setMinimumWidth(480)
         layout = QFormLayout(dialog)
         tasks = QComboBox()
         for key, labels in MI_TASK_SETS.items():
             tasks.addItem(" / ".join(labels), key)
         tasks.setCurrentIndex(tasks.findData(config.task_set))
-        layout.addRow("MI 任务（与训练模型一致）", tasks)
+        if not rest_only:
+            layout.addRow("MI 任务（与训练模型一致）", tasks)
         include_rest = QCheckBox("本轮先采专门静息（睁眼＋闭眼）")
         include_rest.setChecked(config.include_dedicated_rest)
-        layout.addRow(include_rest)
-        note = QLabel("专门静息合计 3–5 分钟；闭眼结束后按空格确认睁眼。\n取消勾选时本轮仅有 5 秒短基线，不会标记为完成专门静息。")
+        if not rest_only and not pilot:
+            layout.addRow(include_rest)
+        note = QLabel(
+            "试跑固定为 2 组，不采专门静息；时长与任务设置和正式采集共用。"
+            if pilot else "专门静息合计 3–5 分钟；闭眼结束后按空格确认睁眼。"
+            + ("\n取消勾选时本轮仅采短基线，不会标记为完成专门静息。" if not rest_only else "")
+        )
         note.setWordWrap(True)
         layout.addRow(note)
         fields = {}
-        for name, title in (("resting_open_seconds", "专门睁眼静息 / 秒"), ("resting_closed_seconds", "专门闭眼静息 / 秒")):
+        resting_fields = () if pilot else (("resting_open_seconds", "专门睁眼静息 / 秒"), ("resting_closed_seconds", "专门闭眼静息 / 秒"))
+        for name, title in resting_fields:
             box = QSpinBox(); box.setRange(60, 240); box.setSingleStep(30); box.setValue(int(getattr(config, name)))
             fields[name] = box; layout.addRow(title, box)
-        for name, title in (("repetitions", "每种目标×动作组合次数"), ("idle_trials", "起始空闲窗口数")):
+        count_fields = []
+        if not rest_only and not pilot:
+            count_fields.append(("repetitions", "每种目标×动作组合次数" if serial else "每种 MI 动作次数"))
+            if serial:
+                count_fields.append(("idle_trials", "起始空闲窗口数"))
+        for name, title in count_fields:
             box = QSpinBox(); box.setRange(1, 30); box.setValue(getattr(config, name))
             fields[name] = box; layout.addRow(title, box)
-        for name, title in (("cue_seconds", "提示 / 秒"), ("ssvep_seconds", "SSVEP / 秒"),
-                            ("gap_seconds", "两阶段间隔 / 秒"), ("mi_seconds", "MI / 秒"), ("rest_seconds", "休息 / 秒")):
+        timing_fields = []
+        if not rest_only:
+            timing_fields.append(("cue_seconds", "提示 / 秒"))
+            if serial:
+                timing_fields.extend((("ssvep_seconds", "SSVEP / 秒"), ("gap_seconds", "两阶段间隔 / 秒")))
+            timing_fields.extend((("mi_seconds", "MI / 秒"), ("rest_seconds", "休息 / 秒")))
+        for name, title in timing_fields:
             box = QDoubleSpinBox(); box.setRange(2 if name in ("ssvep_seconds", "mi_seconds") else .5, 30)
             box.setSingleStep(.5); box.setValue(getattr(config, name)); fields[name] = box; layout.addRow(title, box)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject); layout.addRow(buttons)
         if dialog.exec() == QDialog.Accepted:
             try:
-                updated = replace(config, task_set=tasks.currentData(), include_dedicated_rest=include_rest.isChecked(),
-                    **{name: box.value() for name,box in fields.items()}).validate()
+                values = {name: box.value() for name, box in fields.items()}
+                if not rest_only:
+                    values["task_set"] = tasks.currentData()
+                    if not pilot:
+                        values["include_dedicated_rest"] = include_rest.isChecked()
+                updated = replace(config, **values).validate()
             except ValueError as exc:
                 self.host._notify(str(exc))
                 return
             self.host.actions.hybrid_experiment_config = updated
-            self.host._notify("MI / 串行采集计划已更新")
+            self.host._notify(f"{paradigm} 采集计划已更新")
 
     def run_preflight(self):
         if self.running:
@@ -212,7 +273,7 @@ class ExperimentController:
                         == tuple(self.preflight.get("original_channel_names") or ()))
 
     def pilot_signature(self, config):
-        return (config.task_set, config.cue_seconds, config.ssvep_seconds, config.gap_seconds,
+        return (config.mode, config.task_set, config.cue_seconds, config.ssvep_seconds, config.gap_seconds,
                 config.mi_seconds, config.rest_seconds, config.baseline_seconds, self.host.actions.montage_id,
                 (self.preflight or {}).get("id"))
 
@@ -235,10 +296,12 @@ class ExperimentController:
         if not self.preflight_ready():
             self.host._notify("本次数据流尚未通过试采检查，或检查已超过 15 分钟；请先点“硬件／时间检查”")
             return
-        config = replace(self.host.actions.hybrid_experiment_config,
-                         mode="serial" if pilot else mode or ("mi" if self.host.actions.paradigm_type == "MI" else "serial"))
+        paradigm = "MI" if mode == "mi" or (mode is None and self.host.actions.paradigm_type == "MI") else "SSVEP+MI混合"
+        config = hybrid_collection_config(
+            self.host.actions.hybrid_experiment_config, paradigm,
+            "pilot" if pilot else "rest" if mode == "rest" else "formal",
+        )
         if pilot:
-            config = replace(config, purpose="pilot", repetitions=1, idle_trials=2, include_dedicated_rest=False)
             self.pilot_audit = None
         elif config.mode != "rest" and (not self.pilot_audit or not self.pilot_audit.get("passed")
                 or self.pilot_audit.get("signature") != self.pilot_signature(config)):

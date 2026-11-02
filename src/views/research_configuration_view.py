@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt
-from src.bci.montage import HYBRID
+from src.bci.montage import HYBRID, LEGACY
+from src.services.collection_plans import (
+    COLLECTION_PARADIGMS, collection_schemes, hybrid_collection_config,
+)
 
 from src.bci.config import (
     DECISION_STEP_SECONDS,
     SSVEP_PROFILE_NAME,
     TARGET_FREQUENCIES_HZ,
-    TRUE_LABELS,
+    COMMANDS,
     WINDOW_SECONDS,
 )
 from src.widgets.scifi_canvas import (
@@ -113,101 +116,153 @@ class ResearchConfigurationViewMixin:
 
 
     def _research_data_collection(self, c: Canvas) -> None:
-        """Dedicated automatic labeled-data collection workspace."""
+        """One workspace for paradigm selection, plan preview and acquisition."""
+        paradigm = self.actions.paradigm_type
+        schemes = collection_schemes(paradigm)
+        scheme = next(item for item in schemes if item.id == self.actions.collection_scheme)
+        ssvep = paradigm == "SSVEP"
+        config = (self.actions.automatic_experiment_config if ssvep else
+                  hybrid_collection_config(self.actions.hybrid_experiment_config, paradigm, scheme.id))
+        montage = LEGACY if ssvep else HYBRID
+        layout_ready = (self.actions.montage_id == montage.id
+                        and tuple(self._eeg_channel_names) == montage.names)
+        running = self.experiment.running
 
-        if self.actions.paradigm_type != "SSVEP":
-            self._research_hybrid_collection(c)
-            return
+        c.text(32, 72, 420, 34, "实验数据采集", 20, TEXT, True)
+        c.text(32, 108, 1160, 22, "选择范式与实验方案，核对参数和接线后开始采集；原始 EEG、真实标签与时间戳逐段保存。", 10, MUTED)
+        for index, (value, title) in enumerate(COLLECTION_PARADIGMS):
+            x = 648 + index * 204
+            active = paradigm == value
+            c.rect(x, 76, 192, 34, "#eaf2ff" if active else PANEL, BLUE if active else BORDER, 4)
+            c.text(x, 76, 192, 34, title, 11, BLUE if active else MUTED, active, Qt.AlignCenter)
+            if not running:
+                self._hit(x, 76, 192, 34, f"paradigm-type:{value}")
 
-        config = self.actions.automatic_experiment_config
-        ssvep_ready = self.actions.paradigm_type == "SSVEP"
-        c.text(32, 72, 360, 36, "实验数据采集", 19, TEXT, True)
-        c.text(
-            32, 101, 850, 22,
-            "独立管理自动随机带标签采集；原始试次、时间戳和质量信息会安全落盘。",
-            10, MUTED,
-        )
-        c.rect(32, 132, 1216, 532, PANEL, BORDER, 5)
-        c.text(56, 150, 320, 34, "SSVEP 平衡随机采集计划", 16, TEXT, True)
-        status_text = "SSVEP 范式已就绪" if ssvep_ready else "请先在“范式算法”页切换为 SSVEP"
-        status_color = GREEN if ssvep_ready else RED
-        c.rect(932, 151, 286, 32, "#eaf7ef" if ssvep_ready else "#fff0f2", BORDER, 16)
-        c.circle(952, 167, 5, status_color)
-        c.text(966, 151, 238, 32, status_text, 9, status_color, True)
+        c.rect(32, 144, 1216, 98, PANEL, BORDER, 5)
+        c.text(52, 152, 240, 22, "实验方案", 11, TEXT, True)
+        c.text(858, 152, 370, 22, "采集中 · 结束后可切换方案" if running else "切换范式会保留已配置的采集参数", 9, MUTED, False, Qt.AlignRight)
+        width = (1176 - 12 * (len(schemes) - 1)) / len(schemes)
+        for index, item in enumerate(schemes):
+            x = 52 + index * (width + 12)
+            active = scheme.id == item.id
+            c.rect(x, 180, width, 46, "#eef4ff" if active else PANEL_SOFT, BLUE if active else BORDER, 4)
+            c.circle(x + 18, 203, 5, BLUE if active else PANEL, BLUE if active else BORDER)
+            c.text(x + 34, 182, width - 48, 22, item.title, 11, BLUE if active else TEXT, True)
+            c.text(x + 34, 204, width - 48, 18, item.description, 9, MUTED)
+            if not running:
+                self._hit(x, 180, width, 46, f"collection-scheme:{item.id}")
 
-        metrics = (
-            ("每类次数", f"{config.repetitions_per_label} 次"),
-            ("试次总数", str(config.trial_count)),
-            ("提示时间", f"{config.cue_seconds:g} s"),
-            ("刺激时间", f"{config.stimulus_seconds:g} s"),
-            ("分析起点", f"{config.discard_seconds:g} s"),
-            ("休息时间", f"{config.rest_seconds:g} s"),
-        )
+        c.rect(32, 256, 1216, 440, PANEL, BORDER, 5)
+        name = "SSVEP" if ssvep else "MI" if paradigm == "MI" else "SSVEP → MI"
+        c.text(56, 268, 820, 30, f"{name} · {scheme.title}", 16, TEXT, True)
+        status, color = self._collection_readiness(config, layout_ready, ssvep)
+        c.rect(930, 268, 294, 30, "#eaf7ef" if color == GREEN else PANEL_SOFT, BORDER, 15)
+        c.circle(948, 283, 5, color)
+        c.text(962, 268, 248, 30, status, 9, color, True)
+
+        metrics, labels, flow, preparation, saving = self._collection_plan_details(config, ssvep)
         for index, (label, value) in enumerate(metrics):
-            x = 56 + index * 193
-            c.rect(x, 208, 176, 76, PANEL_SOFT, BORDER, 4)
-            c.text(x + 12, 218, 152, 22, label, 9, MUTED, True)
-            c.text(x + 12, 242, 152, 30, value, 16, TEXT, True)
+            x = 56 + index * 196
+            c.rect(x, 312, 184, 64, PANEL_SOFT, BORDER, 4)
+            c.text(x + 12, 320, 160, 20, label, 9, MUTED, True)
+            c.text(x + 12, 343, 160, 25, value, 16, TEXT, True)
 
-        c.text(56, 310, 220, 26, "真实标签计划", 13, TEXT, True)
-        label_width = 150
-        for index, label in enumerate(TRUE_LABELS):
-            x = 56 + index * 164
-            c.rect(x, 346, label_width, 44, "#eef4ff", "#b7cae5", 4)
-            c.text(x, 346, label_width, 44, label, 11, BLUE, True, Qt.AlignCenter)
+        c.text(56, 386, 220, 22, "采集标签" if not ssvep and config.mode == "rest" else "真实标签计划", 12, TEXT, True)
+        label_width = (1164 - 12 * (len(labels) - 1)) / len(labels)
+        for index, label in enumerate(labels):
+            x = 56 + index * (label_width + 12)
+            c.rect(x, 416, label_width, 32, "#eef4ff", "#b7cae5", 4)
+            c.text(x, 416, label_width, 32, label, 11, BLUE, True, Qt.AlignCenter)
 
-        c.text(56, 420, 220, 26, "安全保存流程", 13, TEXT, True)
-        stages = (
-            ("1", "实时 EEG 就绪", "固定 8 通道 / 250 Hz"),
-            ("2", "按计划采集", "标签来自随机计划，不来自预测"),
-            ("3", "逐试次确认保存", "NPZ + 时间戳 + 质量状态"),
-        )
-        for index, (number, title, description) in enumerate(stages):
-            x = 56 + index * 382
-            c.rect(x, 456, 354, 84, PANEL_SOFT, BORDER, 4)
-            c.circle(x + 29, 498, 16, "#e7f1ff", BLUE)
-            c.text(x + 13, 482, 32, 32, number, 10, BLUE, True, Qt.AlignCenter)
-            c.text(x + 58, 468, 274, 25, title, 11, TEXT, True)
-            c.text(x + 58, 496, 274, 29, description, 9, MUTED)
+        c.text(56, 460, 220, 22, "实验流程", 12, TEXT, True)
+        c.text(56, 486, 1164, 24, flow, 12, BLUE, True)
+        c.text(56, 514, 1164, 22, preparation, 10, MUTED)
+        c.text(56, 540, 1164, 22, saving, 10, MUTED)
+        c.line(56, 576, 1224, 576, BORDER)
+        wiring = "   ".join(f"CH{i + 1} {name}" for i, name in enumerate(montage.names))
+        c.text(56, 584, 1164, 22, f"所需接线  {wiring}   ·   250 Hz", 11, TEXT, True)
+        note = "更换布局前请先停止数据流并调整物理电极。" if not layout_ready else "当前通道布局匹配；请核对物理电极与通道顺序。"
+        c.text(56, 610, 1164, 20, f"{note}  随机种子 {config.random_seed} · 完成后在“数据分析”页查看。", 9, MUTED)
 
-        c.text(
-            56, 562, 620, 24,
-            f"随机种子 {config.random_seed} · 每试次可分析 {config.analysis_seconds:g} 秒 · "
-            "采集完成后可在“数据”页检查索引",
-            9, MUTED,
-        )
-        self._light_button(c, 836, 574, 176, 54, "配置采集计划", False, "#477af0")
-        self._light_button(c, 1024, 574, 194, 54, "开始自动采集", ssvep_ready, "#2d8a57")
-        self._hit(836, 574, 176, 54, "automatic-experiment-config")
-        if ssvep_ready:
-            self._hit(1024, 574, 194, 54, "automatic-experiment-start")
+        buttons = [
+            (56, 144, "查看实时采集", "research:采集", False),
+            (212, 176, "恢复枕顶 8 通道" if ssvep else "应用候选 5+3 布局", f"montage:{montage.id}", False),
+            (852, 172, "配置采集计划", "collection-config", False),
+            (1036, 188, "返回采集窗口" if running else scheme.start_label, "collection-start", True),
+        ]
+        if not ssvep:
+            buttons.insert(2, (400, 204, "硬件／时间检查（约 6 秒）", "hybrid-preflight", False))
+        for x, button_width, label, action, primary in buttons:
+            enabled = not running or action in ("research:采集", "collection-start")
+            self._light_button(c, x, 642, button_width, 36, label, primary, GREEN if primary else BLUE if enabled else MUTED)
+            if enabled:
+                self._hit(x, 642, button_width, 36, action)
 
-    def _research_hybrid_collection(self, c: Canvas) -> None:
-        config = self.actions.hybrid_experiment_config
-        serial = self.actions.paradigm_type != "MI"
-        count = config.repetitions * len(config.mi_labels) * (6 if serial else 1)
-        c.text(32, 72, 1100, 36, "SSVEP → MI 串行配对采集" if serial else "MI 单独采集", 19, TEXT, True)
-        c.text(32, 111, 1150, 28, "物理电极按 5+3 布局固定；采集全八路，两个阶段分别分析。", 12, MUTED)
-        c.rect(32, 157, 1216, 470, PANEL, BORDER, 5)
-        c.text(60, 180, 1100, 32, "CH1 O1   CH2 Oz   CH3 O2   CH4 P3   CH5 P4   │   CH6 C3   CH7 Cz   CH8 C4", 13, TEXT, True)
-        c.text(60, 232, 1100, 30, f"任务：{' / '.join(config.mi_labels)} · {count} 组 · 随机种子 {config.random_seed}", 14, TEXT)
-        flow = (f"空闲校准 {config.idle_trials} 窗 → SSVEP {config.ssvep_seconds:g}s → 间隔 {config.gap_seconds:g}s → MI {config.mi_seconds:g}s → 休息 {config.rest_seconds:g}s"
-                if serial else f"提示 {config.cue_seconds:g}s → MI {config.mi_seconds:g}s → 休息 {config.rest_seconds:g}s")
-        c.text(60, 284, 1100, 36, flow, 13, BLUE, True)
-        c.text(60, 343, 1100, 60, "每阶段保存原始 EEG、通道名、时间戳及真实标签。\n串行采集额外保存配对编号与前序 SSVEP 置信度；低置信度仍继续采 MI。", 12, MUTED)
-        resting = (f"本轮先采睁眼 {config.resting_open_seconds:g}s ＋ 闭眼 {config.resting_closed_seconds:g}s 专门静息；再采 5s 短基线。"
-                   if config.include_dedicated_rest else "本轮只采 5s 短基线；专门静息可单独采集，不能用短基线替代。")
-        c.text(60, 419, 1100, 58, resting + "\n启动数据流 → 硬件／时间检查 → 流程试跑（2组） → 正式任务。MI 期间仅显示中央十字。", 12, MUTED)
-        buttons = ((60, 500, 225, "应用候选 5+3 布局", f"montage:{HYBRID.id}"),
-                   (305, 500, 225, "恢复枕顶 8 通道", "montage:posterior8_v1"),
-                   (550, 500, 225, "配置采集计划", "hybrid-experiment-config"),
-                   (795, 500, 390, "硬件／时间检查（约6秒）", "hybrid-preflight"),
-                   (60, 565, 300, "仅采专门静息", "hybrid-rest-start"),
-                   (380, 565, 280, "流程试跑（2组）", "hybrid-pilot-start"),
-                   (980, 565, 225, "开始任务采集", "hybrid-experiment-start"))
-        for x, y, width, label, action in buttons:
-            c.button(x, y, width, 42, label, action == "hybrid-experiment-start", accent=CYAN)
-            self._hit(x, y, width, 42, action)
+    def _collection_readiness(self, config, layout_ready, ssvep):
+        if self.experiment.running:
+            return "正在采集 · 当前方案已锁定", GREEN
+        if not layout_ready:
+            return "待应用枕顶 8 通道布局" if ssvep else "待应用 5+3 通道布局", YELLOW
+        if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
+            return "待启动实时 EEG 数据流", YELLOW
+        if ssvep:
+            return "数据流已启动 · 启动时校验信号", GREEN
+        if not self.experiment.preflight_ready():
+            return "待完成硬件／时间检查", YELLOW
+        if config.mode != "rest" and config.purpose != "pilot":
+            audit = self.experiment.pilot_audit
+            if not audit or not audit.get("passed") or audit.get("signature") != self.experiment.pilot_signature(config):
+                return "待完成当前范式的 2 组试跑", YELLOW
+        return "采集检查已通过", GREEN
+
+    def _collection_plan_details(self, config, ssvep):
+        """Use the same effective config that will be passed to the runner."""
+        if ssvep:
+            metrics = (
+                ("每类次数", f"{config.repetitions_per_label} 次"), ("试次总数", str(config.trial_count)),
+                ("提示时间", f"{config.cue_seconds:g} s"), ("刺激时间", f"{config.stimulus_seconds:g} s"),
+                ("分析起点", f"{config.discard_seconds:g} s"), ("休息时间", f"{config.rest_seconds:g} s"),
+            )
+            flow = f"提示 {config.cue_seconds:g}s  →  SSVEP {config.stimulus_seconds:g}s  →  确认保存  →  休息 {config.rest_seconds:g}s"
+            preparation = f"每个重复块覆盖全部标签；每试次可分析 {config.analysis_seconds:g}s，真实标签来自随机计划。"
+            saving = "逐试次保存原始 EEG、通道名、时间戳、真实标签和质量状态。"
+            return metrics, config.labels, flow, preparation, saving
+        if config.mode == "rest":
+            metrics = (
+                ("采集段数", "2 段"), ("静息总时长", f"{config.resting_open_seconds + config.resting_closed_seconds:g} s"),
+                ("睁眼静息", f"{config.resting_open_seconds:g} s"), ("闭眼静息", f"{config.resting_closed_seconds:g} s"),
+                ("每段提示", "5 s"), ("任务试次", "0"),
+            )
+            flow = f"睁眼提示 5s  →  睁眼静息 {config.resting_open_seconds:g}s  →  闭眼提示 5s  →  闭眼静息 {config.resting_closed_seconds:g}s  →  睁眼确认"
+            return (metrics, ("睁眼静息", "闭眼静息"), flow,
+                    "闭眼静息结束后，按空格确认已经睁眼；本方案不采集 SSVEP / MI 任务。",
+                    "睁眼、闭眼分段保存原始 EEG、眼状态与时间戳，单独标记为专门静息。")
+        serial = config.mode == "serial"
+        if serial:
+            metrics = (
+                ("每动作次数" if config.purpose == "pilot" else "每组合次数", f"{config.repetitions} 次"), ("任务组数", f"{config.pair_count} 组"),
+                ("SSVEP 时间", f"{config.ssvep_seconds:g} s"), ("阶段间隔", f"{config.gap_seconds:g} s"),
+                ("MI 时间", f"{config.mi_seconds:g} s"), ("休息时间", f"{config.rest_seconds:g} s"),
+            )
+            # A serial formal run also inserts an idle window between blocks.
+            idle_count = config.idle_trials + (config.repetitions - 1 if config.purpose == "formal" else 0)
+            labels = tuple(COMMANDS[:1] if config.purpose == "pilot" else COMMANDS) + tuple(config.mi_labels)
+            flow = f"提示 {config.cue_seconds:g}s  →  SSVEP {config.ssvep_seconds:g}s  →  间隔 {config.gap_seconds:g}s  →  MI {config.mi_seconds:g}s  →  休息 {config.rest_seconds:g}s"
+            saving = f"另采 {idle_count} 个空闲窗；逐阶段保存 EEG、配对编号及 SSVEP 置信度，低置信度仍继续采 MI。"
+        else:
+            metrics = (
+                ("每类次数", f"{config.repetitions} 次"), ("任务组数", f"{config.pair_count} 组"),
+                ("提示时间", f"{config.cue_seconds:g} s"), ("MI 时间", f"{config.mi_seconds:g} s"),
+                ("短基线", f"{config.baseline_seconds:g} s"), ("休息时间", f"{config.rest_seconds:g} s"),
+            )
+            labels = config.mi_labels
+            flow = f"提示 {config.cue_seconds:g}s  →  MI {config.mi_seconds:g}s（中央十字）  →  确认保存  →  休息 {config.rest_seconds:g}s"
+            saving = "采集全 8 通道，MI 分析使用 C3 / Cz / C4；逐段保存原始 EEG、真实标签、时间戳及质量状态。"
+        preparation = (f"先采睁眼 {config.resting_open_seconds:g}s + 闭眼 {config.resting_closed_seconds:g}s 专门静息，再采 {config.baseline_seconds:g}s 短基线。"
+                       if config.include_dedicated_rest else f"先采 {config.baseline_seconds:g}s 短基线；本轮不包含专门静息。")
+        if config.purpose == "pilot":
+            preparation += "  试跑仅 2 组，数据单独标记，不进入正式分析。"
+        return metrics, labels, flow, preparation, saving
 
     def _research_algorithm(self, c: Canvas) -> None:
         c.rect(48, 104, 1184, 69, PANEL, BORDER, 3)

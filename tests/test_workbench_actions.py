@@ -410,8 +410,8 @@ class MainViewActionRoutingTest(unittest.TestCase):
             self.view.research_widget,
             "_research_data_collection",
         )
-        self.assertIn("automatic-experiment-config", actions)
-        self.assertIn("automatic-experiment-start", actions)
+        self.assertIn("collection-config", actions)
+        self.assertIn("collection-start", actions)
 
     def test_data_analysis_page_exposes_import_actions(self) -> None:
         actions = self._render_page(self.view.research_widget, "_research_data")

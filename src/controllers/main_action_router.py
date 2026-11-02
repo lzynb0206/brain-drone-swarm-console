@@ -61,6 +61,12 @@ class MainActionRouter(QObject):
             if view.actions.paradigm_type != "SSVEP":
                 view.actions.bci_control_enabled = False
             view._notify(f"脑控范式已切换：{view.actions.paradigm_type}")
+        elif action.startswith("collection-scheme:"):
+            view.experiment.select_collection_scheme(action.split(":", 1)[1])
+        elif action == "collection-config":
+            view.experiment.configure_collection()
+        elif action == "collection-start":
+            view.experiment.start_collection()
         elif action == "paradigm-size":
             view.actions.stimulus_size = max(0, min(100, round((x - 739) / 299 * 100)))
             view.update()

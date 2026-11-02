@@ -28,6 +28,9 @@ class MainDialogsMixin:
     def _configure_automatic_ssvep_experiment(self) -> None:
         """Edit the visible, reproducible acquisition protocol."""
 
+        if self.experiment.running:
+            self._notify("请先结束本次实验再修改采集计划")
+            return
         current = self.actions.automatic_experiment_config
         dialog = QDialog(self)
         dialog.setWindowTitle("SSVEP 自动随机采集配置")
