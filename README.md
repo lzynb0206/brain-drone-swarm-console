@@ -170,19 +170,22 @@ CSV、模拟信号和未经独立验证的模型不能直接进入实机脑控�
 | `src/services/`、`src/domain/`、`src/ports/` | 业务规则、数据模型与接口契约 |
 | `src/adapters/`、`src/integrations/` | 认证、EEG、无人机、摄像头与触觉设备外部接入 |
 | `src/bci/`、`src/ml/`、`src/workers/` | 解码、模型训练推理及后台任务 |
-| `models/` | 手势权重及科研解码门限文件 |
-| `scripts/` | 设备桥接、训练、评估、公开数据准备及复现实验工具 |
+| `models/` | 仓库仅包含摄像头识别必需的 `dvs128_snn_best_v4.pth` |
+| `scripts/` | 4 个随软件发布的工具：EEG 配置、两种设备桥接、联合试次数据导出 |
 | `tests/` | 17 个关键测试文件，覆盖采集、BDF、数据保存、触觉通信与实机控制保护 |
 | `data/` | 本地科研数据、采集记录与试次索引 |
 | `outputs/` | 本地科研结果与历史实验材料 |
+| `research/` | 仅本地保留的独立科研代码、实验结果、图表和报告 |
 
 运行记录按用途保存到 `data/research_experiments/`、`data/ssvep_realtime_tests/` 和 `data/soldier_ssvep_flights/`。可用 `BDS_EEG_DATA_ROOT` 将这些目录放到其他磁盘。
 
-Git 提交包含源码、测试、配置示例和未被忽略的模型文件。科研数据集、运行记录、`outputs/`、虚拟环境、缓存及本地 `.env` 按 [`.gitignore`](.gitignore) 保留在本机，不随克隆下载。数据目录会在实际保存时创建；界面不会为缺失数据自动生成实验记录。可选 Transformer / FB-EEGNet 权重需要另行训练或准备。
+GitHub 当前分支只发布上位机源码与资源、依赖清单、配置示例、本 README、关键测试、4 个设备/导出工具和手势识别必需权重。`data/`、`outputs/`、`research/`、报告、实验结果、独立复现实验脚本及其他模型产物按 [`.gitignore`](.gitignore) 留在本机；虚拟环境、缓存和 `.env` 也不上传。已有科研文件通过取消 Git 跟踪保留在原路径，新克隆不会包含这些文件。数据目录会在实际保存时创建；界面不会为缺失数据生成实验记录。
+
+`.gitignore` 只阻止尚未跟踪的文件被添加；已跟踪的文件需要用 `git rm --cached` 取消跟踪（目录加 `-r`），本地文件不会因此删除。历史提交仍保留旧版本，本次清理没有改写 Git 历史。
 
 ### 测试与开发
 
-测试目录保留 17 个文件、207 项关键检查：采集模式与实验流程、数据包和时间戳、试次身份与保存、BDF 导入、联合试次配对、受试者目录、FBCCA、触觉设备协议与退出清理、实机控制保护。算法研究对比、公开数据复现、神经网络训练以及一般界面交互测试已精简。运行软件无需执行这些测试；修改采集、保存或设备控制逻辑后，建议运行一次。
+测试目录保留 17 个文件、205 项关键检查：采集模式与实验流程、数据包和时间戳、试次身份与保存、BDF 导入、联合试次配对、受试者目录、FBCCA、触觉设备协议与退出清理、实机控制保护。算法研究对比、公开数据复现、神经网络训练以及一般界面交互测试已精简。运行软件无需执行这些测试；修改采集、保存或设备控制逻辑后，建议运行一次。
 
 macOS / Linux：
 
@@ -372,18 +375,21 @@ Haptic control is manual and independent of gestures, BCI and flight commands. A
 | `src/services/`, `src/domain/`, `src/ports/` | Business rules, data models and interfaces |
 | `src/adapters/`, `src/integrations/` | Authentication, EEG, drone, camera and haptic integrations |
 | `src/bci/`, `src/ml/`, `src/workers/` | Decoders, training/inference and background tasks |
-| `models/` | Gesture weights and research decoder gate files |
-| `scripts/` | Device bridges, training, evaluation, public-data preparation and reproduction tools |
+| `models/` | Only `dvs128_snn_best_v4.pth`, required for camera gesture inference, is tracked |
+| `scripts/` | Four shipped utilities: EEG configuration, two device bridges and paired-recording export |
 | `tests/` | 17 essential test modules covering acquisition, BDF, data persistence, haptic communication and hardware control protection |
 | `data/`, `outputs/` | Local datasets, recordings, indexes and research results |
+| `research/` | Local-only independent research code, experiment results, figures and reports |
 
 Runtime recordings are separated into `data/research_experiments/`, `data/ssvep_realtime_tests/` and `data/soldier_ssvep_flights/`. Set `BDS_EEG_DATA_ROOT` to relocate them.
 
-Git includes source, tests, configuration examples and non-ignored model files. Research datasets, runtime recordings, `outputs/`, virtual environments, caches and local `.env` files remain on the local machine according to [`.gitignore`](.gitignore); cloning does not download them. Recording directories are created when used, and missing experimental data is not silently generated. Standalone Transformer / FB-EEGNet research scripts use separately trained weights and do not replace the application’s fixed collection decoder.
+The current GitHub branch ships application source/assets, dependency lists, configuration examples, this README, essential tests, four device/export utilities and the required gesture model. `data/`, `outputs/`, `research/`, reports, experiment results, independent reproduction scripts and other model artifacts stay local under [`.gitignore`](.gitignore). Virtual environments, caches and `.env` files are excluded too. Previously tracked research files are untracked without removing their local copies; fresh checkouts do not contain them. Recording directories are created when used, and missing experimental data is not generated automatically.
+
+`.gitignore` only prevents adding untracked files. Use `git rm --cached` (with `-r` for directories) to untrack existing files while retaining local copies. Earlier commits still contain their historical versions; this cleanup does not rewrite Git history.
 
 ### Testing and development
 
-The reduced suite retains 207 checks in 17 test modules: acquisition modes and experiment flow, packets and timestamps, trial identity and persistence, BDF import, paired trials, the subject catalog, FBCCA, haptic protocol/lifecycle and hardware control protection. Research comparisons, public-data reproduction, neural-network training and general UI interaction tests have been removed. Tests are not required to run the app; run them after changing acquisition, data-saving or device-control logic.
+The reduced suite retains 205 checks in 17 test modules: acquisition modes and experiment flow, packets and timestamps, trial identity and persistence, BDF import, paired trials, the subject catalog, FBCCA, haptic protocol/lifecycle and hardware control protection. Research comparisons, public-data reproduction, neural-network training and general UI interaction tests have been removed. Tests are not required to run the app; run them after changing acquisition, data-saving or device-control logic.
 
 ```bash
 QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v

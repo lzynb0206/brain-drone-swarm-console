@@ -8,8 +8,6 @@ import numpy as np
 from src.bci.bn_fbcca import BNFBCCADecoder, normalize_scores, gate_scores
 from src.bci.config import COMMANDS, TARGET_FREQUENCIES_HZ, FBCCA_MIN_SCORE, FBCCA_MIN_MARGIN
 from src.bci.runtime_decoder import RuntimeIntentDecoder
-from scripts.evaluate_bn_fbcca import replay, calibrate
-from scripts.audit_subject1_bn_fbcca import RUNS
 
 
 class BNFBCCATest(unittest.TestCase):
@@ -77,29 +75,6 @@ class BNFBCCATest(unittest.TestCase):
             self.assertIn("窗口不匹配", result.reason)
             with self.assertRaises(ValueError):
                 BNFBCCADecoder("b", calibration_path=path)
-
-    def test_replay_never_uses_current_or_future_idle(self):
-        rows = [{"run": RUNS[0], "label": label} for label in ("空闲", COMMANDS[0], "空闲")]
-        raw = self.rng.random((3, 6))
-        before = replay(raw, rows, [True] * 3, "b", 1)
-        changed = raw.copy()
-        changed[2] *= 1000
-        after = replay(changed, rows, [True] * 3, "b", 1)
-        np.testing.assert_allclose(before[1]["result"].normalized, after[1]["result"].normalized)
-        self.assertEqual(before[2]["idle_indices"], [0])
-
-    def test_calibration_does_not_read_test_labels(self):
-        rows = [{"run": RUNS[0], "label": "空闲"}] + [
-            {"run": RUNS[0], "label": COMMANDS[0]} for _ in range(12)]
-        rows += [{"run": RUNS[2], "label": COMMANDS[1]}]
-        raw = np.tile([.8, .2, .1, .1, .1, .1], (len(rows), 1))
-        raw[0] = .01
-        valid = [True] * len(rows)
-        dev = list(range(len(rows) - 1))
-        first = calibrate(raw, replay(raw, rows, valid, "a"), rows, valid, dev)
-        rows[-1]["label"] = COMMANDS[0]
-        second = calibrate(raw, replay(raw, rows, valid, "a"), rows, valid, dev)
-        self.assertEqual(first, second)
 
 
 if __name__ == "__main__":

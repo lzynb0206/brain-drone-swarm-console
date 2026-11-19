@@ -11,17 +11,27 @@ build/
 dist/
 *.spec
 artifacts/
-outputs/
-data/public_mi/
-data/public_ssvep/
-data/sessions/
+
+# Local recordings, experiments and documents are never part of the software repository.
+/data/
+/outputs/
+/output/
+/research/
+/results/
+/reports/
+/exports/
 .codex-ppt-build/
-output/pptx/
 .doc_review/
-.env
-data/research_experiments/
-data/ssvep_realtime_tests/
-data/soldier_ssvep_flights/
-models/*.pt
-models/*.pth
-!models/dvs128_snn_best_v4.pth
+.env*
+!.env.example
+
+# Keep only the model required by the camera/gesture feature.
+/models/*
+!/models/dvs128_snn_best_v4.pth
+
+# Ship device utilities and real recording export; retain experiment runners locally.
+/scripts/*
+!/scripts/expandable_eeg_config.py
+!/scripts/expandable_eeg_lsl_bridge.py
+!/scripts/expandable_eeg_openbci_serial_bridge.py
+!/scripts/export_hybrid_pairs.py
