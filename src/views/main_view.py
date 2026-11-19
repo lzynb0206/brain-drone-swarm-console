@@ -41,6 +41,7 @@ from src.services import (
 from src.controllers.acquisition_profile_controller import AcquisitionProfileController
 from src.controllers.main_action_router import MainActionRouter
 from src.controllers.gesture_controller import GestureController
+from src.controllers.haptic_controller import HapticController
 from src.views.main_dialogs import MainDialogsMixin
 from src.views.role_pages import ResearchPage, SoldierPage
 from src.workers import EEGWorker
@@ -125,6 +126,7 @@ class MainView(
         )
         self.soldier_bci = SoldierBCIController(self)
         self.gesture = GestureController(self)
+        self.haptic = HapticController(self)
         self.experiment = ExperimentController(self)
         self.acquisition_profile = AcquisitionProfileController(self)
         self.recognition = RecognitionController(self)
@@ -173,6 +175,7 @@ class MainView(
 
     def set_user(self, user: User) -> None:
         self.gesture.shutdown()
+        self.haptic.shutdown()
         self.user = user
         self.setProperty("workspaceRole", user.role.value)
         self.research_page = "采集"
@@ -288,6 +291,7 @@ class MainView(
 
     def deactivate(self) -> None:
         self.gesture.shutdown()
+        self.haptic.shutdown()
         self.experiment.deactivate()
         if self._stimulus_window is not None:
             self._stimulus_window.close()
@@ -475,7 +479,7 @@ class MainView(
         role_stack = getattr(self, "_role_stack", None)
         if role_stack is not None and role_stack.currentWidget() is not None:
             if role_stack.currentWidget() is self.soldier_widget:
-                self.soldier_widget.sync_vision_panel()
+                self.soldier_widget.sync_native_panels()
             role_stack.currentWidget().update()
 
     def _notify(self, message: str) -> None:

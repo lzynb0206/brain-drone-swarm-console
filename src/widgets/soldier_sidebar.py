@@ -9,6 +9,7 @@ SECTIONS = (
     ("map", "作战地图", "soldier-root:作战地图"),
     ("brain", "脑控驾驶", "soldier-page:脑控"),
     ("vision", "视觉手势", "soldier-page:视觉手势"),
+    ("haptic", "触觉反馈", "soldier-page:触觉反馈"),
     ("status", "状态监控", "soldier-page:状态监控"),
 )
 
@@ -38,6 +39,12 @@ def navigation_icon(name, color="#b5b5b5"):
         for x, y in ((22, 7), (22, 18), (17, 15)):
             path.lineTo(x, y)
         painter.drawPath(path)
+    elif name == "haptic":
+        painter.drawRoundedRect(8, 6, 8, 12, 3, 3)
+        for x, direction in ((5, -1), (19, 1)):
+            path = QPainterPath(QPointF(x, 6))
+            path.quadTo(x + direction * 5, 12, x, 18)
+            painter.drawPath(path)
     elif name == "status":
         path = QPainterPath(QPointF(2, 12))
         for x, y in ((6, 12), (9, 4), (14, 20), (17, 12), (22, 12)):

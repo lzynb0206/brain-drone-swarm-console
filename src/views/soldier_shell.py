@@ -4,6 +4,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from src.views.soldier_vision_panel import SoldierVisionPanel
+from src.views.soldier_haptic_panel import SoldierHapticPanel
 from src.widgets.soldier_canvas import BG, SoldierCanvas
 from src.widgets.soldier_sidebar import SECTIONS, SoldierSidebar
 
@@ -16,6 +17,8 @@ class SoldierShellMixin:
         super().__init__(context, parent)
         self.vision_panel = SoldierVisionPanel(context.gesture, self)
         self.vision_panel.hide()
+        self.haptic_panel = SoldierHapticPanel(context.haptic, self)
+        self.haptic_panel.hide()
         self.header = QFrame(self)
         self.header.setObjectName("soldierHeader")
         self.header.setStyleSheet("""
@@ -47,13 +50,13 @@ class SoldierShellMixin:
         self.vision_toast.hide()
         self._section = ""
         QApplication.instance().installEventFilter(self)
-        self.sync_vision_panel()
+        self.sync_native_panels()
 
     @property
     def active_section(self):
         if self.soldier_root == "作战地图":
             return "map"
-        return {"脑控": "brain", "视觉手势": "vision", "状态监控": "status"}.get(self.soldier_page, "brain")
+        return {"脑控": "brain", "视觉手势": "vision", "触觉反馈": "haptic", "状态监控": "status"}.get(self.soldier_page, "brain")
 
     def _navigate(self, action):
         self.action_requested.emit(action, 0, 0)
@@ -67,11 +70,12 @@ class SoldierShellMixin:
         rect = self.content_rect()
         self.header.setGeometry(rect.x(), 0, rect.width(), self.HEADER_HEIGHT)
         self.vision_panel.setGeometry(rect.adjusted(18, 18, -18, -18))
+        self.haptic_panel.setGeometry(rect.adjusted(18, 18, -18, -18))
         self.sidebar.resize(self.sidebar.width(), self.height())
         self.sidebar.raise_()
         self.update()
 
-    def sync_vision_panel(self):
+    def sync_native_panels(self):
         section = self.active_section
         if section != self._section:
             self._regions = []
@@ -81,15 +85,21 @@ class SoldierShellMixin:
             self._section = section
             self.sidebar.set_current(section)
         self.vision_panel.setVisible(section == "vision")
+        self.haptic_panel.setVisible(section == "haptic")
         self.section_title.setText(next(title for key, title, _ in SECTIONS if key == section))
         self.section_description.setText({
             "map": "单兵控制台  /  飞行器位置与链路概览",
             "brain": "单兵控制台  /  实机连接、手动操控与 SSVEP 驾驶",
             "vision": "单兵控制台  /  摄像头画面与手势识别",
+            "haptic": "单兵控制台  /  左右手触觉设备与手动反馈",
             "status": "单兵控制台  /  操作员状态与监测信息",
         }[section])
         status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
-        self.connection_badge.setText("遥测已连接" if status and status.connected else "遥测未连接")
+        if section == "haptic":
+            connected = sum(s.state == "ready" for s in self.context.haptic.hands.values())
+            self.connection_badge.setText(f"触觉设备 {connected} / 2")
+        else:
+            self.connection_badge.setText("遥测已连接" if status and status.connected else "遥测未连接")
         self._layout_shell()
 
     def resizeEvent(self, event):
@@ -102,7 +112,7 @@ class SoldierShellMixin:
                        (position.y() - rect.y()) * 720 / rect.height())
 
     def paintEvent(self, event):
-        vision_message = self.context._toast if self.active_section == "vision" else ""
+        vision_message = self.context._toast if self.active_section in {"vision", "haptic"} else ""
         self.vision_toast.setText(vision_message)
         self.vision_toast.setVisible(bool(vision_message))
         if vision_message:
@@ -121,7 +131,7 @@ class SoldierShellMixin:
             canvas = SoldierCanvas(painter, rect.width(), rect.height())
             self._regions = []
             self._render(canvas)
-            if self.context._toast and self.active_section != "vision":
+            if self.context._toast and self.active_section not in {"vision", "haptic"}:
                 self.context._paint_toast(canvas)
         finally:
             painter.end()

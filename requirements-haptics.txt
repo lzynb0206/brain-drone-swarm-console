@@ -1,0 +1,2 @@
+# Optional BLE transport; USB uses pyserial from requirements.txt.
+bleak>=1.0,<4

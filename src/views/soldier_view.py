@@ -20,7 +20,7 @@ class SoldierViewMixin:
     def _paint_soldier(self, c: Canvas) -> None:
         if self.soldier_root == "作战地图":
             self._soldier_combat(c)
-        elif self.soldier_page == "视觉手势":
+        elif self.soldier_page in {"视觉手势", "触觉反馈"}:
             c.fill("#f5f5f5")
         elif self.soldier_page == "状态监控":
             self._soldier_status(c)

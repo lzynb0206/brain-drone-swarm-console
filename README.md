@@ -17,7 +17,7 @@
 
 | 工作空间 | 主要功能 | 界面设计 |
 | --- | --- | --- |
-| 士兵 / 指挥官 | 作战地图、脑控驾驶、视觉手势、状态监控、手动控制 | 黑白灰主题；左侧导航支持靠近展开、离开收回、手动折叠和固定展开 |
+| 士兵 / 指挥官 | 作战地图、脑控驾驶、视觉手势、触觉反馈、状态监控、手动控制 | 黑白灰主题；左侧导航支持靠近展开、离开收回、手动折叠和固定展开 |
 | 科研人员 | 采集、LSL收集、CSV回放、数据采集、数据分析、SSVEP测试 | 黑白灰主题；各功能保留独立顶部入口；数据采集参数默认折叠，脑电曲线按通道保留区分色 |
 
 主要能力：
@@ -28,6 +28,7 @@
 - **固定解码流程**：采集模式自动配置纯 SSVEP 的 FBCCA 或 5+3 联合采集的 BN-FBCCA-B；高级设置直接调整谐波数、滤波方式与分数门限，无需加载模型。MI 保留原始数据并进行离线分析。
 - **无人机控制**：Crazyflie / Crazyradio 接入，Flow / Lighthouse 相关控制、编队、手动摇杆、受控降落和急停。正常启动不会自动启用飞控。
 - **视觉手势**：本机摄像头、MJPEG 网络摄像头和视频文件输入；实时画面、16 时间片事件图、11 类 SNN 结果及推理耗时。
+- **触觉反馈**：独立页面连接左右手 ESP32-C3，支持 BLE / USB、强度调节、单手或双手启停、ROM 效果与状态诊断。
 
 ### 安装与启动
 
@@ -61,6 +62,7 @@ py -3.12 -m venv .venv312
 | 可选功能 | 安装方式（macOS / Linux） |
 | --- | --- |
 | 摄像头与 SNN 手势识别 | `.venv312/bin/python -m pip install -r requirements-vision.txt` |
+| 触觉设备 BLE 连接（USB 使用基础依赖） | `.venv312/bin/python -m pip install -r requirements-haptics.txt` |
 | 模型训练和离线评估 | `.venv312/bin/python -m pip install -r requirements-ml.txt` |
 
 Windows 将表中的 Python 路径替换为 `.\.venv312\Scripts\python.exe`。可选依赖按实际使用的功能安装。
@@ -147,7 +149,16 @@ CSV、模拟信号和未经独立验证的模型不能直接进入实机脑控�
 3. 确认权重路径 `models/dvs128_snn_best_v4.pth`，点击“连接并识别”。
 4. 查看视频、事件图、手势类别和耗时；停止后可调整帧差阈值及旋转角度。
 
-采集与推理运行在独立进程，退出登录或关闭软件会停止该进程。当前手势仅提供前进 / 后退等界面提示，不自动派发飞控命令。SNN 原始输出不是校准概率，DVS 数据集表现不代表普通摄像头准确率；触觉反馈设备尚未接入。
+采集与推理运行在独立进程，退出登录或关闭软件会停止该进程。当前手势仅提供前进 / 后退等界面提示，不自动派发飞控命令。SNN 原始输出不是校准概率，DVS 数据集表现不代表普通摄像头准确率。
+
+**5. 双手触觉反馈**
+
+1. 使用 [haptic-feedback-console V0.2 的配套固件](https://github.com/xiezhi0819-stack/haptic-feedback-console#1-接线与烧录)，左右板分别为 `Haptic-Left`、`Haptic-Right`，协议版本为 4。固件仍在原仓库维护；本项目无需启动 JavaFX 或安装 JDK。
+2. 打开士兵左侧导航中的“触觉反馈”。左右手分别选择 USB 串口或 BLE，刷新列表、选择设备并连接；可使用双 USB、双 BLE 或混合连接。USB 支持 Windows COM 与 macOS/Linux 系统枚举端口。BLE 需安装 `requirements-haptics.txt`，允许系统蓝牙权限，并先断开其他控制端。
+3. 设置目标强度（0–127），点击“开始 / 应用强度”；滑条和弱 / 中 / 强预设只修改目标值。强度 0 表示停止。“双手启动”使用两手各自的非零强度，“全部停止”分别报告每手结果。
+4. “效果与诊断”可播放 ROM 效果（0–123）、查询状态、检测 I²C；通信日志默认折叠。实际强度、振动与驱动状态来自板端回复。
+
+触觉控制为手动操作，与手势识别、脑控和飞控指令独立。后台进程负责手别校验、请求 ID 匹配、心跳和确认超时处理；退出登录或关闭软件时尝试停止并等待确认，再断开连接。界面失去心跳时后台也会关闭会话。板端约 3 秒失去控制通道心跳会停止振动；软件显示“停止未确认”时不能视为硬件已经停止。自动化验证使用模拟传输，真实双 BLE、USB 与马达仍需在设备上联调。
 
 ### 目录与数据组织
 
@@ -157,11 +168,11 @@ CSV、模拟信号和未经独立验证的模型不能直接进入实机脑控�
 | `src/views/`、`src/widgets/`、`src/resources/` | 页面、复用控件、绘制与样式 |
 | `src/controllers/` | 页面动作、采集、手势及分析流程协调 |
 | `src/services/`、`src/domain/`、`src/ports/` | 业务规则、数据模型与接口契约 |
-| `src/adapters/`、`src/integrations/` | 认证、EEG、无人机与摄像头外部接入 |
+| `src/adapters/`、`src/integrations/` | 认证、EEG、无人机、摄像头与触觉设备外部接入 |
 | `src/bci/`、`src/ml/`、`src/workers/` | 解码、模型训练推理及后台任务 |
 | `models/` | 手势权重及科研解码门限文件 |
 | `scripts/` | 设备桥接、训练、评估、公开数据准备及复现实验工具 |
-| `tests/` | 16 个关键测试文件，覆盖采集、BDF、数据保存与实机控制保护 |
+| `tests/` | 17 个关键测试文件，覆盖采集、BDF、数据保存、触觉通信与实机控制保护 |
 | `data/` | 本地科研数据、采集记录与试次索引 |
 | `outputs/` | 本地科研结果与历史实验材料 |
 
@@ -171,7 +182,7 @@ Git 提交包含源码、测试、配置示例和未被忽略的模型文件。�
 
 ### 测试与开发
 
-测试目录只保留 16 个文件、190 项关键检查：采集模式与实验流程、数据包和时间戳、试次身份与保存、BDF 导入、联合试次配对、受试者目录、FBCCA 和实机控制保护。算法研究对比、公开数据复现、神经网络训练以及一般界面交互测试已精简。运行软件无需执行这些测试；修改采集或保存逻辑后，建议运行一次。
+测试目录保留 17 个文件、207 项关键检查：采集模式与实验流程、数据包和时间戳、试次身份与保存、BDF 导入、联合试次配对、受试者目录、FBCCA、触觉设备协议与退出清理、实机控制保护。算法研究对比、公开数据复现、神经网络训练以及一般界面交互测试已精简。运行软件无需执行这些测试；修改采集、保存或设备控制逻辑后，建议运行一次。
 
 macOS / Linux：
 
@@ -220,7 +231,7 @@ The supported roles are **Soldier / Operator, Commander and Researcher**. System
 
 | Workspace | Main capabilities | Navigation and appearance |
 | --- | --- | --- |
-| Soldier / Commander | Map, BCI driving, visual gestures, status monitoring and manual controls | Monochrome theme; left sidebar expands on approach, collapses on leave and supports manual toggling or pinning |
+| Soldier / Commander | Map, BCI driving, visual gestures, haptic feedback, status monitoring and manual controls | Monochrome theme; left sidebar expands on approach, collapses on leave and supports manual toggling or pinning |
 | Researcher | Acquisition, LSL Collection, CSV Replay, Data Collection, Data Analysis, SSVEP Test | Monochrome theme with independent top navigation entries; collection parameters are collapsed by default; EEG traces retain channel colors |
 
 Core features include native serial acquisition from ExpandableEEG / Cyton-compatible devices; LSL receiving and broadcasting; CSV recording and replay; labeled SSVEP, MI and hybrid trials; subject-based data organization; external BDF import; and waveform, spectrum, quality and decoder analysis.
@@ -257,6 +268,8 @@ Reuse an existing virtual environment when available. Optional dependencies:
 ```bash
 # Camera capture and SNN gesture recognition
 .venv312/bin/python -m pip install -r requirements-vision.txt
+# Haptic BLE connections (USB uses the base dependencies)
+.venv312/bin/python -m pip install -r requirements-haptics.txt
 # Training and offline evaluation
 .venv312/bin/python -m pip install -r requirements-ml.txt
 ```
@@ -337,7 +350,17 @@ CSV replay, simulated signals and models without independent validation cannot d
 
 Install the vision dependencies and open **视觉手势 / Visual Gestures**. Select a local camera index (usually `0`), a complete MJPEG URL such as `http://DEVICE_IP/stream`, or a video file. Use `models/dvs128_snn_best_v4.pth` and click connect. The page displays video, event images, gesture classes and inference time; stop capture before changing the difference threshold or rotation.
 
-Capture and inference run in a separate process, stopped on logout or window close. Gestures currently provide UI movement hints only and do not dispatch flight commands. Raw SNN output is not a calibrated probability, and DVS benchmark performance does not establish ordinary-camera accuracy. Haptic feedback integration is not included.
+Capture and inference run in a separate process, stopped on logout or window close. Gestures currently provide UI movement hints only and do not dispatch flight commands. Raw SNN output is not a calibrated probability, and DVS benchmark performance does not establish ordinary-camera accuracy.
+
+**Dual-hand haptic feedback**
+
+Use the matching [haptic-feedback-console V0.2 firmware](https://github.com/xiezhi0819-stack/haptic-feedback-console#1-接线与烧录) with protocol 4: `Haptic-Left` and `Haptic-Right`. Firmware stays in that repository; JavaFX and a JDK are not required for this integration.
+
+Open **触觉反馈 / Haptic Feedback** in the soldier sidebar. Select USB or BLE independently for each hand, refresh, select a device and connect. Dual USB, dual BLE and mixed connections are supported; USB uses enumerated Windows COM or macOS/Linux device paths. BLE requires `requirements-haptics.txt`, OS Bluetooth permission and releasing the device from other clients.
+
+Set the target strength (0–127), then click apply. Sliders and weak/medium/strong presets only change the target; zero stops the motor. Dual start uses each hand's nonzero target. Stop all reports results separately. Expand effects/diagnostics for ROM effects (0–123), status queries and I²C checks. Logs are collapsed by default; displayed motor, strength and driver state come from device replies.
+
+Haptic control is manual and independent of gestures, BCI and flight commands. A child process handles identity checks, request IDs, heartbeat and acknowledgement timeouts. Logout/window close attempts to stop both hands before disconnecting; loss of the GUI heartbeat also closes sessions. Firmware stops vibration after roughly three seconds without its control-channel heartbeat. An unconfirmed stop must not be treated as confirmed physical state. Automated tests use fake transports; real dual BLE, USB and motor behavior still require hardware validation.
 
 ### Source layout and local data
 
@@ -347,11 +370,11 @@ Capture and inference run in a separate process, stopped on logout or window clo
 | `src/views/`, `src/widgets/`, `src/resources/` | Pages, reusable widgets, drawing and styles |
 | `src/controllers/` | User actions and acquisition, gesture and analysis workflows |
 | `src/services/`, `src/domain/`, `src/ports/` | Business rules, data models and interfaces |
-| `src/adapters/`, `src/integrations/` | Authentication, EEG, drone and camera integrations |
+| `src/adapters/`, `src/integrations/` | Authentication, EEG, drone, camera and haptic integrations |
 | `src/bci/`, `src/ml/`, `src/workers/` | Decoders, training/inference and background tasks |
 | `models/` | Gesture weights and research decoder gate files |
 | `scripts/` | Device bridges, training, evaluation, public-data preparation and reproduction tools |
-| `tests/` | 16 essential test modules covering acquisition, BDF, data persistence and hardware control protection |
+| `tests/` | 17 essential test modules covering acquisition, BDF, data persistence, haptic communication and hardware control protection |
 | `data/`, `outputs/` | Local datasets, recordings, indexes and research results |
 
 Runtime recordings are separated into `data/research_experiments/`, `data/ssvep_realtime_tests/` and `data/soldier_ssvep_flights/`. Set `BDS_EEG_DATA_ROOT` to relocate them.
@@ -360,7 +383,7 @@ Git includes source, tests, configuration examples and non-ignored model files. 
 
 ### Testing and development
 
-The reduced suite retains 190 checks in 16 test modules: acquisition modes and experiment flow, packets and timestamps, trial identity and persistence, BDF import, paired trials, the subject catalog, FBCCA and hardware control protection. Research comparisons, public-data reproduction, neural-network training and general UI interaction tests have been removed. Tests are not required to run the app; run them after changing acquisition or data-saving logic.
+The reduced suite retains 207 checks in 17 test modules: acquisition modes and experiment flow, packets and timestamps, trial identity and persistence, BDF import, paired trials, the subject catalog, FBCCA, haptic protocol/lifecycle and hardware control protection. Research comparisons, public-data reproduction, neural-network training and general UI interaction tests have been removed. Tests are not required to run the app; run them after changing acquisition, data-saving or device-control logic.
 
 ```bash
 QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
@@ -394,6 +417,12 @@ Unset `QT_QPA_PLATFORM=offscreen` before launching the normal desktop UI. Automa
 <a id="third-party"></a>
 
 ## 来源与第三方声明 · Third-party notices
+
+### Haptic Feedback Console
+
+触觉设备协议、传输与双手会话逻辑改编自 [xiezhi0819-stack/haptic-feedback-console](https://github.com/xiezhi0819-stack/haptic-feedback-console) 的 V0.2 Python 后端；本项目新增 PySide6 独立页面、跨平台 USB 端口校验与界面心跳。配套 ESP32-C3 / DRV2605L 固件在原仓库维护。
+
+The haptic protocol, transports and dual-hand sessions are adapted from that project's V0.2 Python backend. This integration adds a dedicated PySide6 page, cross-platform USB port validation and a GUI heartbeat. Matching ESP32-C3 / DRV2605L firmware remains in the upstream repository.
 
 ### 手势识别 · Gesture recognition
 
