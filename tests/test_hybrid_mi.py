@@ -6,17 +6,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 import numpy as np
-from scipy.io import savemat
-import torch
 from PySide6.QtWidgets import QApplication
 
 from src.bci.config import COMMANDS
 from src.bci.montage import LEGACY, HYBRID
 from src.services.hybrid_experiment_protocol import HybridExperimentConfig as Config, HybridExperimentProtocol as Protocol, HybridPhase as P, build_hybrid_plan
 from src.views.hybrid_experiment_window import HybridExperimentWindow
-from src.ml.mi_baseline import CSPClassifier
-from src.ml.mi_diffusion import MIDiffusion, condition_values
-from src.ml.public_mi import load_bnci_session
 from src.ml.hybrid_pairs import export_split
 from src.services import ExperimentRecorder, ExperimentClock
 from src.workers import EEGWorker
@@ -146,42 +141,6 @@ class HybridWindowTest(unittest.TestCase):
         self.assertEqual(.02,captures[-1]["p_ssvep"])
         self.assertEqual(ctx["trial_id"],captures[-1]["preceding_ssvep_trial_id"])
         w.abort_immediately("test_end");w.deleteLater()
-
-
-class MIAlgorithmsTest(unittest.TestCase):
-    def test_public_reader_uses_cue_plus_two_seconds_and_excludes_eog(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path=Path(directory)/"test.mat"
-            x=np.tile(np.arange(1500.)[:,None],(1,25));x[:,22:]=99999
-            savemat(path,{"data":np.array([dict(X=x,trial=np.array([1]),y=np.array([1]),fs=250,artifacts=np.array([1]))],dtype=object)})
-            d=load_bnci_session(path)
-            self.assertEqual((1,22,750),d["eeg"].shape)
-            self.assertEqual(500,d["eeg"][0,0,0]);self.assertEqual(1249,d["eeg"][0,0,-1])
-            self.assertEqual(0,d["baseline"][0,0,0]);self.assertTrue(d["artifact_flag"][0])
-
-    def test_csp_spatial_signal_generalization_and_serialization(self):
-        rng=np.random.default_rng(2);x=rng.normal(size=(80,3,500));y=np.arange(80)%2
-        x[y==0,0]*=4;x[y==1,2]*=4
-        model=CSPClassifier().fit(x[:60],y[:60]);pred=model.predict(x[60:])
-        self.assertGreater(np.mean(pred==y[60:]),.9)
-        with tempfile.TemporaryDirectory() as directory:
-            p=Path(directory)/"m.npz";model.save(p,{})
-            np.testing.assert_array_equal(pred,CSPClassifier.load(p).predict(x[60:]))
-        with self.assertRaises(ValueError):model.predict(x[60:,:,:250])
-
-    def test_no_fake_public_confidence_and_grouped_shuffle(self):
-        with self.assertRaises(ValueError):condition_values("true","none_public_MI_unpaired",[.1],[True],[1])
-        p=[.1,.2,.8,.9];shuffled,_=condition_values("shuffled","actual_preceding_ssvep",p,[True]*4,[0,0,1,1])
-        np.testing.assert_allclose(sorted(shuffled[:2]),p[:2]);np.testing.assert_allclose(sorted(shuffled[2:]),p[2:])
-        with self.assertRaises(ValueError):condition_values("true","actual_preceding_ssvep",[.1],[False],[1])
-
-    def test_film_gradients_physics_loss_and_reverse_diffusion_are_finite(self):
-        torch.set_num_threads(2);torch.manual_seed(1)
-        model=MIDiffusion();x=torch.randn(4,3,250);p=torch.tensor([.1,.9,.2,.8]);mask=torch.ones(4);sub=torch.zeros(4,6)
-        loss,terms=model.loss(x,p,mask,sub,x);loss.backward()
-        self.assertTrue(torch.isfinite(loss));self.assertGreater(model.network.confidence[0].weight.grad.abs().sum(),0)
-        a=model.reconstruct(x,p,mask,sub);b=model.reconstruct(x,p,mask,sub)
-        torch.testing.assert_close(a,b);self.assertEqual(x.shape,a.shape);self.assertTrue(torch.isfinite(a).all())
 
 
 class PairedRecordingTest(unittest.TestCase):

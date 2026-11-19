@@ -61,9 +61,9 @@ py -3.12 -m venv .venv312
 | 可选功能 | 安装方式（macOS / Linux） |
 | --- | --- |
 | 摄像头与 SNN 手势识别 | `.venv312/bin/python -m pip install -r requirements-vision.txt` |
-| 模型训练、离线评估及完整测试依赖 | `.venv312/bin/python -m pip install -r requirements-ml.txt` |
+| 模型训练和离线评估 | `.venv312/bin/python -m pip install -r requirements-ml.txt` |
 
-Windows 将表中的 Python 路径替换为 `.\.venv312\Scripts\python.exe`。若要运行包含视觉功能的完整测试，两份可选依赖都需要安装。
+Windows 将表中的 Python 路径替换为 `.\.venv312\Scripts\python.exe`。可选依赖按实际使用的功能安装。
 
 ### 登录与环境配置
 
@@ -126,7 +126,7 @@ $env:BDS_AUTH_BACKEND = "mock"
 
 实验参数、接线与信号、高级设置默认收起。各模式在本次软件会话中保留自己的 FBCCA 参数；开始实验后，参数写入事件日志和试次元数据，后续分析按记录中的参数解码。运行中的数据流或实验会锁定模式与解码参数。32 通道模式不连接本机 32 通道硬件、不生成模拟 EEG。
 
-独立的范式算法页、单目标校准，以及 Lzy / Xz / 个人模板 / 个人校准融合的专用代码、训练脚本和模型文件已移除；科研原始数据和历史分析结果保留。
+独立的范式算法页、单目标校准，以及 Lzy / Xz / 个人模板 / 个人校准融合的专用代码、训练脚本和模型文件已移除。固定采集流程不再使用的 FB-EEGNet / Transformer 在线预测适配层也已清理；离线科研训练、复现脚本、科研原始数据和历史分析结果保留。
 
 人工时间对齐会被标记为未验证，不能等同于硬件同步；仅内部交叉验证的成绩不能直接作为实机准确率。
 
@@ -161,7 +161,7 @@ CSV、模拟信号和未经独立验证的模型不能直接进入实机脑控�
 | `src/bci/`、`src/ml/`、`src/workers/` | 解码、模型训练推理及后台任务 |
 | `models/` | 手势权重及科研解码门限文件 |
 | `scripts/` | 设备桥接、训练、评估、公开数据准备及复现实验工具 |
-| `tests/` | 单元、集成和离屏界面测试 |
+| `tests/` | 16 个关键测试文件，覆盖采集、BDF、数据保存与实机控制保护 |
 | `data/` | 本地科研数据、采集记录与试次索引 |
 | `outputs/` | 本地科研结果与历史实验材料 |
 
@@ -170,6 +170,8 @@ CSV、模拟信号和未经独立验证的模型不能直接进入实机脑控�
 Git 提交包含源码、测试、配置示例和未被忽略的模型文件。科研数据集、运行记录、`outputs/`、虚拟环境、缓存及本地 `.env` 按 [`.gitignore`](.gitignore) 保留在本机，不随克隆下载。数据目录会在实际保存时创建；界面不会为缺失数据自动生成实验记录。可选 Transformer / FB-EEGNet 权重需要另行训练或准备。
 
 ### 测试与开发
+
+测试目录只保留 16 个文件、190 项关键检查：采集模式与实验流程、数据包和时间戳、试次身份与保存、BDF 导入、联合试次配对、受试者目录、FBCCA 和实机控制保护。算法研究对比、公开数据复现、神经网络训练以及一般界面交互测试已精简。运行软件无需执行这些测试；修改采集或保存逻辑后，建议运行一次。
 
 macOS / Linux：
 
@@ -186,7 +188,7 @@ $env:QT_QPA_PLATFORM = "offscreen"
 
 离屏模式用于测试；正常打开桌面界面前，请取消此前设置的 `QT_QPA_PLATFORM=offscreen`。
 
-测试覆盖角色路由、采集 / 回放、标记与试次记录、分析算法、飞控准入、折叠导航和手势进程。自动化测试不代替真实摄像头、EEG 和无人机联调。新增设备接入放在适配层，界面绘制只读取已有状态，耗时采集与推理放到后台任务中。
+自动化测试不代替真实 EEG 和无人机联调。新增设备接入放在适配层，界面绘制只读取已有状态，耗时采集与推理放到后台任务中。
 
 ### 常见问题
 
@@ -255,11 +257,11 @@ Reuse an existing virtual environment when available. Optional dependencies:
 ```bash
 # Camera capture and SNN gesture recognition
 .venv312/bin/python -m pip install -r requirements-vision.txt
-# Training, offline evaluation and full test dependencies
+# Training and offline evaluation
 .venv312/bin/python -m pip install -r requirements-ml.txt
 ```
 
-On Windows, replace the Python path with `.\.venv312\Scripts\python.exe`. Install both optional dependency sets to exercise the complete suite including vision tests.
+On Windows, replace the Python path with `.\.venv312\Scripts\python.exe`. Install optional dependencies for the features you use.
 
 ### Login and configuration
 
@@ -317,7 +319,7 @@ In PowerShell, set `$env:BDS_AUTH_BACKEND = "mock"`, then launch the Windows com
 
 Parameters, wiring/signal details and advanced settings are collapsed by default. Each mode retains its settings during the application session. New event logs and trial metadata preserve the chosen FBCCA parameters for later analysis. Active streaming or experiments lock mode and parameter changes. The external BDF mode does not connect local 32-channel hardware or generate simulated EEG.
 
-The separate paradigm/algorithm page, single-target calibration, and Lzy / Xz / personal-template / personal-score implementations, training scripts and model artifacts have been removed. Raw research recordings and historical analysis results are preserved.
+The separate paradigm/algorithm page, single-target calibration, and Lzy / Xz / personal-template / personal-score implementations, training scripts and model artifacts have been removed. Unused FB-EEGNet / Transformer runtime prediction adapters have also been removed from the fixed collection workflow. Offline research training and reproduction scripts, raw recordings and historical analysis results are preserved.
 
 Manual alignment is marked as unverified, not hardware-synchronized. Internal cross-validation results are not equivalent to independently validated live-control accuracy.
 
@@ -349,7 +351,7 @@ Capture and inference run in a separate process, stopped on logout or window clo
 | `src/bci/`, `src/ml/`, `src/workers/` | Decoders, training/inference and background tasks |
 | `models/` | Gesture weights and research decoder gate files |
 | `scripts/` | Device bridges, training, evaluation, public-data preparation and reproduction tools |
-| `tests/` | Unit, integration and offscreen UI tests |
+| `tests/` | 16 essential test modules covering acquisition, BDF, data persistence and hardware control protection |
 | `data/`, `outputs/` | Local datasets, recordings, indexes and research results |
 
 Runtime recordings are separated into `data/research_experiments/`, `data/ssvep_realtime_tests/` and `data/soldier_ssvep_flights/`. Set `BDS_EEG_DATA_ROOT` to relocate them.
@@ -357,6 +359,8 @@ Runtime recordings are separated into `data/research_experiments/`, `data/ssvep_
 Git includes source, tests, configuration examples and non-ignored model files. Research datasets, runtime recordings, `outputs/`, virtual environments, caches and local `.env` files remain on the local machine according to [`.gitignore`](.gitignore); cloning does not download them. Recording directories are created when used, and missing experimental data is not silently generated. Standalone Transformer / FB-EEGNet research scripts use separately trained weights and do not replace the application’s fixed collection decoder.
 
 ### Testing and development
+
+The reduced suite retains 190 checks in 16 test modules: acquisition modes and experiment flow, packets and timestamps, trial identity and persistence, BDF import, paired trials, the subject catalog, FBCCA and hardware control protection. Research comparisons, public-data reproduction, neural-network training and general UI interaction tests have been removed. Tests are not required to run the app; run them after changing acquisition or data-saving logic.
 
 ```bash
 QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
@@ -369,7 +373,7 @@ $env:QT_QPA_PLATFORM = "offscreen"
 .\.venv312\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Unset `QT_QPA_PLATFORM=offscreen` before launching the normal desktop UI. Tests cover role routing, acquisition/replay, markers and trials, algorithms, control eligibility, sidebar behavior and gesture subprocesses. They do not replace physical camera, EEG and drone validation. Keep new device integrations in adapters, keep drawing dependent on cached state, and run expensive acquisition/inference outside the GUI thread.
+Unset `QT_QPA_PLATFORM=offscreen` before launching the normal desktop UI. Automated tests do not replace physical EEG and drone validation. Keep new device integrations in adapters, keep drawing dependent on cached state, and run expensive acquisition/inference outside the GUI thread.
 
 ### Troubleshooting
 
