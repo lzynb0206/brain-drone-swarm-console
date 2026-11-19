@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.adapters.mock import MockEEGStream, MockSwarmGateway, MockSystemMonitor
+from src.adapters.mock import MockEEGStream, MockSwarmGateway
 from src.domain import SwarmCommand
 
 
@@ -23,11 +23,6 @@ class DemoAdaptersTest(unittest.TestCase):
         gateway.send_command(SwarmCommand("forward", parameters={"speed_mps": 2.0}))
         gateway.emergency_stop()
         self.assertEqual("emergency_stop", gateway.command_log[-1].action)
-
-    def test_system_monitor_values_are_in_range(self) -> None:
-        metrics = MockSystemMonitor().snapshot()
-        self.assertGreaterEqual(metrics.cpu_percent, 0)
-        self.assertLessEqual(metrics.cpu_percent, 100)
 
 
 if __name__ == "__main__":

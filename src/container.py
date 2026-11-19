@@ -17,17 +17,13 @@ from src.adapters.real import (
     DisabledSwarmGateway,
     ExpandableEEGSerialStream,
     LSLEEGStream,
-    RealSystemMonitor,
-    RuntimeEngineerDataProvider,
     SelectableEEGStream,
     UnavailableEEGStream,
 )
 from src.adapters.mock import (
     MockAuthGateway,
     MockEEGStream,
-    MockEngineerDataProvider,
     MockSwarmGateway,
-    MockSystemMonitor,
 )
 from src.bci import (
     ConsecutiveWindowGate,
@@ -69,7 +65,7 @@ from src.bci.config import (
     SOLDIER_SSVEP_DATA_ROOT,
     SSVEP_TEST_DATA_ROOT,
 )
-from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
+from src.ports import EEGStream, IntentDecoder, SwarmGateway
 from src.services.auth_service import AuthService
 from src.services.experiment_recorder import ExperimentRecorder
 from src.settings import AUTH_API_URL, AUTH_BACKEND
@@ -80,8 +76,6 @@ class ApplicationContainer:
     auth_service: AuthService
     eeg_stream: EEGStream
     swarm_gateway: SwarmGateway
-    system_monitor: SystemMonitor
-    engineer_data_provider: EngineerDataProvider
     intent_decoder: IntentDecoder | None = None
     experiment_recorder: ExperimentRecorder | None = None
     ssvep_test_recorder: ExperimentRecorder | None = None
@@ -99,8 +93,6 @@ def create_demo_container() -> ApplicationContainer:
         auth_service=AuthService(MockAuthGateway()),
         eeg_stream=MockEEGStream(),
         swarm_gateway=MockSwarmGateway(),
-        system_monitor=MockSystemMonitor(),
-        engineer_data_provider=MockEngineerDataProvider(),
     )
 
 
@@ -163,8 +155,6 @@ def create_default_container() -> ApplicationContainer:
         swarm_gateway = DisabledSwarmGateway(
             "无人机接口未启用；设置 BDS_SWARM_BACKEND=flowdeck 并配置实机参数"
         )
-    system_monitor = RealSystemMonitor()
-    engineer_data_provider = RuntimeEngineerDataProvider(eeg_stream, swarm_gateway)
     baseline_decoder: IntentDecoder = FBCCADecoder()
     if FB_EEGNET_ENABLED:
         from src.bci.hybrid_decoder import HybridIntentDecoder
@@ -264,8 +254,6 @@ def create_default_container() -> ApplicationContainer:
         auth_service=AuthService(auth_gateway),
         eeg_stream=eeg_stream,
         swarm_gateway=swarm_gateway,
-        system_monitor=system_monitor,
-        engineer_data_provider=engineer_data_provider,
         intent_decoder=intent_decoder,
         experiment_recorder=ExperimentRecorder(RECORDING_ROOT),
         ssvep_test_recorder=ExperimentRecorder(SSVEP_TEST_DATA_ROOT),

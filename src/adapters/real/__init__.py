@@ -20,8 +20,6 @@ from src.adapters.real.expandable_eeg_configurator import (
     ExpandableEEGDeviceInfo,
 )
 from src.adapters.real.lsl_eeg_stream import LSLEEGStream
-from src.adapters.real.real_system_monitor import RealSystemMonitor
-from src.adapters.real.runtime_engineer_data import RuntimeEngineerDataProvider
 from src.adapters.real.selectable_eeg_stream import SelectableEEGStream
 from src.adapters.real.unavailable_eeg_stream import UnavailableEEGStream
 
@@ -30,6 +28,6 @@ __all__ = [
     "CsvEEGStream", "DisabledSwarmGateway", "ExpandableEEGConfigurator",
     "ExpandableEEGDeviceInfo", "ExpandableEEGPacket", "ExpandableEEGPacketParser",
     "ExpandableEEGSerialStream",
-    "LSLEEGStream", "RealSystemMonitor", "RuntimeEngineerDataProvider",
+    "LSLEEGStream",
     "SelectableEEGStream", "SerialDeviceDescriptor", "UnavailableEEGStream",
 ]

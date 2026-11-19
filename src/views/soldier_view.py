@@ -7,7 +7,12 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
-from src.widgets.scifi_canvas import BLUE, BORDER, CYAN, GREEN, MUTED, PANEL, RED, TEXT, YELLOW, Canvas
+from src.widgets.scifi_canvas import Canvas
+from src.widgets.soldier_canvas import BORDER, MUTED, PANEL, TEXT
+
+# Operational chrome is monochrome; words and shapes carry state as well as contrast.
+CYAN = BLUE = GREEN = RED = "#303030"
+YELLOW = "#787878"
 
 
 class SoldierViewMixin:
@@ -15,35 +20,24 @@ class SoldierViewMixin:
     def _paint_soldier(self, c: Canvas) -> None:
         if self.soldier_root == "作战地图":
             self._soldier_combat(c)
+        elif self.soldier_page == "视觉手势":
+            c.fill("#f5f5f5")
         elif self.soldier_page == "状态监控":
             self._soldier_status(c)
         else:
             self._soldier_brain(c)
-        # top right shell switch
-        c.button(1103, 18, 81, 32, "作战地图", self.soldier_root == "作战地图", accent=CYAN)
-        c.button(1185, 18, 76, 32, "单兵面板", self.soldier_root == "单兵面板", accent=CYAN)
-        self._hit(1103, 18, 81, 34, "soldier-root:作战地图")
-        self._hit(1185, 18, 78, 34, "soldier-root:单兵面板")
 
     def _soldier_combat(self, c: Canvas) -> None:
-        c.fill("#03101d")
+        c.fill("#f5f5f5")
         # tactical grid
         for x in range(24, 952, 58):
-            c.line(x, 24, x, 702, "#102536", .7)
+            c.line(x, 24, x, 702, "#e8e8e8", .7)
         for y in range(25, 703, 54):
-            c.line(16, y, 936, y, "#102536", .7)
-        c.rect(16, 24, 920, 678, None, "#20354b")
+            c.line(16, y, 936, y, "#e8e8e8", .7)
+        c.rect(16, 24, 920, 678, None, "#dedede")
         now = datetime.now().strftime("%H:%M:%S")
-        c.text(24, 5, 140, 25, now, 12, "#c4d7e5")
+        c.text(24, 5, 140, 25, now, 12, "#737373")
         uavs = list(self.swarm_gateway.list_uavs()) if self.swarm_gateway is not None else []
-        gateway_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
-        connected = bool(gateway_status and gateway_status.connected)
-        c.line(568, 0, 584, 27, CYAN, 1)
-        c.line(584, 27, 872, 27, CYAN, 1)
-        c.line(872, 27, 888, 0, CYAN, 1)
-        # Keep the status icon and label visually centred in the header frame.
-        c.circle(673, 18, 6, GREEN if connected else YELLOW)
-        c.text(688, 3, 126, 28, "遥测已连接" if connected else "遥测未连接", 13, TEXT, True)
         average_battery = sum(uav.battery for uav in uavs) / len(uavs) if uavs else 0.0
         c.text(1124, 4, 134, 26, f"平均电量 {average_battery:.0f}%" if uavs else "无实机遥测", 12, TEXT, True, Qt.AlignRight)
         points = [
@@ -54,15 +48,15 @@ class SoldierViewMixin:
         for index, (_, x1, y1) in enumerate(points):
             if len(points) > 1:
                 _, x2, y2 = points[(index + 1) % len(points)]
-                c.line(x1, y1, x2, y2, "#355160", .8)
+                c.line(x1, y1, x2, y2, "#b0b0b0", .8)
         if not points:
             c.text(230, 320, 500, 70, "没有真实无人机遥测\n请在脑控页连接 Crazyflie", 18, MUTED, True, Qt.AlignCenter)
         for uav, x, y in points:
             for radius in (23, 16, 9, 4):
                 c.circle(x, y, radius, None, CYAN, 2)
-            c.circle(x, y, 28, QColor(72, 231, 248, 22))
+            c.circle(x, y, 28, QColor(40, 40, 40, 18))
             c.text(x - 55, y + 25, 110, 24, uav.uav_id, 13, TEXT, True, Qt.AlignCenter)
-        c.rect(936, 24, 326, 672, "#07111f", "#22354c")
+        c.rect(936, 24, 326, 672, "#ffffff", "#dedede")
         c.rect(952, 44, 4, 13, CYAN)
         c.text(964, 35, 240, 31, "蜂群状态总览", 15, CYAN, True)
         for i, uav in enumerate(uavs[:3]):
@@ -92,7 +86,10 @@ class SoldierViewMixin:
             c.text(966, 535 + i * 26, 245, 25, f"指令：{command}", 11, RED if command == "紧急停止" else MUTED)
 
     def _soldier_brain(self, c: Canvas) -> None:
-        c.fill("#111420")
+        c.fill("#f5f5f5")
+        c.panel(300, 82, 606, 612)
+        c.text(326, 87, 520, 30, "驾驶参数与手动操控", 14, TEXT, True)
+        c.panel(920, 82, 330, 330, "任务与编队")
         gateway_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
         telemetry = tuple(self.swarm_gateway.list_uavs()) if self.swarm_gateway is not None else ()
         configured_uris = tuple(
@@ -152,8 +149,8 @@ class SoldierViewMixin:
         c.button(548, 170, 206, 32, f"设置为 {move_distance_cm:g} cm", False, accent=CYAN)
         c.text(762, 170, 145, 32, "范围 1–100cm", 10, MUTED, False, Qt.AlignCenter)
         self._hit(548, 170, 206, 32, "swarm-move-distance-custom")
-        c.button(930, 126, 145, 32, "模拟结构化任务", False, accent=YELLOW)
-        self._hit(930, 126, 145, 32, "mission-simulate")
+        c.button(942, 130, 286, 32, "模拟结构化任务", False, accent=YELLOW)
+        self._hit(942, 130, 286, 32, "mission-simulate")
         lighthouse_ready = bool(telemetry) and all(item.lighthouse_ready for item in telemetry)
         lighthouse_active = state == "lighthouse_hold"
         lighthouse_switch_enabled = (
@@ -161,12 +158,12 @@ class SoldierViewMixin:
             and lighthouse_ready and not emergency and not lighthouse_active
         )
         c.button(
-            930, 170, 145, 32, "Lighthouse保持", lighthouse_active,
+            942, 174, 286, 32, "Lighthouse保持", lighthouse_active,
             disabled=not (lighthouse_switch_enabled or lighthouse_active), accent=CYAN,
         )
-        c.button(930, 211, 145, 32, "直线编队", state == "formation_hold",
+        c.button(942, 218, 286, 32, "直线编队", state == "formation_hold",
                  disabled=single_aircraft, accent=GREEN)
-        c.button(930, 252, 145, 32, "三角编队", state == "formation_hold",
+        c.button(942, 262, 286, 32, "三角编队", state == "formation_hold",
                  disabled=single_aircraft, accent=GREEN)
         eeg_live = self._soldier_live_chain_ready()
         ssvep_ready = (
@@ -180,26 +177,26 @@ class SoldierViewMixin:
             "启动SSVEP驾驶"
         )
         c.button(
-            930, 304, 145, 42,
+            942, 306, 286, 42,
             ssvep_label,
             ssvep_ready,
             disabled=not ssvep_startable or ssvep_starting,
             accent=CYAN,
         )
         if ssvep_startable and not ssvep_starting:
-            self._hit(930, 304, 145, 42, "soldier-ssvep-control")
+            self._hit(942, 306, 286, 42, "soldier-ssvep-control")
         readiness = (
             "实时采集、LSL、FBCCA与实机均已就绪" if ssvep_ready else
             "正在连接采集盒并等待首帧EEG" if ssvep_starting else
             "点击后自动启动采集、LSL与FBCCA" if ssvep_startable else
             "请先连接实机并确认未处于急停状态"
         )
-        c.text(910, 351, 185, 40, readiness, 9, CYAN if ssvep_ready else MUTED, False, Qt.AlignCenter)
+        c.text(942, 357, 286, 40, readiness, 9, CYAN if ssvep_ready else MUTED, False, Qt.AlignCenter)
         if lighthouse_switch_enabled:
-            self._hit(930, 170, 145, 32, "swarm-lighthouse-hold")
+            self._hit(942, 174, 286, 32, "swarm-lighthouse-hold")
         if multi_aircraft:
-            self._hit(930, 211, 145, 32, "swarm-form-line")
-            self._hit(930, 252, 145, 32, "swarm-form-triangle")
+            self._hit(942, 218, 286, 32, "swarm-form-line")
+            self._hit(942, 262, 286, 32, "swarm-form-triangle")
 
         c.panel(28, 82, 245, 304, "实机链路")
         c.text(45, 122, 210, 38, gateway_status.message if gateway_status else "蜂群接口未配置", 11, MUTED)
@@ -257,31 +254,31 @@ class SoldierViewMixin:
         direction_cx, direction_cy = 760.0, 386.0
         c.text(370, 226, 200, 30, "左杆 · 高度升降", 15, TEXT, True, Qt.AlignCenter)
         c.text(650, 226, 220, 30, "右杆 · 前后左右", 15, TEXT, True, Qt.AlignCenter)
-        c.circle(height_cx, height_cy, stick_r + 8, QColor(72, 231, 248, 18), CYAN, 2)
-        c.circle(height_cx, height_cy, stick_r, "#17243a", "#35516d", 2)
-        c.line(height_cx, height_cy - 72, height_cx, height_cy + 72, "#45627e", 3)
+        c.circle(height_cx, height_cy, stick_r + 8, QColor(40, 40, 40, 12), CYAN, 2)
+        c.circle(height_cx, height_cy, stick_r, "#f0f0f0", "#bcbcbc", 2)
+        c.line(height_cx, height_cy - 72, height_cx, height_cy + 72, "#c7c7c7", 3)
         c.text(height_cx - 22, height_cy - 96, 44, 26, "升", 12, GREEN, True, Qt.AlignCenter)
         c.text(height_cx - 22, height_cy + 70, 44, 26, "降", 12, BLUE, True, Qt.AlignCenter)
         height_knob_y = height_cy - self._manual_vertical * travel
-        c.circle(height_cx, height_knob_y, 32, "#38c889", "#b8ffe0", 2)
+        c.circle(height_cx, height_knob_y, 32, "#303030", "#303030", 2)
         c.text(height_cx - 30, height_knob_y - 16, 60, 32,
-               f"{self._manual_vertical * 100:+.0f}%", 10, TEXT, True, Qt.AlignCenter)
+               f"{self._manual_vertical * 100:+.0f}%", 10, "#ffffff", True, Qt.AlignCenter)
         manual_enabled = connected and armed and airborne and not emergency
         if flow_mode and manual_enabled:
             self._hit(height_cx - stick_r, height_cy - stick_r, stick_r * 2, stick_r * 2,
                       "manual-stick-height")
 
-        c.circle(direction_cx, direction_cy, stick_r + 8, QColor(87, 153, 221, 20), BLUE, 2)
-        c.circle(direction_cx, direction_cy, stick_r, "#17243a", "#35516d", 2)
-        c.line(direction_cx - 72, direction_cy, direction_cx + 72, direction_cy, "#45627e", 2)
-        c.line(direction_cx, direction_cy - 72, direction_cx, direction_cy + 72, "#45627e", 2)
+        c.circle(direction_cx, direction_cy, stick_r + 8, QColor(40, 40, 40, 12), BLUE, 2)
+        c.circle(direction_cx, direction_cy, stick_r, "#f0f0f0", "#bcbcbc", 2)
+        c.line(direction_cx - 72, direction_cy, direction_cx + 72, direction_cy, "#c7c7c7", 2)
+        c.line(direction_cx, direction_cy - 72, direction_cx, direction_cy + 72, "#c7c7c7", 2)
         c.text(direction_cx - 24, direction_cy - 99, 48, 24, "前", 12, GREEN, True, Qt.AlignCenter)
         c.text(direction_cx - 24, direction_cy + 75, 48, 24, "后", 12, BLUE, True, Qt.AlignCenter)
         c.text(direction_cx - 99, direction_cy - 12, 32, 24, "左", 12, YELLOW, True, Qt.AlignCenter)
         c.text(direction_cx + 67, direction_cy - 12, 32, 24, "右", 12, YELLOW, True, Qt.AlignCenter)
         direction_knob_x = direction_cx + self._manual_lateral * travel
         direction_knob_y = direction_cy - self._manual_forward * travel
-        c.circle(direction_knob_x, direction_knob_y, 32, "#5799dd", "#d4e9ff", 2)
+        c.circle(direction_knob_x, direction_knob_y, 32, "#303030", "#303030", 2)
         if flow_mode and manual_enabled:
             self._hit(direction_cx - stick_r, direction_cy - stick_r, stick_r * 2, stick_r * 2,
                       "manual-stick-direction")
@@ -315,25 +312,24 @@ class SoldierViewMixin:
             source_text = f"数据源：{source_name}"
         c.text(456, 574, 440, 25, source_text, 10, CYAN if eeg_live else MUTED)
         c.text(456, 603, 280, 30, f"{decoder_name}：{result_label}", 13, MUTED)
-        c.line(448, 653, 448 + 350 * max(0.0, min(1.0, confidence)), 653, "#63a9e9", 7)
-        c.line(448 + 350 * max(0.0, min(1.0, confidence)), 653, 798, 653, "#35425a", 6)
+        c.line(448, 653, 448 + 350 * max(0.0, min(1.0, confidence)), 653, "#333333", 7)
+        c.line(448 + 350 * max(0.0, min(1.0, confidence)), 653, 798, 653, "#dddddd", 6)
         score_name = "FBCCA分数" if "FBCCA" in decoder_name else "置信度"
         c.text(806, 628, 100, 51, f"{score_name}\n{confidence * 100:.1f}%", 14, TEXT, True)
-        c.circle(1148, 608, 64, "#a52d32" if emergency else "#ee8284", RED, 4)
-        c.circle(1148, 608, 73, QColor(239, 78, 80, 28))
+        c.circle(1148, 608, 64, "#151515" if emergency else "#333333", RED, 4)
+        c.circle(1148, 608, 73, QColor(40, 40, 40, 15))
         emergency_label = "确认已重启\n复位并断开" if emergency else "紧急停止"
-        c.text(1084, 545, 128, 126, emergency_label, 13 if emergency else 19, TEXT, True, Qt.AlignCenter)
+        c.text(1084, 545, 128, 126, emergency_label, 13 if emergency else 19, "#ffffff", True, Qt.AlignCenter)
         self._hit(1075, 535, 146, 146, "swarm-emergency-reset" if emergency else "swarm-emergency-stop")
-        self._paint_soldier_bottom_toggle(c)
 
     def _soldier_status(self, c: Canvas) -> None:
         # 【真实接口接入点】UI-04 / M3：注意力、疲劳、压力和心率应来自
         # SoldierVitalsStream（EEG/EMG/心率/体温/血氧的 LSL 多模态流）。
         # 阈值告警交给独立 AlertService，并同步写入 XDF Marker 和审计日志。
-        c.fill("#071020")
+        c.fill("#f5f5f5")
         c.rect(32, 33, 1215, 57, PANEL, BORDER, 3)
         c.rect(32, 33, 81, 4, CYAN)
-        c.text(56, 41, 520, 41, "ID: S-07    |    姓名: 张伟    |    心率: 72 bpm 🏃", 16, TEXT, True)
+        c.text(56, 41, 520, 41, "状态监测预览    /    演示数据 · 生命体征接口未接入", 16, TEXT, True)
         c.button(1135, 42, 88, 36, "导出报告", True)
         self._hit(1135, 42, 88, 36, "soldier-export")
         gauges = [(33, "85", "注意力", GREEN), (445, "62", "疲劳度", YELLOW), (859, "40", "情绪压力", RED)]
@@ -345,7 +341,7 @@ class SoldierViewMixin:
         # The reference chart intentionally contains only a short 60-second
         # sample on the left, leaving the remainder of the panel empty.
         for i in range(1, 10):
-            c.line(98, 441 + i * 19.3, 1208, 441 + i * 19.3, "#263249", 1, Qt.DashLine)
+            c.line(98, 441 + i * 19.3, 1208, 441 + i * 19.3, "#e2e2e2", 1, Qt.DashLine)
         samples = [
             [12, 12.5, 13.2, 13.0, 14.2, 15.4, 15.8, 16.0, 15.2, 15.4, 14.8, 15.1, 14.5, 13.9, 13.0, 12.0, 11.5],
             [9.8, 10.5, 10.3, 9.7, 9.6, 10.0, 9.0, 8.4, 7.9, 6.8, 7.4, 7.8, 5.6, 7.1, 6.0, 5.8, 3.7],
@@ -361,14 +357,5 @@ class SoldierViewMixin:
             c.p.setBrush(Qt.NoBrush)
             c.p.drawPath(path)
         c.text(563, 644, 160, 30, "最近60秒", 12, MUTED, False, Qt.AlignCenter)
-        c.rect(508, 680, 264, 39, "#252414", "#5f5424", 3)
-        c.text(518, 680, 244, 38, "⚠️  注意: 疲劳度偏高，建议休息", 11, YELLOW, True, Qt.AlignCenter)
-        self._paint_soldier_bottom_toggle(c)
-
-    def _paint_soldier_bottom_toggle(self, c: Canvas) -> None:
-        c.text(24, 674, 45, 32, "脑控", 13, TEXT if self.soldier_page == "脑控" else MUTED, self.soldier_page == "脑控")
-        c.text(68, 674, 14, 32, "|", 13, MUTED, False, Qt.AlignCenter)
-        c.text(87, 674, 78, 32, "状态监控", 13, TEXT if self.soldier_page == "状态监控" else MUTED,
-               self.soldier_page == "状态监控")
-        self._hit(17, 669, 55, 42, "soldier-page:脑控")
-        self._hit(82, 669, 94, 42, "soldier-page:状态监控")
+        c.rect(508, 680, 264, 39, "#ebebeb", "#d8d8d8", 3)
+        c.text(518, 680, 244, 38, "演示提示：疲劳度偏高，建议休息", 11, YELLOW, True, Qt.AlignCenter)

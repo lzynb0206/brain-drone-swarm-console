@@ -1,0 +1,224 @@
+{
+  "model_version": "personal_dual_fbcca_logreg_v1",
+  "algorithm_name": "个人算法-Xz",
+  "algorithm": "dual_fbcca_scores_standard50_equal46_then_personal_logistic_regression",
+  "source_run_id": "auto-20261025-215910-076676",
+  "source_directory": "/Users/geniusalu/Documents/brain-drone-swarm-console/data/research_experiments/raw_trials",
+  "model_path": "/Users/geniusalu/Documents/brain-drone-swarm-console/models/personal_algorithm_xz_experimental.npz",
+  "labels": [
+    "起飞",
+    "前进",
+    "后退",
+    "左移",
+    "右移",
+    "降落"
+  ],
+  "target_frequencies_hz": [
+    8.0,
+    9.0,
+    10.0,
+    11.0,
+    12.0,
+    13.0
+  ],
+  "channel_names": [
+    "O1",
+    "Oz",
+    "O2",
+    "PO3",
+    "POz",
+    "PO4",
+    "P3",
+    "P4"
+  ],
+  "feature_names": [
+    "standard50:8Hz",
+    "standard50:9Hz",
+    "standard50:10Hz",
+    "standard50:11Hz",
+    "standard50:12Hz",
+    "standard50:13Hz",
+    "equal46:8Hz",
+    "equal46:9Hz",
+    "equal46:10Hz",
+    "equal46:11Hz",
+    "equal46:12Hz",
+    "equal46:13Hz"
+  ],
+  "feature_pipeline": {
+    "preprocessing": "full 5 s, linear detrend, 50 Hz Q=30 zero-phase notch, per-channel standardization",
+    "branch_1": "6/14/22-50 Hz FFT filter bank, standard weights, CCA harmonics 1-4",
+    "branch_2": "6/14/22-46 Hz FFT filter bank, equal weights, CCA harmonics 1-4",
+    "classifier": "StandardScaler + LogisticRegression(C=0.1)"
+  },
+  "sample_rate_hz": 250.0,
+  "sample_count": 1250,
+  "analysis_seconds": 5.0,
+  "stimulus_layout": "legacy_large_six_target_v1",
+  "trial_count": 51,
+  "idle_trial_count": 9,
+  "trials_per_class": {
+    "起飞": 8,
+    "前进": 8,
+    "后退": 9,
+    "左移": 9,
+    "右移": 8,
+    "降落": 9
+  },
+  "source_files": [
+    "auto-20261025-215910-076676-trial-0002.npz",
+    "auto-20261025-215910-076676-trial-0003.npz",
+    "auto-20261025-215910-076676-trial-0004.npz",
+    "auto-20261025-215910-076676-trial-0005.npz",
+    "auto-20261025-215910-076676-trial-0006.npz",
+    "auto-20261025-215910-076676-trial-0007.npz",
+    "auto-20261025-215910-076676-trial-0008.npz",
+    "auto-20261025-215910-076676-trial-0009.npz",
+    "auto-20261025-215910-076676-trial-0011.npz",
+    "auto-20261025-215910-076676-trial-0012.npz",
+    "auto-20261025-215910-076676-trial-0013.npz",
+    "auto-20261025-215910-076676-trial-0014.npz",
+    "auto-20261025-215910-076676-trial-0016.npz",
+    "auto-20261025-215910-076676-trial-0017.npz",
+    "auto-20261025-215910-076676-trial-0018.npz",
+    "auto-20261025-215910-076676-trial-0019.npz",
+    "auto-20261025-215910-076676-trial-0020.npz",
+    "auto-20261025-215910-076676-trial-0021.npz",
+    "auto-20261025-215910-076676-trial-0022.npz",
+    "auto-20261025-215910-076676-trial-0023.npz",
+    "auto-20261025-215910-076676-trial-0024.npz",
+    "auto-20261025-215910-076676-trial-0025.npz",
+    "auto-20261025-215910-076676-trial-0026.npz",
+    "auto-20261025-215910-076676-trial-0027.npz",
+    "auto-20261025-215910-076676-trial-0029.npz",
+    "auto-20261025-215910-076676-trial-0030.npz",
+    "auto-20261025-215910-076676-trial-0032.npz",
+    "auto-20261025-215910-076676-trial-0033.npz",
+    "auto-20261025-215910-076676-trial-0034.npz",
+    "auto-20261025-215910-076676-trial-0035.npz",
+    "auto-20261025-215910-076676-trial-0036.npz",
+    "auto-20261025-215910-076676-trial-0037.npz",
+    "auto-20261025-215910-076676-trial-0038.npz",
+    "auto-20261025-215910-076676-trial-0039.npz",
+    "auto-20261025-215910-076676-trial-0040.npz",
+    "auto-20261025-215910-076676-trial-0042.npz",
+    "auto-20261025-215910-076676-trial-0043.npz",
+    "auto-20261025-215910-076676-trial-0044.npz",
+    "auto-20261025-215910-076676-trial-0045.npz",
+    "auto-20261025-215910-076676-trial-0047.npz",
+    "auto-20261025-215910-076676-trial-0048.npz",
+    "auto-20261025-215910-076676-trial-0049.npz",
+    "auto-20261025-215910-076676-trial-0050.npz",
+    "auto-20261025-215910-076676-trial-0051.npz",
+    "auto-20261025-215910-076676-trial-0052.npz",
+    "auto-20261025-215910-076676-trial-0053.npz",
+    "auto-20261025-215910-076676-trial-0054.npz",
+    "auto-20261025-215910-076676-trial-0055.npz",
+    "auto-20261025-215910-076676-trial-0057.npz",
+    "auto-20261025-215910-076676-trial-0058.npz",
+    "auto-20261025-215910-076676-trial-0059.npz"
+  ],
+  "source_trial_range": {
+    "minimum_trial_index": null,
+    "maximum_trial_index": 60
+  },
+  "evaluation": {
+    "correct": 20,
+    "total": 51,
+    "block_held_out_accuracy": 0.39215686274509803,
+    "balanced_accuracy": 0.3865740740740741,
+    "per_class_recall": {
+      "起飞": 0.375,
+      "前进": 0.125,
+      "后退": 0.6666666666666666,
+      "左移": 0.2222222222222222,
+      "右移": 0.375,
+      "降落": 0.5555555555555556
+    },
+    "confusion_matrix_rows_true_columns_predicted": [
+      [
+        3,
+        1,
+        0,
+        2,
+        1,
+        1
+      ],
+      [
+        0,
+        1,
+        1,
+        3,
+        0,
+        3
+      ],
+      [
+        0,
+        1,
+        6,
+        1,
+        0,
+        1
+      ],
+      [
+        2,
+        1,
+        0,
+        2,
+        2,
+        2
+      ],
+      [
+        0,
+        1,
+        1,
+        2,
+        3,
+        1
+      ],
+      [
+        0,
+        1,
+        1,
+        1,
+        1,
+        5
+      ]
+    ],
+    "thresholded_output": {
+      "accepted_correct": 10,
+      "accepted_count": 18,
+      "precision": 0.5555555555555556,
+      "coverage": 0.35294117647058826,
+      "quality_passed_count": 28,
+      "quality_minimum_usable_channels": 2
+    }
+  },
+  "validation": "complete repetition/block held out; fixed method; no trial from held block used for scaler or classifier",
+  "selection_warning": "The block-held-out number is same-session internal validation, not an independent future-session accuracy claim.",
+  "idle_diagnostic": {
+    "count": 9,
+    "maximum_probability_median": 0.2627319498838488,
+    "maximum_probability_95th_percentile": 0.42043471194935667,
+    "note": "空闲样本仅用于诊断；在线仍需当前会话空闲校准抬高门槛。"
+  },
+  "signal_quality_diagnostic": {
+    "usable_channel_count_histogram": {
+      "0": 0,
+      "1": 25,
+      "2": 12,
+      "3": 6,
+      "4": 1,
+      "5": 6,
+      "6": 2,
+      "7": 4,
+      "8": 4
+    },
+    "saved_trials_with_fewer_than_two_usable_channels": 25,
+    "note": "质量检查先执行去漂移和50Hz陷波，再判断残余工频与有效频段。"
+  },
+  "confidence_threshold": 0.25,
+  "margin_threshold": 0.03,
+  "production_approved": false,
+  "note": "个人模型仅限科研测试；必须用新日期/新会话数据做独立验证后才能申请实机准入。"
+}

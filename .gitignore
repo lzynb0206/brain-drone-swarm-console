@@ -5,10 +5,16 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.codex-finalizer/
 build/
 dist/
 *.spec
 artifacts/
+outputs/
+data/public_mi/
+data/public_ssvep/
+data/sessions/
 .codex-ppt-build/
 output/pptx/
 .doc_review/
@@ -18,3 +24,4 @@ data/ssvep_realtime_tests/
 data/soldier_ssvep_flights/
 models/*.pt
 models/*.pth
+!models/dvs128_snn_best_v4.pth

@@ -22,21 +22,21 @@ GREEN = QColor("#69ee90")
 YELLOW = QColor("#f0ce54")
 RED = QColor("#f14e50")
 
-# Research pages use a high-contrast light workspace.  Keep these colors
-# separate from the operational dark palette used by soldier, engineer and
-# administrator dashboards.
-RESEARCH_BG = QColor("#f4f6f8")
-RESEARCH_BG_SOFT = QColor("#f8fafc")
+# Match the operator workspace's neutral surfaces without changing the
+# research layout. Signal traces keep their own channel palettes.
+RESEARCH_BG = QColor("#f5f5f5")
+RESEARCH_BG_SOFT = QColor("#fafafa")
 RESEARCH_PANEL = QColor("#ffffff")
-RESEARCH_PANEL_SOFT = QColor("#f7f9fc")
-RESEARCH_BORDER = QColor("#d5dde7")
-RESEARCH_TEXT = QColor("#17212b")
-RESEARCH_MUTED = QColor("#667281")
-RESEARCH_CYAN = QColor("#0f7490")
-RESEARCH_BLUE = QColor("#2563eb")
-RESEARCH_GREEN = QColor("#16834b")
-RESEARCH_YELLOW = QColor("#946200")
-RESEARCH_RED = QColor("#c43d48")
+RESEARCH_PANEL_SOFT = QColor("#f7f7f7")
+RESEARCH_SELECTION = QColor("#ededed")
+RESEARCH_BORDER = QColor("#dedede")
+RESEARCH_TEXT = QColor("#202020")
+RESEARCH_MUTED = QColor("#737373")
+RESEARCH_CYAN = QColor("#303030")
+RESEARCH_BLUE = QColor("#242424")
+RESEARCH_GREEN = QColor("#404040")
+RESEARCH_YELLOW = QColor("#666666")
+RESEARCH_RED = QColor("#595959")
 
 
 # Keep drawing and hit testing on the same grid.  The research header used to
@@ -139,6 +139,8 @@ class Canvas:
             self.rect(x, y, w, 38, header, border)
             self.rect(x + 16, y + 13, 4, 13, accent)
             self.text(x + 28, y + 3, w - 34, 32, title, 14, text, True)
+        if self._light_theme:
+            return
         corner = 16
         for x0, y0, dx, dy in (
             (x, y, 1, 1), (x + w, y, -1, 1), (x, y + h, 1, -1), (x + w, y + h, -1, -1)
@@ -152,11 +154,11 @@ class Canvas:
         radius: float = 3,
     ) -> None:
         if self._light_theme and disabled:
-            fill, stroke, color = "#eef1f5", "#d7dee7", "#98a2b0"
+            fill, stroke, color = "#f1f1f1", "#e4e4e4", "#a0a0a0"
         elif self._light_theme and active:
-            fill, stroke, color = QColor(accent), QColor(accent).darker(108), QColor("#ffffff")
+            fill, stroke, color = RESEARCH_BLUE, RESEARCH_BLUE, QColor("#ffffff")
         elif self._light_theme:
-            fill, stroke, color = RESEARCH_PANEL, "#bdc8d5", RESEARCH_TEXT
+            fill, stroke, color = RESEARCH_PANEL, "#cecece", RESEARCH_TEXT
         elif disabled:
             fill, stroke, color = "#202a3d", "#344056", "#7f899c"
         elif active:
@@ -167,24 +169,22 @@ class Canvas:
         self.text(x, y, w, h, label, 13, color, active, Qt.AlignCenter)
 
     def top_nav(self, active: str) -> None:
-        # The research workspace is light, but the navigation intentionally
-        # keeps the original dark console treatment for orientation and
-        # contrast with the content area.
-        self.rect(0, 0, 1280, 56, "#0b1425")
-        self.line(0, 55, 1280, 55, "#20314f")
+        # Preserve the existing top navigation grid and hit regions.
+        self.rect(0, 0, 1280, 56, "#171717")
+        self.line(0, 55, 1280, 55, "#333333")
         # compact layers icon
-        self.p.setPen(QPen(TEXT, 2))
+        self.p.setPen(QPen(QColor("#fafafa"), 2))
         for offset in (0, 5, 10):
             self.p.drawLine(QPointF(25, 20 + offset), QPointF(35, 25 + offset))
             self.p.drawLine(QPointF(35, 25 + offset), QPointF(46, 19 + offset))
-        self.text(56, 10, 170, 36, "脑控无人机蜂群作战系统", 13, TEXT, True)
+        self.text(56, 10, 170, 36, "脑控无人机蜂群作战系统", 13, "#fafafa", True)
         for name, x, width in RESEARCH_NAV_ITEMS:
             if name == active:
-                self.rect(x, 0, width, 55, "#111c31")
-                self.line(x, 54, x + width, 54, CYAN, 2)
-            self.text(x, 1, width, 53, name, 11, TEXT if name == active else MUTED,
+                self.rect(x, 0, width, 55, "#f1f1f1")
+                self.line(x, 54, x + width, 54, RESEARCH_BLUE, 2)
+            self.text(x, 1, width, 53, name, 11, RESEARCH_TEXT if name == active else "#a3a3a3",
                       name == active, Qt.AlignCenter)
-        self.rect(1154, 10, 101, 34, "#c83d43", "#eb686d", 3)
+        self.rect(1154, 10, 101, 34, "#262626", "#525252", 3)
         self.text(1154, 10, 101, 34, "退出登录", 12, "#ffffff", True, Qt.AlignCenter)
 
     def chart(
@@ -241,7 +241,7 @@ class Canvas:
 
     def logout_button(self) -> None:
         if self._light_theme:
-            self.rect(1154, 674, 101, 34, "#c83d43", "#eb686d", 3)
+            self.rect(1154, 674, 101, 34, RESEARCH_BLUE, RESEARCH_BLUE, 3)
             self.text(1154, 674, 101, 34, "退出登录", 12, "#ffffff", True, Qt.AlignCenter)
             return
         self.rect(1154, 674, 101, 34, "#a92f36", "#d3545a", 3)

@@ -80,3 +80,63 @@ QDialog QLineEdit {
     padding: 8px;
 }
 QLabel#registerNote { color: #6f7783; font-size: 12px; }
+
+/* Research dialogs follow the workspace palette; navigation stays on canvas. */
+MainView[workspaceRole="researcher"] QDialog {
+    background: #f5f5f5;
+    color: #202020;
+}
+MainView[workspaceRole="researcher"] QDialog QLabel,
+MainView[workspaceRole="researcher"] QDialog QCheckBox,
+MainView[workspaceRole="researcher"] QDialog QRadioButton {
+    color: #202020;
+}
+MainView[workspaceRole="researcher"] QDialog QLineEdit,
+MainView[workspaceRole="researcher"] QDialog QPlainTextEdit,
+MainView[workspaceRole="researcher"] QDialog QTextEdit,
+MainView[workspaceRole="researcher"] QDialog QAbstractSpinBox,
+MainView[workspaceRole="researcher"] QDialog QComboBox,
+MainView[workspaceRole="researcher"] QDialog QAbstractItemView {
+    color: #202020;
+    background: #ffffff;
+    border: 1px solid #dedede;
+    selection-background-color: #242424;
+    selection-color: #ffffff;
+}
+MainView[workspaceRole="researcher"] QDialog QLineEdit:focus,
+MainView[workspaceRole="researcher"] QDialog QPlainTextEdit:focus,
+MainView[workspaceRole="researcher"] QDialog QTextEdit:focus,
+MainView[workspaceRole="researcher"] QDialog QAbstractSpinBox:focus,
+MainView[workspaceRole="researcher"] QDialog QComboBox:focus {
+    border-color: #737373;
+}
+MainView[workspaceRole="researcher"] QDialog QPushButton {
+    color: #202020;
+    background: #ffffff;
+    border: 1px solid #cecece;
+    border-radius: 3px;
+    min-width: 60px;
+    min-height: 20px;
+    padding: 3px 10px;
+}
+MainView[workspaceRole="researcher"] QDialog QPushButton:default,
+MainView[workspaceRole="researcher"] QDialog QPushButton:checked {
+    color: #ffffff;
+    background: #242424;
+    border-color: #242424;
+}
+MainView[workspaceRole="researcher"] QDialog QPushButton:hover {
+    color: #202020;
+    background: #ededed;
+    border-color: #737373;
+}
+MainView[workspaceRole="researcher"] QDialog QPushButton:pressed {
+    color: #ffffff;
+    background: #303030;
+    border-color: #303030;
+}
+MainView[workspaceRole="researcher"] QDialog QPushButton:disabled {
+    color: #a0a0a0;
+    background: #f1f1f1;
+    border-color: #e4e4e4;
+}

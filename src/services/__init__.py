@@ -1,6 +1,5 @@
 """Application services."""
 
-from src.services.admin_operations_service import AdminOperationsService
 from src.services.bci_execution_service import BCIExecutionService
 from src.services.eeg_display_processor import EEGDisplayProcessor
 from src.services.export_service import WorkbenchExportService
@@ -27,7 +26,7 @@ from src.services.ssvep_experiment_protocol import (
 from src.services.workbench_service import WorkbenchService
 
 __all__ = [
-    "AdminOperationsService", "BCIExecutionService", "EEGDisplayProcessor", "ExperimentClock", "ExperimentMarkerOutlet",
+    "BCIExecutionService", "EEGDisplayProcessor", "ExperimentClock", "ExperimentMarkerOutlet",
     "ExperimentRecorder", "ExperimentTimestamp",
     "IntentSafetyDecision", "IntentSafetyService", "LSLEEGOutlet", "MissionPlanningError",
     "RawEEGCsvRecorder", "ResearchWorkbenchService", "StructuredMissionService",

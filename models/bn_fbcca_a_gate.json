@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "mode": "a",
+  "threshold": 0.3928731478415699,
+  "confidence_definition": "positive_top_clipped_relative_margin_v1",
+  "background_policy": "none",
+  "frequencies_hz": [
+    8.0,
+    9.0,
+    10.0,
+    11.0,
+    12.0,
+    13.0
+  ],
+  "sample_rate_hz": 250.0,
+  "sample_count": 1000,
+  "min_idle_windows": 8,
+  "min_raw_score": 0.35,
+  "min_margin": 0.06,
+  "development_runs": [
+    "auto-20261024-145545-3730b3",
+    "auto-20261027-204129-9c221a"
+  ],
+  "threshold_fitting": {
+    "status": "development_fit_only",
+    "forced_choice_correct": 74,
+    "active_total": 141,
+    "forced_choice_accuracy": 0.524822695035461,
+    "accepted_active": 66,
+    "trigger_rate": 0.46808510638297873,
+    "accepted_accuracy": 0.7121212121212122,
+    "correct_trigger_rate": 0.3333333333333333,
+    "idle_total": 24,
+    "eligible_idle": 23,
+    "idle_false_triggers": 6,
+    "idle_false_trigger_rate_all": 0.25,
+    "idle_false_trigger_rate_ready": 0.2608695652173913,
+    "balanced_accuracy_6_commands_plus_idle": 0.3933747412008281,
+    "non_8hz_predicted_8hz": 44,
+    "true_8hz_correct": 19,
+    "waiting_for_idle_active": 0
+  },
+  "status": "research_only_no_hardware_validation"
+}

@@ -88,8 +88,8 @@ class ResearchViewMixin(
         thumb_h = max(80.0, track_h * track_h / content_height)
         travel = track_h - thumb_h
         ratio = offset / max_scroll
-        c.rect(1268, track_y, 5, track_h, "#e1e7ee", None, 2.5)
-        c.rect(1268, track_y + travel * ratio, 5, thumb_h, "#8aa4c4", None, 2.5)
+        c.rect(1268, track_y, 5, track_h, "#e5e5e5", None, 2.5)
+        c.rect(1268, track_y + travel * ratio, 5, thumb_h, "#8c8c8c", None, 2.5)
 
 
 __all__ = [

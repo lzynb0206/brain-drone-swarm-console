@@ -11,6 +11,8 @@ from typing import Mapping
 
 import numpy as np
 
+from src.services.acquisition_identity import acquisition_directory
+
 from src.services.experiment_record_schema import (
     TRIAL_FIELDS,
     canonical_phase,
@@ -75,15 +77,22 @@ class ExperimentMarkerStore:
         with self._lock:
             if trial_id and phase:
                 self._trial_phase_times.setdefault(trial_id, {})[phase] = float(timestamp)
-                self._patch_trial_phase(trial_id, phase, float(timestamp))
+                self._patch_trial_phase(trial_id, phase, float(timestamp), safe_metadata)
             with self.marker_log_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
 
-    def _patch_trial_phase(self, trial_id: str, phase: str, timestamp: float) -> None:
+    def _patch_trial_phase(self, trial_id: str, phase: str, timestamp: float, context: Mapping) -> None:
         path = self._trial_paths.get(trial_id)
         if path is None:
-            candidate = self.raw_trial_dir / f"{safe_trial_id(trial_id)}.npz"
+            candidate = acquisition_directory(self.raw_trial_dir, context) / f"{safe_trial_id(trial_id)}.npz"
             path = candidate if candidate.exists() else None
+            if path is None and not context.get("acquisition_subject_id"):
+                matches = list(self.raw_trial_dir.rglob(f"{safe_trial_id(trial_id)}.npz"))
+                if len(matches) > 1:
+                    raise ValueError(f"试次编号重复，无法回填时间标记：{trial_id}")
+                path = matches[0] if matches else None
+                if path is not None:
+                    self._trial_paths[trial_id] = path
         if path is None or not path.exists():
             return
 

@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import QMimeData, QPointF, QRect, Qt, Signal
+from PySide6.QtGui import QDrag, QPainter
+from PySide6.QtWidgets import QApplication, QWidget
 
-from src.views.admin_view import AdminViewMixin
-from src.views.engineer_canvas_view import EngineerCanvasViewMixin
 from src.views.research_view import (
     RESEARCH_COMBINED_MAX_SCROLL,
     RESEARCH_COMBINED_PAGE,
     ResearchViewMixin,
 )
 from src.views.soldier_view import SoldierViewMixin
+from src.views.soldier_shell import SoldierShellMixin
 from src.widgets.scifi_canvas import Canvas
 
 
@@ -57,10 +56,13 @@ class RoleCanvasPage(QWidget):
         finally:
             painter.end()
 
+    def _canvas_position(self, position):
+        return QPointF(position.x() * 1280 / max(1, self.width()),
+                       position.y() * 720 / max(1, self.height()))
+
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
-        x = event.position().x() * 1280 / max(1, self.width())
-        y = event.position().y() * 720 / max(1, self.height())
-        point = QPointF(x, y)
+        point = self._canvas_position(event.position())
+        x, y = point.x(), point.y()
         for rect, action in reversed(self._regions):
             if not rect.contains(point):
                 continue
@@ -74,8 +76,8 @@ class RoleCanvasPage(QWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
-        x = event.position().x() * 1280 / max(1, self.width())
-        y = event.position().y() * 720 / max(1, self.height())
+        point = self._canvas_position(event.position())
+        x, y = point.x(), point.y()
         if self.context._active_joystick is not None:
             self.context._update_manual_stick(self.context._active_joystick, x, y)
             return
@@ -103,6 +105,8 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
     """Research dashboard with an explicit, read-only shell boundary."""
 
     show_corner_logout = False
+    subject_reorder_requested = Signal(str, str, bool)
+    SUBJECT_MIME = "application/x-brain-drone-subject-card"
 
     def __init__(self, context: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(context, parent)
@@ -110,6 +114,122 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
         self._research_effective_scroll_offset = 0.0
         self._research_content_scrolling = False
         self._research_section_y_offset = 0.0
+        self._subject_press = None
+        self._subject_drag_id = ""
+        self._subject_drop_target = None
+        self.setAcceptDrops(True)
+
+    def _subject_at(self, position):
+        point = QPointF(position.x() * 1280 / max(1, self.width()), position.y() * 720 / max(1, self.height()))
+        if self.research_page != "数据分析" or point.y() < 56:
+            return None
+        for rect, action in reversed(self._regions):
+            if action.startswith("analysis-subject:") and rect.contains(point):
+                return action.split(":", 1)[1], rect, point.x() >= rect.center().x()
+        return None
+
+    def mousePressEvent(self, event) -> None:
+        subject = self._subject_at(event.position())
+        if event.button() == Qt.LeftButton and subject is not None:
+            self._subject_press = (subject[0], event.position().toPoint(), subject[1])
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._subject_press is not None and event.buttons() & Qt.LeftButton:
+            subject_id, start, rect = self._subject_press
+            if (event.position().toPoint() - start).manhattanLength() < QApplication.startDragDistance():
+                return
+            self._subject_press = None
+            self._subject_drag_id = subject_id
+            mime = QMimeData()
+            mime.setData(self.SUBJECT_MIME, subject_id.encode("utf-8"))
+            drag = QDrag(self)
+            drag.setMimeData(mime)
+            scaled = QRect(round(rect.x() * self.width() / 1280), round(rect.y() * self.height() / 720),
+                           round(rect.width() * self.width() / 1280), round(rect.height() * self.height() / 720))
+            drag.setPixmap(self.grab(scaled))
+            drag.setHotSpot(start - scaled.topLeft())
+            self.setCursor(Qt.ClosedHandCursor)
+            try:
+                drag.exec(Qt.MoveAction)
+            finally:
+                drag.deleteLater()
+                self._subject_drag_id = ""
+                self._subject_drop_target = None
+                self.unsetCursor()
+                self.update()
+            return
+        if self._subject_at(event.position()) is not None:
+            self.setCursor(Qt.OpenHandCursor)
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._subject_press is not None:
+            subject_id, _, _ = self._subject_press
+            self._subject_press = None
+            target = self._subject_at(event.position())
+            if event.button() == Qt.LeftButton and target is not None and target[0] == subject_id:
+                self.action_requested.emit(f"analysis-subject:{subject_id}", 0, 0)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.source() is self and event.mimeData().hasFormat(self.SUBJECT_MIME) and self.research_page == "数据分析":
+            event.setDropAction(Qt.MoveAction)
+            event.accept()
+        else:
+            event.ignore()
+
+    def _subject_drop_at(self, position):
+        if self.research_page != "数据分析":
+            return None
+        subject = self._subject_at(position)
+        if subject is not None:
+            return subject[0], subject[2]
+        # Dropping onto a page button moves the card across page boundaries.
+        point = QPointF(position.x() * 1280 / max(1, self.width()), position.y() * 720 / max(1, self.height()))
+        groups = self.trial_analysis.subjects
+        size = self.trial_analysis.SUBJECT_PAGE_SIZE
+        page = self.trial_analysis.subject_page
+        for rect, action in self._regions:
+            if not rect.contains(point):
+                continue
+            if action == "analysis-subject-page-previous" and page > 0:
+                return groups[page * size - 1].subject_id, False
+            if action == "analysis-subject-page-next" and page + 1 < self.trial_analysis.subject_page_count:
+                return groups[(page + 1) * size].subject_id, True
+        return None
+
+    def dragMoveEvent(self, event) -> None:
+        target = self._subject_drop_at(event.position()) if event.source() is self else None
+        self._subject_drop_target = target
+        self.update()
+        if target is not None:
+            event.setDropAction(Qt.MoveAction)
+            event.accept()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:
+        self._subject_drop_target = None
+        self.update()
+        event.accept()
+
+    def dropEvent(self, event) -> None:
+        target = self._subject_drop_at(event.position())
+        if event.source() is self and event.mimeData().hasFormat(self.SUBJECT_MIME) and target is not None:
+            subject_id = bytes(event.mimeData().data(self.SUBJECT_MIME)).decode("utf-8")
+            self.subject_reorder_requested.emit(subject_id, target[0], target[1])
+            event.setDropAction(Qt.MoveAction)
+            event.accept()
+        else:
+            event.ignore()
+        self._subject_drop_target = None
+        self.update()
 
     @property
     def research_scroll_offset(self) -> float:
@@ -283,7 +403,7 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
         self._paint_research(canvas)
 
 
-class SoldierPage(SoldierViewMixin, RoleCanvasPage):
+class SoldierPage(SoldierShellMixin, SoldierViewMixin, RoleCanvasPage):
     """Soldier dashboard with explicit operational dependencies."""
 
     @property
@@ -341,20 +461,6 @@ class SoldierPage(SoldierViewMixin, RoleCanvasPage):
         self._paint_soldier(canvas)
 
 
-class AdminPage(AdminViewMixin, RoleCanvasPage):
-    def _render(self, canvas: Canvas) -> None:
-        self._paint_admin(canvas)
-
-
-class EngineerCanvasPage(EngineerCanvasViewMixin, RoleCanvasPage):
-    @property
-    def engineer_page(self):
-        return self.context.engineer_page
-
-    def _render(self, canvas: Canvas) -> None:
-        self._paint_engineer(canvas)
-
-
 __all__ = [
-    "AdminPage", "EngineerCanvasPage", "ResearchPage", "RoleCanvasPage", "SoldierPage",
+    "ResearchPage", "RoleCanvasPage", "SoldierPage",
 ]

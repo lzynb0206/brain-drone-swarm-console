@@ -463,26 +463,5 @@ class MainDialogsMixin:
         if ok:
             self._notify(self.actions.send_swarm_command(action_map[label], uav_id=uav_id))
 
-    def _show_device_dialog(self, name: str) -> None:
-        swarm_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
-        details = {
-            "DeepBCI采集板": "类型：脑电采集设备\n固件：v2.1\n状态：在线\n采样率：250Hz",
-            "Crazyflie-01": (
-                f"类型：无人机\n接口：{swarm_status.backend}\n状态：{swarm_status.state}\n{swarm_status.message}"
-                if swarm_status is not None else "Crazyflie 接口未配置"
-            ),
-            "智能头盔": "类型：多模态头盔\n固件：v1.0\n状态：离线\n最近在线：2026-08-30",
-        }
-        QMessageBox.information(self, f"设备详情 · {name}", details.get(name, "暂无设备信息"))
-
-    def _edit_user_dialog(self, username: str) -> None:
-        roles = ["士兵", "科研人员", "系统工程师", "管理员"]
-        current = self.actions.user_roles.get(username, roles[0])
-        role, ok = QInputDialog.getItem(
-            self, f"编辑用户 · {username}", "角色", roles,
-            roles.index(current) if current in roles else 0, False,
-        )
-        if ok:
-            self._notify(self.actions.update_user_role(username, role))
 
     # ---------- Researcher dashboard ----------

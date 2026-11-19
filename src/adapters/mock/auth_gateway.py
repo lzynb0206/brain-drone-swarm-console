@@ -20,12 +20,8 @@ class MockAuthGateway:
         if not name or not password:
             return None
         lowered = name.lower()
-        if "admin" in lowered or "管理" in name:
-            role = Role.ADMIN
-        elif "research" in lowered or "科研" in name:
+        if "research" in lowered or "科研" in name:
             role = Role.RESEARCHER
-        elif "engineer" in lowered or "工程" in name:
-            role = Role.ENGINEER
         elif "commander" in lowered or "指挥" in name:
             role = Role.COMMANDER
         else:

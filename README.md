@@ -1,491 +1,420 @@
-# 脑控无人机蜂群作战系统
+# 脑控无人机蜂群上位机 · Brain–Drone Swarm Console
 
-> `brain-drone-swarm-console` · 基于 Python 3.12 + PySide6 的脑控无人机蜂群科研上位机。
+[简体中文](#zh-cn) · [English](#english)
 
-## 当前状态
+> 中英文文档放在同一份 README 中，点击上方链接切换阅读。软件界面保留现有中文。
+> Both language versions are in this README. Use the links above to switch sections; the desktop UI remains in Chinese.
 
-本仓库处于**真实接口逐步联调阶段**。账号系统连接 Spring Boot/PostgreSQL；科研界面可通过原生串口协议直接连接 ExpandableEEG，也可读取 LSL 或回放真实 CSV，并保存实验记录；Crazyflie + Flow Deck 软件适配层和安全命令队列已经加入，但仍需完成现场实机验收。
+<a id="zh-cn"></a>
 
-已经可运行的内容：
+## 简体中文
 
-- Spring Boot + PostgreSQL 邮箱注册和登录，密码使用 BCrypt 哈希并返回 JWT；也可切换为离线 Mock 模式。
-- 士兵、科研人员、系统工程师、系统管理员等角色页面。
-- 原生 PySide6 全屏六频 SSVEP 刺激：`8 / 9 / 10 / 11 / 12 / 13 Hz`（依次为起飞、前进、后退、左移、右移、降落），使用传承版大色块和4秒识别窗；实时算法使用带通滤波器组、八路枕区/顶枕区通道选择和 FBCCA，不使用 ICA。支持 J 开始、K 停止、0 空闲、1–6 标签和 B 急停。
-- 刺激帧时间、实际刷新率、实测频率、频谱 `.npz/.png` 和开始/停止事件标记。
-- 工程师工作台：真实 Qt 左侧导航、运行时接口状态、真实本机性能和设备日志。
-- 多架 Crazyflie 连接、Flow 起飞、Lighthouse 绝对位置保持、三机自动编队、整体移动、受控降落、停止移动和锁存急停。
-- Flow Deck V1/V2 与 AI Deck 参数检测；AI Deck 摄像头数据尚未接入。
-- 飞行安全门控：实时遥测、3.2V 低电压提示、Flow 下视距离/光流质量和串行命令队列。
-- 士兵脑控页提供一键“启动 SSVEP 驾驶”：自动连接 ExpandableEEG、发布 `obci_eeg1`、由独立 LSL 接收线程运行 FBCCA，并在收到首帧后才开放脑控授权；不需要进入科研页面。地面授权不会启动电机，只有识别到“起飞”才进入现有 Flow Hover 起飞与悬停链路。
-- 脑控执行默认关闭；只允许实时硬件或 LSL 数据源，且同一意图连续确认两次、经过冷却并在每次动作后检测到注视释放才可再次提交。
-- 科研导航按真实数据链拆分：`采集`用 ExpandableEEG 原生数据包协议直连蓝牙虚拟 COM/串口（固定8通道、250 Hz）；macOS 自动绕过失效的伪串口并直连 RFCOMM channel 1，Windows 使用传出 COM 口；`LSL收集`独立接收 EEG 流、显示波形/时间戳质量并保存 CSV；`CSV回放`专门回放 CSV；`数据采集`管理自动带标签实验。
-- `采集`页采用 OpenBCI GUI 的 System Control Panel 与 Time Series + FFT + Accelerometer 结构；监视器单独使用 5–50 Hz 四阶 Butterworth、50/60 Hz 工频抑制和固定 ±200 μV 量程，原始 CSV、LSL 与解码输入不受显示滤波影响。
-- “CSV回放”页专用于 CSV 导入、暂停/继续、进度定位、倍速回放和算法复盘，CSV 回放永远不能启用实机脑控。
-- 兼容历史 `start-1.csv` 格式与本项目采集的 `lsl_raw_*.csv` 回放、真实 `LSLEEGStream`、按 LSL 时间戳校准采样率、刺激开始时清空历史缓存和后台实时波形。
-- MI 模式支持静息/左手/右手/双脚想象的 4 秒标签采集；MI 模式不运行仅适用于 SSVEP 的 FBCCA，也不输出无人机指令。
-- 纯 FBCCA 六频基线、个人校准融合和可训练的 Transformer-SSVEP。个人校准融合使用完整5秒、
-  50 Hz陷波后两套固定FBCCA分数（标准50 Hz上限＋等权46 Hz上限）作为12维特征，再由
-  个人Logistic Regression输出六类概率；它不再直接按单套FBCCA最高分下指令。
-  Transformer-SSVEP使用2秒/250 Hz八通道输入、
-  频谱分片、自注意力分类、0.60置信度、连续双窗口确认和0.50秒冷却。
-- 解码器可在科研“范式算法”页真实切换；缺少个人校准模型或 Transformer 权重时明确拒绝加载，不静默伪装。
-- “数据”页可导入本项目或外部带标签 NPZ，按动作标签、具体试次和试次内时间段三级筛选，生成原始波形、通道质量、阈前/陷波后 FFT、FBCCA 滤波子带和六类分数六联图，同时保存 JSON 指标与通道质量 CSV。
-- 解码器安全默认固定为 FBCCA。个人校准融合、个人模板和 Transformer 即使文件存在也不会自动成为默认模型；
-  metadata 未明确标记 `production_approved=true` 时只能做科研识别，不能派发实机命令。
-- 包含 NaN、平坦、振幅、方差、坏通道和 50Hz 工频占比检测。
-- 可选 FB-EEGNet 训练/验证/实时推理；没有匹配权重时自动保留真实 FBCCA，不伪造模型结果。
-- 识别日志、命令提交/完成/失败日志、连续原始 EEG 分块，以及包含真实标签和质量信息的同步 SSVEP 4秒/MI 4秒 `.npz` 试次。
+### 项目介绍
 
-尚待现场或外部团队提供的能力：
+基于 **Python 3.12 + PySide6** 的桌面上位机，将脑电采集、SSVEP / MI 实验、无人机控制和摄像头手势识别整合在一个工作台中。项目面向本地设备联调、脑机接口实验和科研数据分析；认证服务通过 HTTP 接入，界面与设备、算法逻辑分层组织。
 
-- 单架 Crazyflie URI、Flow Deck/固件参数和实机安全验收。
-- 目标识别/跟踪、生命体征和避障服务的协议、地址及数据字典。
-- 实验元数据 PostgreSQL 接口（当前原始 EEG 和索引保存在本地文件）。
-- 足量、平衡且由实验人员确认的六频加空闲训练数据。仓库保留最新的 60 轮个人实验模板，
-  但其留一试次一致性只有 38.3%，已明确标记为非生产模型，不代表在线准确率。
-- 生产级 RBAC、审计、服务端身份授权和真实设备安全仲裁。
+当前保留 **士兵（作战操作员）、指挥官、科研人员** 三种身份。系统工程师、系统管理员相关页面及其专用接口已移除。
 
-正常启动默认等待实时 `LSL · obci_eeg1`，不会自动播放任何 CSV。仓库不再内置
-`data/research_experiments/samples/start-1.csv`；需要回放时在“CSV回放”页主动导入已有 CSV，或显式设置
-`BDS_EEG_CSV_PATH`。CSV 回放不会出现在实时“采集”链路，也不能驱动实机。蜂群后端
-默认禁用并显示“未连接”，不会绘制虚假无人机。程序不依赖 `artifacts/` 中的 PNG 截图。
+| 工作空间 | 主要功能 | 界面设计 |
+| --- | --- | --- |
+| 士兵 / 指挥官 | 作战地图、脑控驾驶、视觉手势、状态监控、手动控制 | 黑白灰主题；左侧导航支持靠近展开、离开收回、手动折叠和固定展开 |
+| 科研人员 | 硬件采集、LSL 收集、CSV 回放、范式算法、数据采集与分析、单目标校准 | 黑白灰主题；保留顶部导航和原有分页布局，脑电曲线按通道保留区分色 |
 
-## 技术架构
+主要能力：
 
-```text
-ExpandableEEG（原生串口直连） / LSL / CSV
-    ↓
-EEGWorker（后台采集、按当前解码器选择4秒或5秒窗口、记录）
-    ↓
-FBCCA / 个人校准融合 / 个人模板 / Transformer-SSVEP → 模型准入与连续窗口安全门 → BCIExecutionService
-                                               ↓
-角色 QWidget → WorkbenchService 应用门面 → SwarmControlService
-                                               ↓
-CrazyflieSwarmGateway 状态机 → 命令队列 → Flow/Lighthouse 控制 → cflib/Crazyradio
+- **脑电接入**：ExpandableEEG / Cyton 兼容设备原生串口采集、LSL 流接收和广播、CSV 记录与回放。
+- **实验工作流**：SSVEP、MI、SSVEP＋MI 混合采集，正式任务、试跑和静息方案，受试者确认、事件标记与试次归档。
+- **数据分析**：按受试者 → 日期 → 动作 → 试次筛选，截取分析时间段，查看波形、频谱、质量和解码结果；支持外部 BDF 与同轮实验日志对齐。
+- **算法工作台**：FBCCA、BN-FBCCA、个人模板、个人校准融合及 Transformer 等算法入口；训练、评估和复现实验脚本独立于界面运行。
+- **无人机控制**：Crazyflie / Crazyradio 接入，Flow / Lighthouse 相关控制、编队、手动摇杆、受控降落和急停。正常启动不会自动启用飞控。
+- **视觉手势**：本机摄像头、MJPEG 网络摄像头和视频文件输入；实时画面、16 时间片事件图、11 类 SNN 结果及推理耗时。
 
-LoginView → AuthService → HTTP + JWT → Spring Boot → PostgreSQL
+### 安装与启动
+
+**运行环境**：Python 3.12、桌面图形环境。基础界面使用 `requirements.txt`；摄像头和机器学习功能按需安装额外依赖。真实设备需要相应的系统权限、驱动、USB 或蓝牙连接。
+
+先克隆仓库并进入项目目录：
+
+```bash
+git clone https://github.com/lzynb0206/brain-drone-swarm-console.git
+cd brain-drone-swarm-console
 ```
 
-士兵在线驾驶固定使用更严格的单向链路：`ExpandableEEG → 蓝牙采集线程 → LSL
-obci_eeg1 → EEGWorker → FBCCA/Transformer`。科研页仍可独立选择直接硬件、外部 LSL
-或 CSV 实验回放；二者不要求跨角色切换。
-
-真实接入集中在 `src/adapters/real/`，装配入口为 [src/container.py](src/container.py)。界面不会直接等待无线电或执行飞行动作。
-
-当前核心模块已经按职责拆分：
-
-- `CrazyflieSwarmGateway` 只保留应用侧蜂群状态机；配置、命令队列、飞行动作执行、
-  遥测转换、遥测安全判定、紧急停机协调、事件日志、编队状态转换、Flow 控制循环和
-  cflib 连接分别放在独立模块中；Flow/Lighthouse/编队摇杆目标更新由
-  `CrazyflieManualControlCoordinator` 单独负责。
-- `WorkbenchService` 保留原有界面调用方式，内部组合科研配置、蜂群控制、脑控执行、
-  管理操作和导出服务。
-- 科研、作战、管理员和工程画布页面都是独立 `QWidget`，通过 Qt Signal/Slot
-  把语义动作交给 `MainActionRouter`，不再让 `MainView` 继承点击路由 mixin。
-- 科研页入口只负责导航分发；硬件采集/CSV、独立 LSL 收集、范式算法、数据采集和试次分析
-  分别位于独立模块，避免继续扩张单个 `research_view.py`。未接入真实控制器的参数演示页和
-  可编辑动作映射页已移除；在线脑控使用 `src/bci/config.py` 中固定、可审计的频率标签配置。
-- `MainView` 只负责页面装配、共享 EEG worker 生命周期和顶层事件转发。直接硬件采集、
-  CSV 回放、独立 LSL 收集、士兵脑控安全链路和自动实验分别由
-  `EEGAcquisitionController`、`CSVReplayController`、`LSLCollectionController`、
-  `SoldierBCIController`、`ExperimentController`、`RecognitionController` 和
-  `ManualFlightController` 管理；带标签试次的导入、筛选和报告预览由
-  `TrialAnalysisController` 管理；Toast 的计时、滚动绘制和清理由 `ToastController` 管理。
-- `EEGWorker` 专注读流、窗口化和调度；连续 EEG 的缓存/10 秒分块由
-  `ContinuousEEGRecorder` 处理，刺激时间戳对齐、标注试次解码与保存由
-  `LabeledTrialRecorder` 处理。
-- `ExperimentRecorder` 保留实验记录门面；Marker、连续 EEG 索引、飞行命令审计和高频
-  识别日志分别由独立 repository 负责。识别日志只写紧凑质量摘要，并在 16 MiB 时轮转；
-  标注试次的 NPZ 仍保存完整质量信息和原始 EEG。
-- 实验记录字段与数据清洗规则位于独立 schema 模块；两个 SSVEP 窗口共用目标几何和
-  注视点绘制，避免实验模式与在线控制模式产生布局偏差。
-- 个人模型按 `personal_template_features.py`、`personal_template_training.py`、
-  `personal_template_runtime.py` 拆分；`personal_template_model.py` 仅保留兼容导出。
-
-## 运行
-
-推荐 Python 3.12：
+**macOS / Linux：**
 
 ```bash
 python3.12 -m venv .venv312
-source .venv312/bin/activate
-python -m pip install -r requirements.txt
+.venv312/bin/python -m pip install -r requirements.txt
+.venv312/bin/python main.py
 ```
 
-环境变量示例见 [.env.example](.env.example)。该文件是配置说明，不会被程序自动加载；
-启动前请在终端、IDE Run Configuration 或部署环境中设置所需变量。
+**Windows PowerShell：**
 
-### 默认本地数据库登录
-
-先启动 PostgreSQL 和 `/Users/geniusalu/Desktop/brain-drone-swarm-server` 中的 Spring Boot 服务，再运行桌面端：
-
-```bash
-python main.py
+```powershell
+py -3.12 -m venv .venv312
+.\.venv312\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv312\Scripts\python.exe main.py
 ```
 
-登录页保留两个仅用于本机工作台切换的免密快捷账号：输入 `research` 后点击登录或按回车，
-直接进入科研页面；输入 `soldier` 后点击登录或按回车，直接进入士兵页面。这两个入口不会请求
-认证后端；其他用户名仍必须输入密码并按原流程通过 Spring Boot/PostgreSQL 认证。
+已有 `.venv312` 时可直接安装依赖并启动，无需重建。始终从项目根目录运行命令。
 
-### 统一实验数据采集
-
-在科研工作台的“数据采集”页右上角直接切换 `SSVEP`、`MI 运动想象` 或
-`SSVEP → MI 串行`，下方选择对应方案：
-
-- SSVEP：平衡随机采集，可配置每类次数、刺激时长、分析起点与休息时间。
-- MI / 串行：正式任务、2 组流程试跑、专门静息；参数卡片、标签、时序和启动按钮随方案更新。
-- “配置采集计划”只显示当前方案相关的参数。试跑与正式任务共用任务和时长设置，
-  试跑固定 2 组、单独标记数据，不覆盖正式采集次数或静息设置。
-
-MI / 串行采集仍需先应用 5+3 接线并启动真实 EEG，通过“硬件／时间检查”，再完成当前范式的
-2 组试跑后开始正式任务。MI 试跑只运行 MI，串行试跑包含 SSVEP 与 MI，检查结果不能跨范式复用。
-采集中不能切换范式、方案、接线或修改计划；停止采集后可以继续调整。
-
-### 离线演示模式
-
-如需不联网演示各角色界面，可临时切换为 Mock 模式：
-
-```bash
-BDS_AUTH_BACKEND=mock python main.py
-```
-
-| 用户名包含 | 进入角色 |
+| 可选功能 | 安装方式（macOS / Linux） |
 | --- | --- |
-| `research` / `科研` | 科研人员 |
-| `engineer` / `工程` | 系统工程师 |
-| `admin` / `管理` | 系统管理员 |
-| 其他 | 作战操作员 |
+| 摄像头与 SNN 手势识别 | `.venv312/bin/python -m pip install -r requirements-vision.txt` |
+| 模型训练、离线评估及完整测试依赖 | `.venv312/bin/python -m pip install -r requirements-ml.txt` |
 
-### 覆盖后端地址
+Windows 将表中的 Python 路径替换为 `.\.venv312\Scripts\python.exe`。若要运行包含视觉功能的完整测试，两份可选依赖都需要安装。
 
-默认认证地址为 `http://127.0.0.1:8080`，可以通过环境变量覆盖：
+### 登录与环境配置
 
-```bash
-export AUTH_API_URL="http://127.0.0.1:8080"
-export BDS_AUTH_BACKEND=http
-python main.py
-```
+- **本地直接入口**：输入 `soldier` 或 `research`，可分别进入士兵或科研工作空间，无需密码。这是当前保留的本地调试入口。
+- **后端认证**：其他账号默认连接 `http://127.0.0.1:8080` 的 Spring Boot / JWT 服务；后端服务独立部署，不包含在本仓库中。
+- **离线演示认证**：设置 `BDS_AUTH_BACKEND=mock` 后，`research`、`commander` 等名称路由到相应角色；普通演示账号需填写非空密码，但不会校验真实凭据。
 
-注册时选择的演示身份会直接保存在 PostgreSQL 的 `app_users.role`。正式部署应关闭注册身份选择，由管理员接口授权。
+程序直接读取系统环境变量，**不会自动加载 `.env`**。[`.env.example`](.env.example) 是配置参考，包含可选模型和设备参数。下面列的是代码中未设置环境变量时的默认值。
 
-### Crazyflie + Flow Deck 多机遥测、群控与逐机控制
-
-第一次只启用只读遥测，不设置 `BDS_HARDWARE_CONTROL_ENABLED`：
-
-```bash
-export BDS_SWARM_BACKEND=flowdeck
-export BDS_CRAZYFLIE_URIS='radio://0/80/2M/E7E7E7E701,radio://0/80/2M/E7E7E7E702'
-python main.py
-```
-
-`BDS_CRAZYFLIE_URIS` 使用英文逗号分隔多架 Crazyflie。也可以在“单兵面板 → 脑控
-→ 配置 URI”中每行填写一个 URI。程序会同时连接各机并分别显示位置、电量、速度、
-高度和 Flow Deck 状态。
-
-现场完成净空、急停、每架飞机的 Flow Deck 测距/光流和电量检查后，才可打开实机控制：
-
-```bash
-export BDS_HARDWARE_CONTROL_ENABLED=true
-python main.py
-```
-
-Crazyradio 连接必须使用无人机实际配置的 Radio URI，例如
-`radio://0/80/2M/E7E7E7E701`；`usb://...` 不是 Crazyradio 无线链路 URI。修改 URI 前
-需要先断开当前连接。
-
-打开“单兵面板 → 脑控”后的基本流程：
-
-1. 点击“连接”，等待界面显示 Flow 定位就绪；装有 Lighthouse Deck 时还会显示已就绪的飞机数。
-2. 在“启动目标高度”处用 `-` / `+` 调整，或点击数值直接输入高度。
-3. 将所有无人机水平放置在有纹理、光照正常的地面；配置多架时点击“启动蜂群”，
-   配置单架时点击“启动 Flow Hover”。
-4. 单机达到设定高度且界面显示 Lighthouse 就绪后，“Lighthouse保持”按钮才会开放；
-   点击后以切换瞬间的实时位置作为绝对位置目标，不会自动切换。
-5. 单机进入 Lighthouse 位置保持后，左杆上下改变全局目标高度，右杆按照机头方向控制
-   前后左右；松杆时保持最后的全局目标位置。
-6. 连接 3 架飞机后，可点击“直线编队”或“三角编队”。软件以三机当前位置中心生成
-   0.4m 间距槽位，用最小总移动距离分配槽位，并依次移动各机以降低交叉航迹风险。
-7. 编队完成后，左杆控制编队整体升降，右杆控制编队整体前后左右；每架飞机的槽位偏移
-   保持不变。未形成编队时仍使用原有 Flow Hover 摇杆语义。
-8. “单机控制”可选择一架飞机，单独执行起飞、移动、悬停或受控降落。
-9. 主界面的“受控降落”作用于全部已起飞飞机；“停止电机”和“紧急停止”只用于异常情况。
-
-Flow Deck 的位置是各机自己的局部坐标；只有 `lighthouse.status=2` 且
-`lighthouse.bsActive` 至少包含一个有效基站时，软件才允许切换到共享全局坐标和自动编队。
-Lighthouse 几何、标定和基站频道仍须先在官方 Crazyflie Client 的 Lighthouse 页面完成。
-
-程序连接后读取 `deck.bcFlow` / `deck.bcFlow2`，未检测到 Flow Deck 会拒绝操控。Flow
-Hover 使用 Crazyflie 官方 Hover setpoint：持续发送机体系 `vx/vy`、偏航速度和离地目标
-高度；启动时以最高 0.2m/s 渐升到界面设置的高度。可设置范围默认为 0.20–2.00m，
-实际高度上限还会按硬件限制为 Flow Deck V1 的 1.0m 或 Flow Deck V2 的 2.0m。AI Deck
-目前只做硬件识别，摄像头数据尚未接入。完整流程见
-[硬件接入说明](docs/CRAZYFLIE_HARDWARE_INTEGRATION.md)。
-
-#### 遥测字段说明
-
-| 界面字段 | 数据来源 | 说明 |
+| 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |
-| 高度 | `stateEstimate.z` | 飞控状态估计器给出的估计高度，Flow Deck 下视测距与惯性数据会参与估计；不是单独的激光测距原值。 |
-| 速度 | `stateEstimate.vx/vy/vz` | 软件计算三维合速度 `sqrt(vx² + vy² + vz²)`，单位 m/s；这是估计速度，不是 Flow Deck 直接测得的单一速度。 |
-| 电压 | `pm.vbat` | 飞控上报的实时电池端电压。电机负载变化时电压会波动。 |
-| 电量 | 由 `pm.vbat` 换算 | 当前按 3.0–4.2V 线性换算为 0–100%，只适合界面参考，不是电量计测得的精确剩余容量。 |
-| Lighthouse就绪 | `lighthouse.status` + `lighthouse.bsActive` | `status=2` 表示有效基站数据已送入状态估计器；`bsActive` 的置位数是当前有效基站数量。 |
+| `BDS_AUTH_BACKEND` | `http` | `http` 为后端认证，`mock` 为离线演示 |
+| `AUTH_API_URL` | `http://127.0.0.1:8080` | 认证服务地址 |
+| `BDS_EEG_BACKEND` | `lsl` | EEG 初始数据源；`csv` 为显式回放模式 |
+| `BDS_LSL_STREAM_NAME` / `BDS_LSL_STREAM_TYPE` | `obci_eeg1` / `EEG` | 目标 LSL 流 |
+| `BDS_EEG_SAMPLE_RATE` | `250` | 配置采样率，单位 Hz |
+| `BDS_EEG_WINDOW_SECONDS` | `4` | 基线解码窗口，单位秒；个人算法可能使用自己的窗口 |
+| `BDS_EEG_DATA_ROOT` | 项目下 `data/` | 采集与实验数据根目录 |
+| `BDS_EEG_CSV_PATH` | `data/research_experiments/samples/start-1.csv` | CSV 模式输入，文件需自行准备 |
+| `BDS_INTENT_DECODER` | `fbcca` | 启动时选择的解码器 |
+| `BDS_SOLDIER_EEG_PORT` | 空 | 士兵一键链路指定串口；为空时尝试识别唯一设备 |
+| `BDS_SWARM_BACKEND` | `disabled` | `flowdeck` 启用真实 Crazyflie 接口 |
+| `BDS_CRAZYFLIE_URIS` | 空 | 一架或多架设备的无线 URI |
+| `BDS_HARDWARE_CONTROL_ENABLED` | `false` | 是否允许真实飞控；仅连接接口不会自动开启控制 |
 
-速度当前直接显示飞控估计值，没有进行界面滤波。无人机贴地、被手拿起、明显倾斜、地面
-纹理不足或状态估计器刚初始化时，速度可能瞬间偏大；这不等于无人机真的以该速度移动。
-判断飞行状态时应同时观察机体实际运动、Flow 质量和高度，不能只看单个速度数值。
-
-#### 低电压、降落和停止逻辑
-
-- 电压与换算电量只用于界面显示和低电压告警，不再阻止任务规划、解锁或起飞。
-- 飞行中电压连续约 1 秒低于配置告警值时，界面仍会提示低电压，但不锁定控制或禁止再次起飞。
-- “受控降落”接管当前正在运行的 Flow Hover 控制流，根据当前目标高度下降，落地后停止电机并解除普通解锁状态，可以在电量正常时再次启动。
-- “停止电机”会立即停止当前控制流，属于可恢复的异常处置；确认安全后可以重新启动操控。
-- “紧急停止”是锁存式安全动作，不能当作普通降落使用；触发后需要给无人机断电重启，再在软件中复位并重新连接。
-
-### 训练并启用 Transformer-SSVEP
-
-完整通道表、训练命令、安全门和实验限制见
-[Transformer-SSVEP复现说明](docs/TRANSFORMER_SSVEP_REPRODUCTION.md)。
+例如，只切换为离线演示认证：
 
 ```bash
-python -m pip install -r requirements-ml.txt
-python -m src.ml.train_transformer_ssvep \
-  --index data/research_experiments/sessions/raw_trials_index.csv \
-  --split-mode session
+BDS_AUTH_BACKEND=mock .venv312/bin/python main.py
 ```
 
-训练输出 `models/transformer_ssvep.pt` 和
-`models/transformer_ssvep_metadata.json`。随后可在科研“范式算法”页加载，或使用
-`BDS_INTENT_DECODER=transformer python main.py` 显式启用。
+Windows PowerShell：
 
-### 训练并启用个人算法-Lzy
-
-“个人算法-Lzy”与通用“个人校准融合”使用独立模型文件，不会互相覆盖。它使用完整
-5 秒数据，分别计算 0–4、0.5–4.5、1–5 秒三个重叠窗的 FBCCA 分数，取逐类中位数，
-再使用本人训练集学得的逐频率非目标基线校准。
-
-```bash
-.venv312/bin/python scripts/train_lzy_personal_algorithm.py \
-  --run-id auto-20261025-205949-2b713f
-BDS_INTENT_DECODER=lzy .venv312/bin/python main.py
+```powershell
+$env:BDS_AUTH_BACKEND = "mock"
+.\.venv312\Scripts\python.exe main.py
 ```
 
-也可正常启动后，在科研“范式算法”页选择“个人算法-Lzy”并点击“加载算法”。个人模型
-默认是科研分析模式；metadata 未经独立会话验证并批准前，识别结果不会派发到无人机。
+### 常用工作流程
 
-### 训练并启用个人算法-Xz
+**1. 脑电采集与回放**
 
-“个人算法-Xz”使用独立模型文件，采用完整 5 秒 EEG、50 Hz 陷波、两套 FBCCA
-六类分数和个人 Logistic Regression。下面的命令只使用指定运行的前 60 条保存试次，
-避免把额外保存的第 61 条混入训练：
+1. 科研人员顶部“采集”页选择串口设备，建立采集会话。
+2. 在采集总览检查通道波形、频谱和数据状态，使用信号质量、丢包检测及硬件设置子页查看细节。
+3. 需要跨进程或跨程序使用信号时启动 LSL 输出，再在“LSL收集”发现流、开始接收并保存 CSV。
+4. 已有 CSV 在“CSV回放”导入，可暂停、调整播放速度或定位时间；回放用于复盘和算法验证。
 
-```bash
-.venv312/bin/python scripts/train_personal_score_calibration.py \
-  --run-id auto-20261025-215910-076676 \
-  --algorithm-name '个人算法-Xz' \
-  --maximum-trial-index 60 \
-  --model-path models/personal_algorithm_xz_experimental.npz \
-  --metadata-path models/personal_algorithm_xz_experimental_metadata.json
-BDS_INTENT_DECODER=xz .venv312/bin/python main.py
-```
+**2. 科研实验与数据分析**
 
-也可在科研“范式算法”页选择“个人算法-Xz”并加载。该入口保持科研模式，默认不能直接
-放行无人机动作。
+1. 在“范式算法”选择实验范式与解码算法。
+2. 在“数据采集”确认受试者，选择正式任务、试跑或静息方案，并核对采集计划。
+3. 使用本机实时 EEG 时，核对电极布局并完成采集前检查；使用外部设备时，选择“独立呈现 / 外部 BDF”。
+4. 外部记录需要同时保存 BDF 和本机同轮事件日志，在“数据分析”导入时填写时间偏移、漂移与对齐依据。
+5. 按受试者、日期、动作和具体试次筛选，选择分析片段并查看结果。单目标模板采集另有“单目标校准”入口。
 
-### 训练并启用旧版 FB-EEGNet
+人工时间对齐会被标记为未验证，不能等同于硬件同步；仅内部交叉验证的成绩不能直接作为实机准确率。
 
-采集每个类别（含“空闲”）的足量真实试次后：
+**3. 士兵脑控驾驶**
 
-```bash
-python -m pip install -r requirements-ml.txt
-python -m src.ml.train_fb_eegnet --index data/research_experiments/sessions/raw_trials_index.csv
-BDS_FB_EEGNET_ENABLED=true python main.py
-```
-
-训练输出 `models/fb_eegnet_fusion.pt` 和与其匹配的 `models/fb_eegnet_metadata.json`，metadata 内含训练/验证数量、准确率、宏 F1、混淆矩阵和空闲误触发率。
-
-## 运行时数据与接口位置
-
-| 数据类型 | 默认状态 | 真实实现位置 |
-| --- | --- | --- |
-| EEG 脑电 | ExpandableEEG 原生串口（macOS 自动直连 RFCOMM）、LSL 实时流或 CSV 回放 | [ExpandableEEGSerialStream](src/adapters/real/expandable_eeg_serial_stream.py)、[LSLEEGStream](src/adapters/real/lsl_eeg_stream.py) |
-| 无人机遥测/命令 | 默认禁用；不生成虚假飞机 | [CrazyflieSwarmGateway](src/adapters/real/crazyflie_swarm_gateway.py) |
-| CPU/内存 | 本机实时指标 | [RealSystemMonitor](src/adapters/real/real_system_monitor.py) |
-| 工程模块/日志 | 运行时适配器缓存 | [RuntimeEngineerDataProvider](src/adapters/real/runtime_engineer_data.py) |
-
-统一接口定义位于 `src/ports/`；详细接入说明见 [docs/INTERFACE_HOOKS.md](docs/INTERFACE_HOOKS.md)。
-
-## 实验数据保存与查找
-
-默认数据根目录是 `data/`，可通过环境变量 `BDS_EEG_DATA_ROOT` 改到独立硬盘或其他
-受控目录。根目录固定分为 `research_experiments/`、`ssvep_realtime_tests/` 和
-`soldier_ssvep_flights/`，不再按文件类型把同一用途的数据散落到多个一级目录。
-原始 EEG 只写本地文件，不写入 PostgreSQL。CSV 文件会在收到第一帧数据时创建，因此
-只点击开始、但没有收到 EEG 数据时不会产生空文件。
-
-### 按界面操作查找数据
-
-| 界面操作 | 主要输出 | 同时产生的记录 |
-| --- | --- | --- |
-| “采集”页、LSL 收集、自动实验、单目标校准 | `data/research_experiments/` | CSV、带标签 NPZ、连续原始 EEG、会话索引、校准与分析结果均归入科研目录 |
-| 科研界面“SSVEP测试” | `data/ssvep_realtime_tests/` | 自动保存测试期间的连续原始 EEG、识别日志、事件标记、刺激时序和频谱 |
-| 士兵页面实机 SSVEP | `data/soldier_ssvep_flights/` | 自动保存连续原始 EEG、识别日志、刺激时序、飞行命令和执行回执 |
-| “数据分析”页试次分析 | `data/research_experiments/exports/trial_analysis/<真实标签>/` | 六联分析图只在界面内显示；磁盘仅保存指标 JSON 和 `_channels.csv` 通道质量表，导入源文件保持只读 |
-
-在“数据分析”页可以直接点击“载入项目数据”，也可以导入任意包含带标签 NPZ 的目录或选择多个
-NPZ 文件。导入后先选“起飞/右移”等真实标签，再选择该标签下的具体第几段试次；“设置时间段”
-可在完整试次内自由设置开始与结束秒数。点击“在本页显示图表”后，原来的六联图按大尺寸嵌入
-当前页面，可用滚轮向下完整查看；程序不再生成 PNG，JSON 和 CSV 仍保存在上表所列目录中，
-不会覆盖或修改原始 EEG。
-
-离线分析报告统一放在 `data/research_experiments/analysis/`。每个一级目录内部仍用
-`raw_trials/`、`continuous_raw/`、`sessions/`、`recognition_logs/`、`stimulus_logs/` 和
-`exports/` 区分文件类型，并以 `session_id` / `run_id` 关联同一次运行。
-
-查找一次实验时，建议按以下顺序：
-
-1. 先按用途选择科研、实时测试或士兵实机目录。
-2. 在该目录的 `sessions/` 找对应会话索引，再用同一 `session_id` / `run_id` 查原始 EEG。
-3. 刺激时序和识别结果分别查看同一用途目录中的 `stimulus_logs/` 与 `recognition_logs/`。
-4. 科研 CSV 和离线分析只放在 `research_experiments/csv_sessions/` 与 `analysis/`。
-
-大部分运行时实验目录已被 `.gitignore` 排除。Git 不负责实验数据备份，重新克隆仓库不会
-恢复本机采集记录；正式实验应按被试与会话另行备份，并遵循知情同意和数据脱敏要求。
-
-## 项目结构
+在左侧“脑控驾驶”配置 URI、连接设备，再启动 SSVEP 实时链路。典型链路为：
 
 ```text
-brain-drone-swarm-console/
-├── main.py                       # 桌面端启动入口
-├── requirements.txt              # 基础运行依赖
-├── requirements-ml.txt           # Transformer/FB-EEGNet 训练与推理依赖
-├── .env.example                  # 环境变量模板
-├── src/
-│   ├── app.py                    # 登录页与主工作台切换
-│   ├── container.py              # 真实/Mock 实现装配入口
-│   ├── domain/                   # 与 Qt、硬件无关的数据模型
-│   ├── ports/                    # EEG、蜂群、认证、监控等稳定接口
-│   ├── controllers/              # 页面动作、采集、回放、脑控、识别、摇杆与实验工作流
-│   ├── bci/                      # SSVEP 配置、FBCCA、Transformer适配与安全门
-│   ├── ml/                       # FB-EEGNet 网络、预处理、训练和推理
-│   ├── adapters/
-│   │   ├── mock/                 # 自动化测试和显式离线演示
-│   │   ├── http/                 # Spring Boot JWT 认证客户端
-│   │   └── real/                 # ExpandableEEG原生协议、CSV、LSL、Crazyflie、运行时监控
-│   ├── services/                 # 业务用例和拆分后的工作台子服务
-│   ├── workers/                  # EEG 后台采集、窗口化和记录
-│   ├── views/                    # 独立角色 QWidget、登录和刺激窗口
-│   ├── widgets/                  # 可复用 QPainter 绘制组件
-│   └── resources/                # QSS 等界面资源
-├── tests/                        # 单元测试和离屏 Qt 交互测试
-├── data/                         # EEG 试次、连续数据、会话和日志
-├── docs/                         # 架构、设备接入和科研路线文档
-├── scripts/                      # 辅助脚本，例如界面预览截图
-└── artifacts/                    # 自动生成的界面预览，不参与运行
+ExpandableEEG → LSL → EEGWorker → 解码器 → 飞控准入检查 → Crazyflie
 ```
 
-### GCD GitHub 预处理代码
+CSV、模拟信号和未经独立验证的模型不能直接进入实机脑控执行链路。界面提供手动控制、停止、降落和急停入口；无真实连接时显示未连接状态，演示指标会明确标注。
 
-项目已接入论文公开仓库
-[Quentin2022/Graph-Contrastive-Denoising-Module](https://github.com/Quentin2022/Graph-Contrastive-Denoising-Module)
-的 `utils.py` 逻辑，代码位于 `src/ml/gcd_preprocessing.py`。它读取作者提供的
-`processed_data.h5`，执行缺失/无穷值填充、`StandardScaler` 标准化、邻接矩阵去自环与可选
-行归一化、标签转换，以及固定随机种子的十折划分。直接运行：
+**4. 摄像头与手势识别**
 
-```bash
-.venv312/bin/python scripts/preprocess_gcd_dataset.py /path/to/processed_data.h5 \
-  --graph-type G_PCC --normalize-adjacency
-```
+1. 安装 `requirements-vision.txt`，打开左侧“视觉手势”。
+2. 选择本机摄像头编号（通常为 `0`）、MJPEG 地址（如 `http://设备IP/stream`）或本地视频文件。
+3. 确认权重路径 `models/dvs128_snn_best_v4.pth`，点击“连接并识别”。
+4. 查看视频、事件图、手势类别和耗时；停止后可调整帧差阈值及旋转角度。
 
-这段公开代码的输入是作者已经完成特征提取和图构建的 HDF5 数据，不接收本项目实时采集的
-原始 EEG 波形，也不包含 ICA。实时 SSVEP 仍由带通滤波、枕区通道选择和 FBCCA 处理。
+采集与推理运行在独立进程，退出登录或关闭软件会停止该进程。当前手势仅提供前进 / 后退等界面提示，不自动派发飞控命令。SNN 原始输出不是校准概率，DVS 数据集表现不代表普通摄像头准确率；触觉反馈设备尚未接入。
 
-仓库缺失的“原始 EEG → 节点特征＋连接图”步骤已针对本项目八通道 SSVEP 补充在
-`src/ml/gcd_ssvep.py`，完整离线实验入口为：
+### 目录与数据组织
 
-```bash
-.venv312/bin/python scripts/run_gcd_ssvep_experiment.py
-```
+| 路径 | 职责 |
+| --- | --- |
+| `main.py`、`src/main.py`、`src/app.py` | 程序入口、Qt 初始化和窗口组装 |
+| `src/views/`、`src/widgets/`、`src/resources/` | 页面、复用控件、绘制与样式 |
+| `src/controllers/` | 页面动作、采集、手势及分析流程协调 |
+| `src/services/`、`src/domain/`、`src/ports/` | 业务规则、数据模型与接口契约 |
+| `src/adapters/`、`src/integrations/` | 认证、EEG、无人机与摄像头外部接入 |
+| `src/bci/`、`src/ml/`、`src/workers/` | 解码、模型训练推理及后台任务 |
+| `models/` | 随仓库提供的手势权重、个人模型与元数据 |
+| `scripts/` | 设备桥接、训练、评估、公开数据准备及复现实验工具 |
+| `tests/` | 单元、集成和离屏界面测试 |
+| `data/` | 本地科研数据、采集记录与试次索引 |
+| `outputs/` | 本地科研结果与历史实验材料 |
 
-该入口执行论文的五阶 0.5–40 Hz 带通、两秒窗口、十维 SSVEP 节点特征、PCC/MSC/PLV
-连接图构建、GCD 对比预训练和七分类 GCN。GCD 高斯核、公开仓库的标签 InfoNCE 掩码、
-每个图卷积层独立加载并微调预训练图嵌入、KL 标签平滑和 256 批大小均按公开实现移植；
-公开仓库没有提供的“原始 SSVEP → 节点特征与连接图”仍属于本项目的任务适配。历史105段
-数据固定使用第1–10轮训练、第11–15轮测试，并同时报告普通 GCN 基线；处理后 HDF5、逐
-试次预测和报告写入 `data/research_experiments/analysis/gcd_ssvep_8ch_105/`。这是离线研究流程，不会自动替换
-实时 FBCCA 或取得实机控制资格。
+运行记录按用途保存到 `data/research_experiments/`、`data/ssvep_realtime_tests/` 和 `data/soldier_ssvep_flights/`。可用 `BDS_EEG_DATA_ROOT` 将这些目录放到其他磁盘。
 
-### Crazyflie 模块
+Git 提交包含源码、测试、配置示例和未被忽略的模型文件。科研数据集、运行记录、`outputs/`、虚拟环境、缓存及本地 `.env` 按 [`.gitignore`](.gitignore) 保留在本机，不随克隆下载。数据目录会在实际保存时创建；界面不会为缺失数据自动生成实验记录。可选 Transformer / FB-EEGNet 权重需要另行训练或准备。
 
-```text
-src/adapters/real/
-├── crazyflie_swarm_gateway.py    # 应用侧状态机和命令执行编排
-├── crazyflie_contracts.py        # 配置和底层驱动协议
-├── crazyflie_command_queue.py    # 串行队列与代际取消
-├── crazyflie_manual_control.py   # Flow/Lighthouse/编队摇杆目标计算
-├── crazyflie_telemetry.py        # cflib 日志到领域遥测的纯转换
-├── crazyflie_safety.py           # 飞行参数安全校验
-├── crazyflie_flow_control.py     # Flow/Lighthouse 连续控制循环
-└── crazyflie_cflib_backend.py    # 无线连接、Deck 检测和固件命令
-```
+### 测试与开发
 
-### Workbench 模块
-
-```text
-src/services/
-├── workbench_service.py           # 保持旧 API 的组合门面
-├── research_workbench_service.py  # 范式、算法和科研页面状态
-├── swarm_control_service.py       # 蜂群命令、回执、审计和急停
-├── bci_execution_service.py       # 实时源限制、二次确认和冷却
-├── admin_operations_service.py    # 管理页面操作状态
-└── export_service.py              # 工作台配置和报告导出
-```
-
-当前保留从同一组 60 轮个人校准数据生成的 4 通道和 8 通道实验模型：
-`models/personal_template_ssvep_experimental.npz`、
-`models/personal_template_ssvep_experimental_8ch.npz` 及各自 metadata；旧来源数据已归档到桌面
-`脑控无人机历史实验数据备份-2026-10-22/single_target_calibration/`。两者均未获得
-`production_approved`，只能用于科研验证，不能直接驱动实机。
-
-## 可参考的开源项目
-
-截至 2026-10-19，本次检索没有发现一个同时覆盖“实时 SSVEP、实验数据管理、角色化桌面
-工作台、Crazyflie 蜂群和实机安全门”的同构仓库。下面这些项目分别覆盖了本项目的一部分，
-适合按模块参考，不建议直接整仓替换：
-
-| 仓库 | 相关能力 | 对本项目的参考价值 |
-| --- | --- | --- |
-| [bitcraze/crazyflie-lib-python](https://github.com/bitcraze/crazyflie-lib-python) | Bitcraze 官方 Python 通信与控制库 | 本项目已经使用 `cflib`；继续以其连接、日志、参数和 commander API 为底层基准 |
-| [IMRCLab/crazyswarm2](https://github.com/IMRCLab/crazyswarm2) | 基于 ROS 2 的大型 Crazyflie 蜂群栈 | 可参考多机配置、统一命令接口、仿真和系统测试；整体架构比本项目重，不宜直接引入 ROS 2 依赖 |
-| [ludovicdmt/t9_ssvep](https://github.com/ludovicdmt/t9_ssvep) | 基于 LSL 的实时 SSVEP BCI，使用 PsychoPy、MNE 和 TRCA | 可参考校准阶段、实时 LSL 分类、同一被试/同一会话模型管理和刺激参数组织 |
-| [NeuroTechX/EEG-ExPy](https://github.com/NeuroTechX/EEG-ExPy) | 面向 OpenBCI/Muse 等设备的 Python EEG 实验与分析 | 可参考实验协议、数据集组织、采集与分析分离以及可复现实验示例 |
-| [brainflow-dev/brainflow](https://github.com/brainflow-dev/brainflow) | 多种 EEG/生理传感器的统一采集、解析和信号处理 SDK | 如果未来支持更多 EEG 硬件，可参考其设备抽象、marker 和序列化接口；当前 ExpandableEEG 原生协议无需因此替换 |
-| [3C-SCSU/Avatar](https://github.com/3C-SCSU/Avatar) | OpenBCI 脑电采集、预测服务、GUI 与无人机/机器人动作链 | 功能组合与本项目最接近，可参考数据脱敏、人工确认后执行和端到端模块边界；其无人机和服务架构并非 Crazyflie 蜂群方案 |
-
-引用或复制这些仓库的代码前必须单独核对其许可证、版本和硬件假设；“开源可查看”不代表
-可以不保留版权声明直接复制。
-
-## 测试
+macOS / Linux：
 
 ```bash
 QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
 ```
 
-当前自动化测试覆盖 Spring REST 登录客户端、ExpandableEEG原生串口与配置协议、CSV/LSL、OpenBCI 控制面板状态、六频 FBCCA、Transformer安全门、
-刺激测频、信号质量、实验记录、Flow/Lighthouse 安全门控、编队、独立角色 QWidget、
-工作台服务组合和界面交互。详细运行方法见
-[EEG/FBCCA 接入说明](docs/EEG_FBCCA_INTEGRATION.md)。
+Windows PowerShell：
 
-可选静态检查：
-
-```bash
-ruff check src tests
-python -m compileall -q src tests
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+.\.venv312\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-## 安全说明
+离屏模式用于测试；正常打开桌面界面前，请取消此前设置的 `QT_QPA_PLATFORM=offscreen`。
 
-FBCCA 已具备通往 `SwarmGateway` 的受控路径，但实机脑控默认关闭，CSV 回放永远不能开启
-实机执行。个人/神经网络模型只有在 metadata 明确通过独立验证后才具备实机资格；“可加载”
-不等于“可飞行”。桌面端的安全门控不能替代飞控固件、物理急停、现场监护和实验室审批。
+测试覆盖角色路由、采集 / 回放、标记与试次记录、分析算法、飞控准入、折叠导航和手势进程。自动化测试不代替真实摄像头、EEG 和无人机联调。新增设备接入放在适配层，界面绘制只读取已有状态，耗时采集与推理放到后台任务中。
+
+### 常见问题
+
+| 现象 | 检查方式 |
+| --- | --- |
+| 其他账号登录失败 | 检查认证服务和 `AUTH_API_URL`；仅查看界面可使用本地入口或显式 `mock` 认证 |
+| LSL 找不到数据 | 先启动发送端，核对流名称、类型、网络和发送状态 |
+| 摄像头打不开 | 检查系统权限、设备编号或 URL；仅允许单客户端的机载相机需关闭其他占用程序 |
+| 提示缺少 `cv2` / `torch` | 在运行软件的同一虚拟环境安装 `requirements-vision.txt` |
+| 模型或 CSV 不存在 | 检查配置路径；忽略的科研数据和可选训练权重不会随仓库下载 |
+| 无人机已连接但不能控制 | 检查硬件控制开关、解锁状态和界面给出的准入原因 |
+| `.env` 修改后没有生效 | 程序不自动加载该文件；先设置系统环境变量，再重新启动 |
+
+[English →](#english) · [来源与第三方声明](#third-party)
+
+---
+
+<a id="english"></a>
+
+## English
+
+[切换到简体中文](#zh-cn)
+
+### Overview
+
+A **Python 3.12 + PySide6** desktop console for EEG acquisition, SSVEP / motor imagery (MI) experiments, drone control and camera gesture recognition. It brings device integration, experimental workflows and research analysis into one workspace. Authentication is provided by an external HTTP service; UI, business logic, algorithms and device adapters are separate layers.
+
+The supported roles are **Soldier / Operator, Commander and Researcher**. System Engineer and System Administrator pages and their dedicated interfaces have been removed.
+
+| Workspace | Main capabilities | Navigation and appearance |
+| --- | --- | --- |
+| Soldier / Commander | Map, BCI driving, visual gestures, status monitoring and manual controls | Monochrome theme; left sidebar expands on approach, collapses on leave and supports manual toggling or pinning |
+| Researcher | Hardware acquisition, LSL collection, CSV replay, paradigms, algorithms, experiments, analysis and single-target calibration | Monochrome theme with the existing top navigation and page layout; EEG traces retain channel colors |
+
+Core features include native serial acquisition from ExpandableEEG / Cyton-compatible devices; LSL receiving and broadcasting; CSV recording and replay; labeled SSVEP, MI and hybrid trials; subject-based data organization; external BDF import; and waveform, spectrum, quality and decoder analysis.
+
+The decoder workspace exposes FBCCA, BN-FBCCA, personal templates, personal score calibration and Transformer options. Crazyflie / Crazyradio integration includes Flow / Lighthouse-related controls, formations, manual input, landing and emergency stop. Camera input supports local devices, MJPEG streams and video files, with live previews, 16-step event images and 11-class SNN inference.
+
+### Installation and launch
+
+Use **Python 3.12** and a desktop graphics environment. Real devices also require their platform permissions, drivers and USB or Bluetooth connections. Run commands from the repository root.
+
+```bash
+git clone https://github.com/lzynb0206/brain-drone-swarm-console.git
+cd brain-drone-swarm-console
+```
+
+**macOS / Linux:**
+
+```bash
+python3.12 -m venv .venv312
+.venv312/bin/python -m pip install -r requirements.txt
+.venv312/bin/python main.py
+```
+
+**Windows PowerShell:**
+
+```powershell
+py -3.12 -m venv .venv312
+.\.venv312\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv312\Scripts\python.exe main.py
+```
+
+Reuse an existing virtual environment when available. Optional dependencies:
+
+```bash
+# Camera capture and SNN gesture recognition
+.venv312/bin/python -m pip install -r requirements-vision.txt
+# Training, offline evaluation and full test dependencies
+.venv312/bin/python -m pip install -r requirements-ml.txt
+```
+
+On Windows, replace the Python path with `.\.venv312\Scripts\python.exe`. Install both optional dependency sets to exercise the complete suite including vision tests.
+
+### Login and configuration
+
+- **Local entry points:** `soldier` and `research` open the corresponding workspace without a password. These are intentional local debugging entries.
+- **Server authentication:** other accounts use the external Spring Boot / JWT service, defaulting to `http://127.0.0.1:8080`. The server is deployed separately and is not part of this repository.
+- **Offline authentication:** `BDS_AUTH_BACKEND=mock` routes names such as `research` or `commander` to their roles. Ordinary mock accounts require a non-empty password but do not validate real credentials.
+
+The application reads process environment variables and **does not automatically load `.env`**. See [`.env.example`](.env.example) for configuration examples and optional model/device settings. The table below describes defaults in the code when no environment override is supplied.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BDS_AUTH_BACKEND` | `http` | Remote authentication or `mock` for offline use |
+| `AUTH_API_URL` | `http://127.0.0.1:8080` | Authentication endpoint |
+| `BDS_EEG_BACKEND` | `lsl` | Initial EEG source; `csv` explicitly selects replay |
+| `BDS_LSL_STREAM_NAME` / `BDS_LSL_STREAM_TYPE` | `obci_eeg1` / `EEG` | Target LSL stream |
+| `BDS_EEG_SAMPLE_RATE` | `250` | Configured sample rate in Hz |
+| `BDS_EEG_WINDOW_SECONDS` | `4` | Baseline decoding window in seconds; personal algorithms may use their own window |
+| `BDS_EEG_DATA_ROOT` | Project `data/` directory | Recording and experiment root |
+| `BDS_EEG_CSV_PATH` | `data/research_experiments/samples/start-1.csv` | CSV input; supply the file separately |
+| `BDS_INTENT_DECODER` | `fbcca` | Initial decoder |
+| `BDS_SOLDIER_EEG_PORT` | Empty | Explicit serial port for the soldier workflow; otherwise detect a unique device |
+| `BDS_SWARM_BACKEND` | `disabled` | Use `flowdeck` for the real Crazyflie adapter |
+| `BDS_CRAZYFLIE_URIS` | Empty | Radio URIs for one or more drones |
+| `BDS_HARDWARE_CONTROL_ENABLED` | `false` | Explicit permission for hardware commands; connecting does not enable control automatically |
+
+Example for offline authentication:
+
+```bash
+BDS_AUTH_BACKEND=mock .venv312/bin/python main.py
+```
+
+In PowerShell, set `$env:BDS_AUTH_BACKEND = "mock"`, then launch the Windows command above.
+
+### Typical workflows
+
+**EEG acquisition and replay**
+
+1. Open **采集 / Acquisition**, select the serial device and establish a session.
+2. Inspect waveforms, spectra, quality, packet loss and hardware settings.
+3. Start LSL broadcasting when needed. Use **LSL收集 / LSL Collection** to discover the stream, receive samples and save CSV recordings.
+4. Import an existing CSV in **CSV回放 / CSV Replay** to pause, change playback speed or seek. Replay is intended for review and algorithm evaluation.
+
+**Experiments and analysis**
+
+1. Select the paradigm and decoder in **范式算法 / Paradigms and Algorithms**.
+2. In **数据采集 / Data Collection**, confirm the subject, choose a formal, pilot or resting protocol, and review the plan.
+3. For local EEG, check electrode mapping and complete the preflight acquisition check. For another recording system, select independent presentation / external BDF.
+4. Keep both the BDF and the matching event log. During import in **数据分析 / Data Analysis**, provide the time offset, drift and alignment evidence.
+5. Filter by subject, date, action and trial, select an analysis interval and inspect results. **单目标校准 / Single-target Calibration** provides a separate template collection workflow.
+
+Manual alignment is marked as unverified, not hardware-synchronized. Internal cross-validation results are not equivalent to independently validated live-control accuracy.
+
+**BCI driving**
+
+Configure radio URIs and connect the hardware from the soldier sidebar's BCI driving page, then start the SSVEP workflow:
+
+```text
+ExpandableEEG → LSL → EEGWorker → Decoder → Control eligibility checks → Crazyflie
+```
+
+CSV replay, simulated signals and models without independent validation cannot directly drive the live BCI control path. Manual controls, stop, landing and emergency stop are available. Missing hardware is shown as disconnected; demonstration metrics are explicitly labeled.
+
+**Camera gestures**
+
+Install the vision dependencies and open **视觉手势 / Visual Gestures**. Select a local camera index (usually `0`), a complete MJPEG URL such as `http://DEVICE_IP/stream`, or a video file. Use `models/dvs128_snn_best_v4.pth` and click connect. The page displays video, event images, gesture classes and inference time; stop capture before changing the difference threshold or rotation.
+
+Capture and inference run in a separate process, stopped on logout or window close. Gestures currently provide UI movement hints only and do not dispatch flight commands. Raw SNN output is not a calibrated probability, and DVS benchmark performance does not establish ordinary-camera accuracy. Haptic feedback integration is not included.
+
+### Source layout and local data
+
+| Path | Responsibility |
+| --- | --- |
+| `main.py`, `src/main.py`, `src/app.py` | Entry points, Qt initialization and window composition |
+| `src/views/`, `src/widgets/`, `src/resources/` | Pages, reusable widgets, drawing and styles |
+| `src/controllers/` | User actions and acquisition, gesture and analysis workflows |
+| `src/services/`, `src/domain/`, `src/ports/` | Business rules, data models and interfaces |
+| `src/adapters/`, `src/integrations/` | Authentication, EEG, drone and camera integrations |
+| `src/bci/`, `src/ml/`, `src/workers/` | Decoders, training/inference and background tasks |
+| `models/` | Included gesture weights, personal models and metadata |
+| `scripts/` | Device bridges, training, evaluation, public-data preparation and reproduction tools |
+| `tests/` | Unit, integration and offscreen UI tests |
+| `data/`, `outputs/` | Local datasets, recordings, indexes and research results |
+
+Runtime recordings are separated into `data/research_experiments/`, `data/ssvep_realtime_tests/` and `data/soldier_ssvep_flights/`. Set `BDS_EEG_DATA_ROOT` to relocate them.
+
+Git includes source, tests, configuration examples and non-ignored model files. Research datasets, runtime recordings, `outputs/`, virtual environments, caches and local `.env` files remain on the local machine according to [`.gitignore`](.gitignore); cloning does not download them. Recording directories are created when used, and missing experimental data is not silently generated. Optional Transformer / FB-EEGNet weights must be trained or supplied separately.
+
+### Testing and development
+
+```bash
+QT_QPA_PLATFORM=offscreen .venv312/bin/python -m unittest discover -s tests -v
+```
+
+Windows PowerShell:
+
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+.\.venv312\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Unset `QT_QPA_PLATFORM=offscreen` before launching the normal desktop UI. Tests cover role routing, acquisition/replay, markers and trials, algorithms, control eligibility, sidebar behavior and gesture subprocesses. They do not replace physical camera, EEG and drone validation. Keep new device integrations in adapters, keep drawing dependent on cached state, and run expensive acquisition/inference outside the GUI thread.
+
+### Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Server login fails | Verify the authentication service and URL; use a local entry or explicit mock authentication for UI inspection |
+| No LSL stream | Start the sender and check stream name, type, network and broadcasting state |
+| Camera cannot open | Check permissions, index or URL; close other clients if the camera accepts only one connection |
+| Missing `cv2` / `torch` | Install `requirements-vision.txt` in the same environment used to launch the app |
+| Missing CSV or model | Check the path; ignored datasets and optional trained weights are not bundled |
+| Connected drone rejects commands | Check hardware-control configuration, arm state and the eligibility reason shown in the UI |
+| Editing `.env` has no effect | Set process environment variables explicitly and restart |
+
+[返回中文 / Back to Chinese](#zh-cn) · [Third-party notices](#third-party)
+
+---
+
+<a id="third-party"></a>
+
+## 来源与第三方声明 · Third-party notices
+
+### 手势识别 · Gesture recognition
+
+手势网络与帧差逻辑来自用户提供的 `无人机手势识别代码/demo_drone_cam.py`。权重 `dvs128_snn_best_v4.pth` 原样复制，原代码包未附独立许可证；本项目不为其声明额外授权。
+
+The gesture network and frame-difference logic originate from the user-provided `demo_drone_cam.py` in the original gesture-recognition package. The checkpoint was copied unchanged. That package did not include a separate license; this project does not grant additional rights to it.
+
+SHA-256 (`models/dvs128_snn_best_v4.pth`):
+
+```text
+fbddf481c9baadd2933f157017037542130098ea86c69097a9b11f361567c89e
+```
+
+### Graph Contrastive Denoising (GCD)
+
+`src/ml/gcd_preprocessing.py` is adapted from the public `utils.py` in [Graph Contrastive Denoising Module](https://github.com/Quentin2022/Graph-Contrastive-Denoising-Module), licensed under Apache License 2.0.
+
+The local adaptation keeps the upstream numerical preprocessing, graph handling, label mapping and ten-fold split while adding project documentation, path typing and a command-line entry point. The Apache License 2.0 text is available in the upstream repository.
+
+### OpenBCI GUI
+
+The researcher acquisition control-panel layout and interaction states are adapted from [OpenBCI GUI](https://github.com/OpenBCI/OpenBCI_GUI), particularly `OpenBCI_GUI/ControlPanel.pde`, licensed under MIT.
+
+MIT License
+
+Copyright (c) 2018 OpenBCI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+[简体中文](#zh-cn) · [English](#english)

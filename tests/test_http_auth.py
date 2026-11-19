@@ -39,7 +39,7 @@ class RecordingOpener:
                 "id": "9d7a93cc-6337-4fd6-8e99-28d64a3e318f",
                 "email": payload["email"],
                 "displayName": payload.get("displayName", "测试用户"),
-                "role": payload.get("role", "engineer"),
+                "role": payload.get("role", "soldier"),
             },
         })
 
@@ -52,7 +52,7 @@ class HttpAuthGatewayTest(unittest.TestCase):
     def test_login_saves_jwt_session(self) -> None:
         user = self.gateway.authenticate("User@Example.com", "secret123")
         self.assertEqual("user@example.com", user.email)
-        self.assertEqual(Role.ENGINEER, user.role)
+        self.assertEqual(Role.SOLDIER, user.role)
         self.assertEqual("signed.jwt.token", self.gateway.session.access_token)
         self.assertEqual("http://127.0.0.1:8080/api/auth/login", self.opener.calls[0][0])
 
@@ -62,6 +62,17 @@ class HttpAuthGatewayTest(unittest.TestCase):
         self.assertEqual("new@example.com", payload["email"])
         self.assertEqual("researcher", payload["role"])
         self.assertEqual(Role.RESEARCHER, user.role)
+
+    def test_unsupported_roles_do_not_leave_a_logged_in_session(self) -> None:
+        for role in ("admin", "engineer", "unknown"):
+            with self.subTest(role=role):
+                self.gateway.authenticate("user@example.com", "secret123")
+                with self.assertRaisesRegex(AuthError, "不支持此账号身份"):
+                    self.gateway._save_session_and_user({
+                        "accessToken": "unused.token",
+                        "user": {"email": "old@example.com", "role": role},
+                    })
+                self.assertIsNone(self.gateway.session)
 
     def test_backend_error_message_is_shown(self) -> None:
         def failing_opener(request, timeout: float):

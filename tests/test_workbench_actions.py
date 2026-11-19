@@ -13,7 +13,7 @@ from PySide6.QtGui import QImage, QPainter, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 
-from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
+from src.adapters.mock import MockSwarmGateway
 from src.adapters.real import CrazyflieSwarmConfig, CrazyflieSwarmGateway
 from src.domain import IntentResult, Role, User
 from src.services import ExperimentRecorder, WorkbenchService
@@ -30,7 +30,7 @@ from src.widgets.scifi_canvas import (
 class WorkbenchServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.gateway = MockSwarmGateway()
-        self.service = WorkbenchService(self.gateway, MockSystemMonitor())
+        self.service = WorkbenchService(self.gateway)
 
     def test_algorithm_selection_is_stateful(self) -> None:
         self.service.select_algorithm("SVM")
@@ -222,7 +222,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             gateway = MockSwarmGateway()
             recorder = ExperimentRecorder(directory)
-            service = WorkbenchService(gateway, MockSystemMonitor(), recorder)
+            service = WorkbenchService(gateway, recorder)
             service.send_swarm_command("takeoff")
             service.send_swarm_command("forward")
             rows = recorder.command_log_path.read_text(encoding="utf-8-sig").splitlines()
@@ -250,7 +250,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.gateway = MockSwarmGateway()
-        self.view = MainView(swarm_gateway=self.gateway, system_monitor=MockSystemMonitor())
+        self.view = MainView(swarm_gateway=self.gateway)
 
     def tearDown(self) -> None:
         self.view.close()
@@ -387,7 +387,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
         finally:
             painter.end()
 
-        self.assertEqual("#0b1425", image.pixelColor(10, 10).name())
+        self.assertEqual("#171717", image.pixelColor(10, 10).name())
         self.assertEqual(RESEARCH_BG.name(), image.pixelColor(10, 100).name())
         self.assertEqual(RESEARCH_PANEL.name(), image.pixelColor(650, 220).name())
 
@@ -556,6 +556,8 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
     def test_cleared_report_cannot_leave_trial_hit_regions_at_old_scroll_offset(self) -> None:
         record = SimpleNamespace(
+            collection_label="SSVEP",
+            analysis_kind="ssvep",
             true_label="起飞",
             start_time="",
             trial_id="trial-0001",

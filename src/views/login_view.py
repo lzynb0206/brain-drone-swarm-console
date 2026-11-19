@@ -30,8 +30,6 @@ from src.services.auth_service import AuthService
 ROLE_CHOICES = (
     ("士兵 / 作战操作员", Role.SOLDIER),
     ("科研人员", Role.RESEARCHER),
-    ("系统工程师", Role.ENGINEER),
-    ("系统管理员", Role.ADMIN),
     ("指挥官", Role.COMMANDER),
 )
 

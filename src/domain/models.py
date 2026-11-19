@@ -15,8 +15,6 @@ class Role(str, Enum):
     SOLDIER = "soldier"
     COMMANDER = "commander"
     RESEARCHER = "researcher"
-    ENGINEER = "engineer"
-    ADMIN = "admin"
 
     @property
     def label(self) -> str:
@@ -24,8 +22,6 @@ class Role(str, Enum):
             Role.SOLDIER: "作战操作员",
             Role.COMMANDER: "指挥官",
             Role.RESEARCHER: "科研人员",
-            Role.ENGINEER: "系统工程师",
-            Role.ADMIN: "系统管理员",
         }[self]
 
 
@@ -163,13 +159,6 @@ class IntentResult:
     @property
     def best_score(self) -> float:
         return self.confidence
-@dataclass(frozen=True)
-class SystemMetrics:
-    cpu_percent: float
-    gpu_percent: float
-    memory_percent: float
-    latency_ms: float
-    throughput_mbps: float
 
 
 @dataclass(frozen=True)

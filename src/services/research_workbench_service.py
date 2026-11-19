@@ -27,9 +27,10 @@ class ResearchWorkbenchService:
         self.selected_session = 2
         self.log_filter = "INFO"
         self.automatic_experiment_config = AutomaticExperimentConfig()
-        self.hybrid_experiment_config = HybridExperimentConfig()
+        self.hybrid_experiment_config = HybridExperimentConfig(serial_pair_count=84)
         self.collection_schemes = {}
         self.montage_id = LEGACY.id
+        self.recording_mode = "external_bdf"
 
     @property
     def collection_scheme(self) -> str:
@@ -38,7 +39,7 @@ class ResearchWorkbenchService:
     def apply_paradigm(self) -> str:
         if self.paradigm_type != "SSVEP":
             return self._record(
-                f"{self.paradigm_type} 科研采集：请应用 5+3 布局并启动自动采集；MI 模型离线验证"
+                f"{self.paradigm_type} 科研实验：在数据采集页选择独立呈现或本机 EEG；MI 模型离线验证"
             )
         return self._record(
             f"范式已应用：{self.paradigm_frequency}Hz，尺寸{self.stimulus_size}%，占空比{self.duty_cycle}%"

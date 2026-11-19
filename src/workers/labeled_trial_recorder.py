@@ -14,6 +14,7 @@ from src.bci.montage import HYBRID_IDS, MONTAGES, research_decoder
 from src.domain import IntentResult
 from src.ports import EEGStream, IntentDecoder
 from src.services.experiment_recorder import ExperimentRecorder
+from src.services.acquisition_identity import capture_identity
 from src.services.experiment_timing import (
     ExperimentClock,
     ExperimentMarkerOutlet,
@@ -189,9 +190,11 @@ class LabeledTrialRecorder:
         reset_decoder = getattr(self.decoder, "reset", None)
         if callable(reset_decoder):
             reset_decoder()
-        subject_id, session_id = self._experiment_context()
+        subject_id, session_id = capture_identity(request.metadata, self._experiment_context())
         marker_metadata = {
             **request.metadata,
+            "subject_id": subject_id,
+            "session_id": session_id,
             "phase": "stimulus",
             "true_label": request.label,
             "frequency_hz": request.frequency_hz,
@@ -443,7 +446,7 @@ class LabeledTrialRecorder:
                 used_channels_1based=tuple(range(1, labeled_window.shape[0] + 1)),
                 signal_quality=quality,
             )
-        subject_id, session_id = self._experiment_context()
+        subject_id, session_id = capture_identity(trial_metadata, self._experiment_context())
         channel_names, original_channel_names, channel_units = self._channel_metadata()
         saved = self.recorder.record(
             result,

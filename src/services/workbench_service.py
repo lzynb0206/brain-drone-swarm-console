@@ -6,8 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.domain import IntentResult, MissionPlan
-from src.ports import SwarmGateway, SystemMonitor
-from src.services.admin_operations_service import AdminOperationsService
+from src.ports import SwarmGateway
 from src.services.bci_execution_service import BCIExecutionService
 from src.services.export_service import WorkbenchExportService
 from src.services.research_workbench_service import ResearchWorkbenchService
@@ -24,20 +23,15 @@ class WorkbenchService:
         "data_tab", "selected_session", "log_filter",
         "automatic_experiment_config",
         "hybrid_experiment_config", "montage_id",
-        "collection_schemes", "collection_scheme",
-    })
-    _ADMIN_FIELDS = frozenset({
-        "storage_percent", "last_backup", "user_roles", "self_test_run",
+        "collection_schemes", "collection_scheme", "recording_mode",
     })
 
     def __init__(
         self,
         swarm_gateway: SwarmGateway | None = None,
-        system_monitor: SystemMonitor | None = None,
         experiment_recorder=None,
     ) -> None:
         object.__setattr__(self, "swarm_gateway", swarm_gateway)
-        object.__setattr__(self, "system_monitor", system_monitor)
         object.__setattr__(self, "experiment_recorder", experiment_recorder)
         object.__setattr__(self, "event_log", [])
 
@@ -45,12 +39,10 @@ class WorkbenchService:
         swarm = SwarmControlService(swarm_gateway, experiment_recorder, self._record)
         bci = BCIExecutionService(swarm_gateway, swarm.send_command, self._record)
         swarm.disable_bci = bci.disable
-        admin = AdminOperationsService(system_monitor, self._record)
         exporter = WorkbenchExportService(research, self._record)
         object.__setattr__(self, "research", research)
         object.__setattr__(self, "swarm", swarm)
         object.__setattr__(self, "bci", bci)
-        object.__setattr__(self, "admin", admin)
         object.__setattr__(self, "exporter", exporter)
 
         missions = StructuredMissionService(swarm_gateway, self._record, experiment_recorder)
@@ -59,8 +51,6 @@ class WorkbenchService:
     def __getattr__(self, name: str):
         if name in self._RESEARCH_FIELDS:
             return getattr(self.research, name)
-        if name in self._ADMIN_FIELDS:
-            return getattr(self.admin, name)
         if name == "command_history":
             return self.swarm.command_history
         if name == "emergency_stopped":
@@ -72,9 +62,6 @@ class WorkbenchService:
     def __setattr__(self, name: str, value) -> None:
         if name in self._RESEARCH_FIELDS and "research" in self.__dict__:
             setattr(self.research, name, value)
-            return
-        if name in self._ADMIN_FIELDS and "admin" in self.__dict__:
-            setattr(self.admin, name, value)
             return
         if name == "emergency_stopped" and "swarm" in self.__dict__:
             self.swarm.emergency_stopped = bool(value)
@@ -197,20 +184,6 @@ class WorkbenchService:
             safety_verified=safety_verified,
         )
 
-    def run_self_test(self) -> str:
-        return self.admin.run_self_test()
-
-    def clean_cache(self) -> str:
-        return self.admin.clean_cache()
-
-    def create_backup(self) -> str:
-        return self.admin.create_backup()
-
-    def restore_backup(self) -> str:
-        return self.admin.restore_backup()
-
-    def update_user_role(self, username: str, role: str) -> str:
-        return self.admin.update_user_role(username, role)
 
     def export_workspace_config(self, output_dir: Path | None = None) -> Path:
         return self.exporter.export_workspace_config(output_dir)

@@ -37,7 +37,9 @@ class ToastController:
         self._update_toast_region()
 
     def paint(self, canvas: Canvas) -> None:
-        if canvas.light_theme:
+        if getattr(canvas, "monochrome", False):
+            fill, border, text_color = "#ffffff", "#bdbdbd", "#252525"
+        elif canvas.light_theme:
             fill, border, text_color = "#ffffff", RESEARCH_BLUE, RESEARCH_TEXT
         else:
             fill, border, text_color = "#15243a", CYAN, TEXT
@@ -87,6 +89,16 @@ class ToastController:
         widget = role_stack.currentWidget() if role_stack is not None else None
         if widget is None:
             self.host.update()
+            return
+        content_rect = getattr(widget, "content_rect", None)
+        if callable(content_rect):
+            rect = content_rect()
+            widget.update(QRect(
+                rect.x() + int(375 * rect.width() / 1280),
+                rect.y() + int(642 * rect.height() / 720),
+                int(530 * rect.width() / 1280) + 2,
+                int(69 * rect.height() / 720) + 2,
+            ))
             return
         width = max(1, widget.width())
         height = max(1, widget.height())

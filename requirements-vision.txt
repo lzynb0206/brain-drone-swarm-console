@@ -1,0 +1,4 @@
+# Optional soldier camera/gesture dependencies; base application stays usable without them.
+# OpenCV 4.12+ requires NumPy 2 on current Python, conflicting with requirements.txt.
+opencv-python>=4.8,<4.12
+torch>=2.2,<3

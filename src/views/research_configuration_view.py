@@ -24,6 +24,7 @@ from src.widgets.scifi_canvas import (
     RESEARCH_PANEL as PANEL,
     RESEARCH_PANEL_SOFT as PANEL_SOFT,
     RESEARCH_RED as RED,
+    RESEARCH_SELECTION as SELECTION,
     RESEARCH_TEXT as TEXT,
     RESEARCH_YELLOW as YELLOW,
     Canvas,
@@ -60,7 +61,7 @@ class ResearchConfigurationViewMixin:
         c.text(32, 72, 360, 36, "范式配置", 19, TEXT, True)
         c.text(32, 101, 720, 22, "配置 SSVEP 或 MI 实验范式；采集计划已移至“数据采集”页面。", 10, MUTED)
         c.rect(207, 262, 384, 252, PANEL, BORDER, 4)
-        c.rect(232, 287, 47, 202, "#eaf2ff", BLUE, 3)
+        c.rect(232, 287, 47, 202, SELECTION, BLUE, 3)
         c.p.save()
         c.p.translate(255, 388)
         c.p.rotate(90)
@@ -69,7 +70,7 @@ class ResearchConfigurationViewMixin:
         options = [("SSVEP", 287), ("MI", 361), ("SSVEP+MI混合", 434)]
         for name, y in options:
             active = self.actions.paradigm_type == name
-            c.rect(296, y, 270, 57, "#eaf2ff" if active else PANEL, BLUE if active else BORDER, 3)
+            c.rect(296, y, 270, 57, SELECTION if active else PANEL, BLUE if active else BORDER, 3)
             c.text(312, y, 210, 57, name, 15, TEXT if active else MUTED)
             c.text(528, y, 22, 57, "⌄", 16, MUTED, False, Qt.AlignCenter)
             self._hit(296, y, 270, 57, f"paradigm-type:{name}")
@@ -87,9 +88,9 @@ class ResearchConfigurationViewMixin:
             )
             for label, y, knob, action in knobs:
                 c.text(656, y - 8, 88, 34, label, 14, MUTED)
-                c.line(739, y + 7, 1038, y + 7, "#e6e8eb", 7)
+                c.line(739, y + 7, 1038, y + 7, "#e5e5e5", 7)
                 c.line(739, y + 7, knob, y + 7, BLUE, 7)
-                c.circle(knob, y + 7, 8, "#477af0")
+                c.circle(knob, y + 7, 8, BLUE)
                 c.text(1044, y - 8, 45, 30, f"{self.actions.stimulus_size if action == 'paradigm-size' else self.actions.duty_cycle}%", 11, TEXT)
                 self._hit(730, y - 5, 318, 25, action)
             c.button(656, 492, 116, 46, "应用配置", True)
@@ -99,7 +100,13 @@ class ResearchConfigurationViewMixin:
             self._hit(783, 492, 116, 46, "paradigm-reset")
             self._hit(910, 492, 130, 46, "paradigm-start")
         else:
-            c.text(656, 229, 380, 42, "MI / 串行配对采集", 19, TEXT, True)
+            c.text(656, 229, 380, 42, "MI 与 SSVEP＋MI 混合采集", 19, TEXT, True)
+            if self.experiment.external_recording:
+                c.text(656, 278, 380, 30, "独立呈现 · 外部 32 路 BDF", 14, CYAN, True)
+                c.text(656, 320, 380, 95, "无需本机连接 EEG。\n本机记录任务标签、阶段时间和配对编号。\n导入时选择 SSVEP / MI 分析通道。\n无跨机触发：需确认时间对齐，P 离线计算。", 11, TEXT)
+                c.button(656, 452, 372, 38, "前往数据采集 · 配置并开始实验", True, accent=CYAN)
+                self._hit(656, 452, 372, 38, "research:数据采集")
+                return
             ready = self.actions.montage_id == HYBRID.id
             c.text(656, 278, 380, 24, "已选 5+3 布局" if ready else "先停流、调整电极，再应用 5+3 布局", 11, GREEN if ready else YELLOW, True)
             c.text(656, 316, 380, 30, "CH1–5：O1 / Oz / O2 / P3 / P4", 12, TEXT, True)
@@ -120,47 +127,62 @@ class ResearchConfigurationViewMixin:
         paradigm = self.actions.paradigm_type
         schemes = collection_schemes(paradigm)
         scheme = next(item for item in schemes if item.id == self.actions.collection_scheme)
-        ssvep = paradigm == "SSVEP"
+        ssvep = paradigm == "SSVEP" and scheme.id == "formal"
         config = (self.actions.automatic_experiment_config if ssvep else
                   hybrid_collection_config(self.actions.hybrid_experiment_config, paradigm, scheme.id))
         montage = LEGACY if ssvep else HYBRID
         layout_ready = (self.actions.montage_id == montage.id
                         and tuple(self._eeg_channel_names) == montage.names)
         running = self.experiment.running
+        external = self.experiment.external_recording
 
         c.text(32, 72, 420, 34, "实验数据采集", 20, TEXT, True)
-        c.text(32, 108, 1160, 22, "选择范式与实验方案，核对参数和接线后开始采集；原始 EEG、真实标签与时间戳逐段保存。", 10, MUTED)
+        c.text(32, 116, 80, 32, "本轮受试者", 10, TEXT, True)
+        subject_name = self.experiment.selected_subject_name
+        self._light_button(c, 120, 116, 276, 32, f"{subject_name}  ▾" if subject_name else "选择并确认受试者  ▾", False, BLUE)
+        self._light_button(c, 408, 116, 120, 32, "新增受试者", False, BLUE)
+        if not running:
+            self._hit(120, 116, 276, 32, "collection-subject")
+            self._hit(408, 116, 120, 32, "collection-subject-new")
+        c.text(550, 116, 678, 32,
+               (f"已确认 {self.experiment.selected_subject_id} · 自动归档" if subject_name else "开始前请确认受试者")
+               + f"  |  数据子标签：{paradigm}", 10, CYAN if subject_name else MUTED)
         for index, (value, title) in enumerate(COLLECTION_PARADIGMS):
             x = 648 + index * 204
             active = paradigm == value
-            c.rect(x, 76, 192, 34, "#eaf2ff" if active else PANEL, BLUE if active else BORDER, 4)
+            c.rect(x, 76, 192, 34, SELECTION if active else PANEL, BLUE if active else BORDER, 4)
             c.text(x, 76, 192, 34, title, 11, BLUE if active else MUTED, active, Qt.AlignCenter)
             if not running:
                 self._hit(x, 76, 192, 34, f"paradigm-type:{value}")
 
-        c.rect(32, 144, 1216, 98, PANEL, BORDER, 5)
-        c.text(52, 152, 240, 22, "实验方案", 11, TEXT, True)
-        c.text(858, 152, 370, 22, "采集中 · 结束后可切换方案" if running else "切换范式会保留已配置的采集参数", 9, MUTED, False, Qt.AlignRight)
+        c.rect(32, 160, 1216, 86, PANEL, BORDER, 5)
+        c.text(52, 164, 240, 22, "实验方案", 11, TEXT, True)
+        c.text(858, 164, 370, 22, "采集中 · 结束后可切换方案" if running else "切换范式会保留已配置的采集参数", 9, MUTED, False, Qt.AlignRight)
         width = (1176 - 12 * (len(schemes) - 1)) / len(schemes)
         for index, item in enumerate(schemes):
             x = 52 + index * (width + 12)
             active = scheme.id == item.id
-            c.rect(x, 180, width, 46, "#eef4ff" if active else PANEL_SOFT, BLUE if active else BORDER, 4)
-            c.circle(x + 18, 203, 5, BLUE if active else PANEL, BLUE if active else BORDER)
-            c.text(x + 34, 182, width - 48, 22, item.title, 11, BLUE if active else TEXT, True)
-            c.text(x + 34, 204, width - 48, 18, item.description, 9, MUTED)
+            c.rect(x, 190, width, 46, SELECTION if active else PANEL_SOFT, BLUE if active else BORDER, 4)
+            c.circle(x + 18, 213, 5, BLUE if active else PANEL, BLUE if active else BORDER)
+            c.text(x + 34, 192, width - 48, 22, item.title, 11, BLUE if active else TEXT, True)
+            c.text(x + 34, 214, width - 48, 18, item.description, 9, MUTED)
             if not running:
-                self._hit(x, 180, width, 46, f"collection-scheme:{item.id}")
+                self._hit(x, 190, width, 46, f"collection-scheme:{item.id}")
 
         c.rect(32, 256, 1216, 440, PANEL, BORDER, 5)
-        name = "SSVEP" if ssvep else "MI" if paradigm == "MI" else "SSVEP → MI"
+        name = "静息" if not ssvep and config.mode == "rest" else "SSVEP" if ssvep else "MI" if paradigm == "MI" else "SSVEP＋MI 混合"
         c.text(56, 268, 820, 30, f"{name} · {scheme.title}", 16, TEXT, True)
         status, color = self._collection_readiness(config, layout_ready, ssvep)
-        c.rect(930, 268, 294, 30, "#eaf7ef" if color == GREEN else PANEL_SOFT, BORDER, 15)
+        c.rect(930, 268, 294, 30, SELECTION if color == GREEN else PANEL_SOFT, BORDER, 15)
         c.circle(948, 283, 5, color)
         c.text(962, 268, 248, 30, status, 9, color, True)
 
         metrics, labels, flow, preparation, saving = self._collection_plan_details(config, ssvep)
+        if external:
+            flow = flow.replace("确认保存", "记录阶段")
+            saving = ("本机保存本次静息的眼状态与事件日志；请在采集电脑单独保存对应 BDF 文件。"
+                      if not ssvep and config.mode == "rest" else
+                      "本机仅保存事件日志与真实标签；另一台电脑录制 BDF。SSVEP 的 P 与 MI 均在导入后离线分析。")
         for index, (label, value) in enumerate(metrics):
             x = 56 + index * 196
             c.rect(x, 312, 184, 64, PANEL_SOFT, BORDER, 4)
@@ -171,7 +193,7 @@ class ResearchConfigurationViewMixin:
         label_width = (1164 - 12 * (len(labels) - 1)) / len(labels)
         for index, label in enumerate(labels):
             x = 56 + index * (label_width + 12)
-            c.rect(x, 416, label_width, 32, "#eef4ff", "#b7cae5", 4)
+            c.rect(x, 416, label_width, 32, SELECTION, BORDER, 4)
             c.text(x, 416, label_width, 32, label, 11, BLUE, True, Qt.AlignCenter)
 
         c.text(56, 460, 220, 22, "实验流程", 12, TEXT, True)
@@ -180,8 +202,10 @@ class ResearchConfigurationViewMixin:
         c.text(56, 540, 1164, 22, saving, 10, MUTED)
         c.line(56, 576, 1224, 576, BORDER)
         wiring = "   ".join(f"CH{i + 1} {name}" for i, name in enumerate(montage.names))
-        c.text(56, 584, 1164, 22, f"所需接线  {wiring}   ·   250 Hz", 11, TEXT, True)
+        c.text(56, 584, 1164, 22, "外部 BDF：保留全部脑电通道及原采样率；分析通道按电极名自由选择" if external else f"所需接线  {wiring}   ·   250 Hz", 11, TEXT, True)
         note = "更换布局前请先停止数据流并调整物理电极。" if not layout_ready else "当前通道布局匹配；请核对物理电极与通道顺序。"
+        if external:
+            note = "请先启动另一台电脑的连续记录；本机日志不会自动同步到 BDF，导入时须确认偏移与漂移。"
         c.text(56, 610, 1164, 20, f"{note}  随机种子 {config.random_seed} · 完成后在“数据分析”页查看。", 9, MUTED)
 
         buttons = [
@@ -190,8 +214,12 @@ class ResearchConfigurationViewMixin:
             (852, 172, "配置采集计划", "collection-config", False),
             (1036, 188, "返回采集窗口" if running else scheme.start_label, "collection-start", True),
         ]
-        if not ssvep:
-            buttons.insert(2, (400, 204, "硬件／时间检查（约 6 秒）", "hybrid-preflight", False))
+        if external:
+            buttons = [button for button in buttons if not button[3].startswith("montage:")]
+        buttons.extend([
+            (400, 200, "独立呈现 / 外部 BDF", "collection-recording:external_bdf", external),
+            (612, 170, "本机实时 EEG", "collection-recording:local_eeg", not external),
+        ])
         for x, button_width, label, action, primary in buttons:
             enabled = not running or action in ("research:采集", "collection-start")
             self._light_button(c, x, 642, button_width, 36, label, primary, GREEN if primary else BLUE if enabled else MUTED)
@@ -200,20 +228,19 @@ class ResearchConfigurationViewMixin:
 
     def _collection_readiness(self, config, layout_ready, ssvep):
         if self.experiment.running:
+            window = self.experiment.automatic_window
+            if getattr(window, "completed_pairs", None) is not None and window.config.pair_count:
+                return window.progress_text, GREEN
             return "正在采集 · 当前方案已锁定", GREEN
+        if not self.experiment.selected_subject_id:
+            return "待选择并确认受试者", YELLOW
+        if self.experiment.external_recording:
+            return "独立呈现 · 无需本机 EEG", GREEN
         if not layout_ready:
             return "待应用枕顶 8 通道布局" if ssvep else "待应用 5+3 通道布局", YELLOW
         if self._pipeline_worker is None or not self._pipeline_worker.isRunning():
             return "待启动实时 EEG 数据流", YELLOW
-        if ssvep:
-            return "数据流已启动 · 启动时校验信号", GREEN
-        if not self.experiment.preflight_ready():
-            return "待完成硬件／时间检查", YELLOW
-        if config.mode != "rest" and config.purpose != "pilot":
-            audit = self.experiment.pilot_audit
-            if not audit or not audit.get("passed") or audit.get("signature") != self.experiment.pilot_signature(config):
-                return "待完成当前范式的 2 组试跑", YELLOW
-        return "采集检查已通过", GREEN
+        return "数据流已启动 · 可直接开始采集", GREEN
 
     def _collection_plan_details(self, config, ssvep):
         """Use the same effective config that will be passed to the runner."""
@@ -228,38 +255,40 @@ class ResearchConfigurationViewMixin:
             saving = "逐试次保存原始 EEG、通道名、时间戳、真实标签和质量状态。"
             return metrics, config.labels, flow, preparation, saving
         if config.mode == "rest":
+            closed = config.rest_eye_state == "closed"
+            label = "闭眼静息" if closed else "睁眼静息"
+            duration = config.resting_closed_seconds if closed else config.resting_open_seconds
             metrics = (
-                ("采集段数", "2 段"), ("静息总时长", f"{config.resting_open_seconds + config.resting_closed_seconds:g} s"),
-                ("睁眼静息", f"{config.resting_open_seconds:g} s"), ("闭眼静息", f"{config.resting_closed_seconds:g} s"),
-                ("每段提示", "5 s"), ("任务试次", "0"),
+                ("采集段数", "1 段"), ("静息时间", f"{duration:g} s"),
+                ("眼睛状态", "闭眼" if closed else "睁眼"), ("准备提示", "5 s"),
+                ("结束方式", "自动结束"), ("任务试次", "0"),
             )
-            flow = f"睁眼提示 5s  →  睁眼静息 {config.resting_open_seconds:g}s  →  闭眼提示 5s  →  闭眼静息 {config.resting_closed_seconds:g}s  →  睁眼确认"
-            return (metrics, ("睁眼静息", "闭眼静息"), flow,
-                    "闭眼静息结束后，按空格确认已经睁眼；本方案不采集 SSVEP / MI 任务。",
-                    "睁眼、闭眼分段保存原始 EEG、眼状态与时间戳，单独标记为专门静息。")
+            flow = f"准备提示 5s  →  {label} {duration:g}s  →  提示音并自动结束"
+            return (metrics, (label,), flow,
+                    "每次只运行所选静息，不切换眼状态、不等待空格，也不进入 SSVEP / MI。",
+                    "按本次眼状态独立保存，后续可在数据分析中区分睁眼与闭眼静息。")
         serial = config.mode == "serial"
         if serial:
             metrics = (
-                ("每动作次数" if config.purpose == "pilot" else "每组合次数", f"{config.repetitions} 次"), ("任务组数", f"{config.pair_count} 组"),
-                ("SSVEP 时间", f"{config.ssvep_seconds:g} s"), ("阶段间隔", f"{config.gap_seconds:g} s"),
+                (("每动作次数", "1 次") if config.purpose == "pilot" else ("采集方式", "串行配对")), ("任务组数", f"{config.pair_count} 组"),
+                ("SSVEP 时间", f"{config.ssvep_seconds:g} s"), ("MI 动作提示", f"{config.mi_cue_seconds:g} s"),
                 ("MI 时间", f"{config.mi_seconds:g} s"), ("休息时间", f"{config.rest_seconds:g} s"),
             )
             # A serial formal run also inserts an idle window between blocks.
-            idle_count = config.idle_trials + (config.repetitions - 1 if config.purpose == "formal" else 0)
+            idle_count = config.idle_trials + (config.block_count - 1 if config.purpose == "formal" and config.idle_trials else 0)
             labels = tuple(COMMANDS[:1] if config.purpose == "pilot" else COMMANDS) + tuple(config.mi_labels)
-            flow = f"提示 {config.cue_seconds:g}s  →  SSVEP {config.ssvep_seconds:g}s  →  间隔 {config.gap_seconds:g}s  →  MI {config.mi_seconds:g}s  →  休息 {config.rest_seconds:g}s"
-            saving = f"另采 {idle_count} 个空闲窗；逐阶段保存 EEG、配对编号及 SSVEP 置信度，低置信度仍继续采 MI。"
+            flow = f"提示 {config.cue_seconds:g}s → SSVEP {config.ssvep_seconds:g}s → 间隔 {config.gap_seconds:g}s → MI 提示 {config.mi_cue_seconds:g}s → MI {config.mi_seconds:g}s（十字）→ 休息 {config.rest_seconds:g}s"
+            saving = (f"另采 {idle_count} 个空闲窗；" if idle_count else "") + "逐阶段保存 EEG、配对编号及 SSVEP 置信度，低置信度仍继续采 MI。"
         else:
             metrics = (
                 ("每类次数", f"{config.repetitions} 次"), ("任务组数", f"{config.pair_count} 组"),
-                ("提示时间", f"{config.cue_seconds:g} s"), ("MI 时间", f"{config.mi_seconds:g} s"),
+                ("MI 动作提示", f"{config.mi_cue_seconds:g} s"), ("MI 时间", f"{config.mi_seconds:g} s"),
                 ("短基线", f"{config.baseline_seconds:g} s"), ("休息时间", f"{config.rest_seconds:g} s"),
             )
             labels = config.mi_labels
-            flow = f"提示 {config.cue_seconds:g}s  →  MI {config.mi_seconds:g}s（中央十字）  →  确认保存  →  休息 {config.rest_seconds:g}s"
+            flow = f"MI 动作提示 {config.mi_cue_seconds:g}s  →  MI {config.mi_seconds:g}s（中央十字）  →  确认保存  →  休息 {config.rest_seconds:g}s"
             saving = "采集全 8 通道，MI 分析使用 C3 / Cz / C4；逐段保存原始 EEG、真实标签、时间戳及质量状态。"
-        preparation = (f"先采睁眼 {config.resting_open_seconds:g}s + 闭眼 {config.resting_closed_seconds:g}s 专门静息，再采 {config.baseline_seconds:g}s 短基线。"
-                       if config.include_dedicated_rest else f"先采 {config.baseline_seconds:g}s 短基线；本轮不包含专门静息。")
+        preparation = f"开始前休息 {config.baseline_seconds:g}s（中央十字），随后自动进入上述流程；睁眼、闭眼静息单独采集。"
         if config.purpose == "pilot":
             preparation += "  试跑仅 2 组，数据单独标记，不进入正式分析。"
         return metrics, labels, flow, preparation, saving
@@ -272,7 +301,7 @@ class ResearchConfigurationViewMixin:
         x = 404
         for label in radios:
             active = self.actions.algorithm_mode == label
-            c.circle(x + 9, 139, 7, BLUE if active else None, "#738098", 2)
+            c.circle(x + 9, 139, 7, BLUE if active else None, MUTED, 2)
             c.text(x + 23, 121, 87, 36, label, 13, TEXT)
             self._hit(x, 116, 101, 46, f"algorithm-mode:{label}")
             x += 101
@@ -322,7 +351,7 @@ class ResearchConfigurationViewMixin:
         for label, value, x, y in metadata:
             c.text(x, y, 86, 38, label, 14, TEXT)
             c.text(x + 50 if len(label) <= 3 else x + 80, y, 145, 38, value, 14, TEXT, True)
-        c.line(73, 310, 1207, 310, "#dce3eb")
+        c.line(73, 310, 1207, 310, BORDER)
         c.rect(48, 376, 1184, 295, PANEL, BORDER, 3)
         c.text(73, 394, 200, 37, "算法库", 17, TEXT, True)
         algorithms = [
@@ -336,11 +365,11 @@ class ResearchConfigurationViewMixin:
             loaded = name in self.actions.loaded_algorithms
             default = name == self.actions.default_algorithm
             available = bool(statuses.get(name, {}).get("available", name == "FBCCA"))
-            c.rect(x, y, 260, 70, "#eef4ff" if selected else PANEL, BLUE if selected else BORDER, 3, 2 if selected else 1)
+            c.rect(x, y, 260, 70, SELECTION if selected else PANEL, BLUE if selected else BORDER, 3, 2 if selected else 1)
             c.text(x, y + 3, 260, 32, name, 13, TEXT, True, Qt.AlignCenter)
-            c.rect(x + 92, y + 46, 32, 16, GREEN if loaded else "#d3dae3", None, 8)
+            c.rect(x + 92, y + 46, 32, 16, GREEN if loaded else BORDER, None, 8)
             c.circle(x + 117 if loaded else x + 101, y + 54, 5, "#ffffff" if loaded else TEXT)
-            c.circle(x + 143, y + 54, 8, YELLOW if default else "#d3dae3")
+            c.circle(x + 143, y + 54, 8, YELLOW if default else BORDER)
             c.circle(x + 169, y + 54, 7, CYAN if available else RED)
             self._hit(x, y, 260, 70, f"algorithm-select:{name}")
         labels = [("加载算法", 73, 610, 112), ("卸载算法", 201, 610, 114),
@@ -363,7 +392,9 @@ class ResearchConfigurationViewMixin:
         )
         c.rect(32, 132, 1216, 82, PANEL, BORDER, 4)
         c.text(54, 143, 150, 24, "当前数据源", 10, MUTED, True)
-        c.text(54, 167, 650, 29, browser.source_summary, 12, TEXT, True)
+        c.text(54, 167, 610, 29, browser.source_summary, 12, TEXT, True)
+        self._light_button(c, 680, 150, 130, 46, "导入 BDF", True, BLUE)
+        self._hit(680, 150, 130, 46, "analysis-import-bdf")
         self._light_button(c, 822, 150, 126, 46, "载入项目数据", False, BLUE)
         self._light_button(c, 958, 150, 126, 46, "导入目录", False, BLUE)
         self._light_button(c, 1094, 150, 126, 46, "导入试次", False, BLUE)
@@ -376,7 +407,7 @@ class ResearchConfigurationViewMixin:
             return
 
         c.rect(32, 230, 1216, 112, PANEL, BORDER, 4)
-        c.text(54, 240, 230, 27, "1  选择受试者", 12, TEXT, True)
+        c.text(54, 240, 230, 27, "1  选择受试者 · 拖动卡片排序", 12, TEXT, True)
         selected_subject = browser.selected_subject
         if selected_subject is not None:
             c.text(
@@ -424,12 +455,15 @@ class ResearchConfigurationViewMixin:
                 y,
                 274,
                 50,
-                "#eef4ff" if selected else PANEL_SOFT,
+                SELECTION if selected else PANEL_SOFT,
                 BLUE if selected else BORDER,
                 4,
                 2 if selected else 1,
             )
-            c.text(x + 12, y + 2, 250, 24, group.display_name, 10, TEXT, True)
+            c.text(x + 12, y + 2, 226, 24, group.display_name, 10, TEXT, True)
+            for dx in (0, 5):
+                for dy in (0, 5, 10):
+                    c.circle(x + 254 + dx, y + 12 + dy, 1, MUTED)
             c.text(
                 x + 12,
                 y + 25,
@@ -440,6 +474,10 @@ class ResearchConfigurationViewMixin:
                 MUTED,
             )
             self._hit(x, y, 274, 50, f"analysis-subject:{group.subject_id}")
+            drop = getattr(self, "_subject_drop_target", None)
+            if drop is not None and drop[0] == group.subject_id:
+                indicator_x = x + 280 if drop[1] else x - 6
+                c.line(indicator_x, y - 3, indicator_x, y + 53, BLUE, 3)
 
         c.rect(32, 356, 1216, 94, PANEL, BORDER, 4)
         c.text(54, 366, 260, 27, "2  选择采集日期", 12, TEXT, True)
@@ -475,7 +513,7 @@ class ResearchConfigurationViewMixin:
                 y,
                 214,
                 38,
-                "#eef4ff" if selected else PANEL_SOFT,
+                SELECTION if selected else PANEL_SOFT,
                 BLUE if selected else BORDER,
                 4,
                 2 if selected else 1,
@@ -507,11 +545,14 @@ class ResearchConfigurationViewMixin:
             ])
             for label in browser.labels
         }
-        for index, label in enumerate(browser.labels[:9]):
-            x = 228 + index * 108
+        two_rows = len(browser.labels) > 9
+        for index, label in enumerate(browser.labels):
+            x = 228 + (index % 9) * 108
+            y = 478 + (index // 9) * 32 if two_rows else 490
+            height = 28 if two_rows else 45
             selected = label == browser.selected_label
-            c.button(x, 490, 98, 45, f"{label}  {counts[label]}", selected)
-            self._hit(x, 490, 98, 45, f"analysis-label:{label}")
+            c.button(x, y, 98, height, f"{label}  {counts[label]}", selected)
+            self._hit(x, y, 98, height, f"analysis-label:{label}")
 
         c.rect(32, 560, 1216, 166, PANEL, BORDER, 4)
         c.text(54, 570, 250, 27, "4  选择具体试次", 12, TEXT, True)
@@ -549,20 +590,20 @@ class ResearchConfigurationViewMixin:
                 y,
                 372,
                 46,
-                "#eef4ff" if selected else PANEL_SOFT,
+                SELECTION if selected else PANEL_SOFT,
                 BLUE if selected else BORDER,
                 4,
                 2 if selected else 1,
             )
             sequence = browser.page * browser.PAGE_SIZE + index + 1
             identity = record.trial_index or f"{sequence:02d}"
-            short_id = record.trial_id[-28:]
-            c.text(x + 14, y + 1, 338, 23, f"第 {identity} 段 · {short_id}", 10, TEXT, True)
+            c.text(x + 14, y + 1, 338, 23, f"第 {identity} 段 · {record.collection_label}", 10, TEXT, True)
             c.text(
                 x + 14,
                 y + 23,
                 338,
                 18,
+                f"{'静息' if record.analysis_kind == 'rest' else 'MI 阶段' if record.analysis_kind == 'mi' else 'SSVEP 阶段'} · "
                 f"{record.duration_seconds:.2f} s · {record.sample_rate_hz:g} Hz · "
                 f"{record.channel_count} 通道",
                 9,
@@ -579,7 +620,7 @@ class ResearchConfigurationViewMixin:
                 780,
                 690,
                 23,
-                f"已选：{record.true_label} · {record.trial_id}",
+                f"已选：{record.true_label} · " + ("外部 BDF · 人工对齐，未验证" if getattr(record, "alignment_status", "") else record.trial_id),
                 11,
                 TEXT,
                 True,
@@ -597,18 +638,22 @@ class ResearchConfigurationViewMixin:
             )
             if browser.last_report is not None:
                 report = browser.last_report
+                result_text = (f"当前结果：候选 {report.candidate_label} · 分数 {report.confidence:.3f}"
+                               if report.analysis_kind == "ssvep" else "当前结果：运动区波形、功率与时频图 · 未运行 MI 分类")
                 c.text(
                     54,
                     830,
                     690,
                     20,
-                    f"当前结果：候选 {report.candidate_label} · 分数 {report.confidence:.3f} · "
+                    result_text + " · " +
                     f"可用通道 {report.usable_channel_count}/{report.total_channel_count}",
                     9,
-                    GREEN if report.accepted else YELLOW,
+                    GREEN if report.accepted else CYAN if report.analysis_kind != "ssvep" else YELLOW,
                 )
+            elif getattr(record, "is_serial_pair", False):
+                c.text(54, 830, 740, 20, "SSVEP＋MI 混合试次：分析时自动查找同组另一阶段，按 SSVEP → MI 顺序展示。", 9, MUTED)
         self._light_button(c, 834, 779, 170, 54, "设置时间段", False, BLUE)
-        self._light_button(c, 1018, 779, 202, 54, "在本页显示图表", True, "#2d8a57")
+        self._light_button(c, 1018, 779, 202, 54, "在本页显示图表", True, GREEN)
         self._hit(834, 779, 170, 54, "analysis-window")
         self._hit(1018, 779, 202, 54, "analysis-generate")
 
@@ -617,24 +662,33 @@ class ResearchConfigurationViewMixin:
             return
         report_width = 1184.0
         report_height = browser.report_display_height(report_width)
-        c.text(32, 896, 360, 34, "当前试次分析结果", 18, TEXT, True)
+        paired = browser.paired_report_pixmap
+        c.text(32, 896, 720, 34, "SSVEP+MI混合 · 完整配对分析" if paired is not None else "当前试次分析结果", 18, TEXT, True)
         c.text(
             760,
             900,
             468,
             25,
-            "保持原六联图格式 · 使用滚轮向下查看完整内容 ↓",
+            "上方 SSVEP · 下方 MI · 滚轮查看完整内容 ↓" if paired is not None else "波形、通道质量与频域分析 · 滚轮查看完整内容 ↓",
             10,
             CYAN,
             True,
             Qt.AlignRight,
         )
         c.rect(32, 936, 1216, report_height + 32, PANEL, BORDER, 5)
+        first_height = report_width * pixmap.height() / pixmap.width()
         c.p.drawPixmap(
-            QRectF(48, 952, report_width, report_height),
+            QRectF(48, 952, report_width, first_height),
             pixmap,
             QRectF(pixmap.rect()),
         )
+        if paired is not None and not paired.isNull():
+            y = 952 + first_height
+            c.text(56, y + 6, 1164, 30, f"第二阶段 · MI 运动想象  |  配对编号：{browser.report_pair_id}", 12, CYAN, True)
+            c.p.drawPixmap(QRectF(48, y + 42, report_width, report_width * paired.height() / paired.width()),
+                           paired, QRectF(paired.rect()))
+        if browser.report_note:
+            c.text(54, 851, 1164, 18, browser.report_note, 9, YELLOW)
 
     def _research_data_max_scroll(self) -> float:
         report_height = self.trial_analysis.report_display_height(1184.0)
@@ -657,7 +711,7 @@ class ResearchConfigurationViewMixin:
         for index, (number, title, description) in enumerate(steps):
             x = 62 + index * 296
             c.rect(x, 348, 274, 134, PANEL_SOFT, BORDER, 5)
-            c.circle(x + 34, 389, 18, "#e7f1ff", BLUE)
+            c.circle(x + 34, 389, 18, SELECTION, BLUE)
             c.text(x + 16, 371, 36, 36, number, 11, BLUE, True, Qt.AlignCenter)
             c.text(x + 62, 360, 194, 38, title, 13, TEXT, True)
             c.text(x + 62, 400, 194, 44, description, 9, MUTED)
@@ -666,15 +720,13 @@ class ResearchConfigurationViewMixin:
             518,
             920,
             56,
-            "支持项目采集产生的带标签 NPZ：真实标签、原始 EEG、采样率和通道名都会被读取。\n"
+            "支持带标签 NPZ；外部连续 BDF 请点“导入 BDF”，选择同轮实验日志并确认时间对齐。\n"
             "页面内容包括原始波形、通道质量表、阈前/陷波后 FFT、滤波子带和六类 FBCCA 分数。",
             11,
             MUTED,
             False,
             Qt.AlignCenter,
         )
-
-    # ---------- Administrator dashboard ----------
 
 
 __all__ = ["ResearchConfigurationViewMixin"]

@@ -32,17 +32,17 @@ from src.controllers import (
     TrialAnalysisController,
 )
 from src.domain import EEGFrame, IntentResult, Role, User
-from src.ports import EEGStream, EngineerDataProvider, IntentDecoder, SwarmGateway, SystemMonitor
+from src.ports import EEGStream, IntentDecoder, SwarmGateway
 from src.services import (
     ExperimentRecorder,
     LSLEEGOutlet,
     RawEEGCsvRecorder,
     WorkbenchService,
 )
-from src.views.engineer_dashboard import EngineerDashboard
 from src.controllers.main_action_router import MainActionRouter
+from src.controllers.gesture_controller import GestureController
 from src.views.main_dialogs import MainDialogsMixin
-from src.views.role_pages import AdminPage, EngineerCanvasPage, ResearchPage, SoldierPage
+from src.views.role_pages import ResearchPage, SoldierPage
 from src.workers import EEGWorker
 from src.widgets.scifi_canvas import Canvas
 
@@ -68,8 +68,6 @@ class MainView(
         ssvep_test_recorder: ExperimentRecorder | None = None,
         soldier_ssvep_recorder: ExperimentRecorder | None = None,
         swarm_gateway: SwarmGateway | None = None,
-        system_monitor: SystemMonitor | None = None,
-        engineer_data_provider: EngineerDataProvider | None = None,
     ) -> None:
         super().__init__()
         # 依赖从 app.py/container.py 注入。paintEvent 只读取线程安全缓存，
@@ -80,11 +78,8 @@ class MainView(
         self.ssvep_test_recorder = ssvep_test_recorder
         self.soldier_ssvep_recorder = soldier_ssvep_recorder
         self.swarm_gateway = swarm_gateway
-        self.system_monitor = system_monitor
-        self.engineer_data_provider = engineer_data_provider
         self.actions = WorkbenchService(
             swarm_gateway,
-            system_monitor,
             soldier_ssvep_recorder or experiment_recorder,
         )
         active_decoder = str(getattr(intent_decoder, "active_name", "")).strip()
@@ -96,7 +91,6 @@ class MainView(
         self.research_page = "采集"
         self.acquisition_stage = "setup"
         self.acquisition_tab = "Dashboard"
-        self.engineer_page = "系统监控"
         self.soldier_root = "作战地图"
         self.soldier_page = "脑控"
         self.toast = ToastController(self)
@@ -135,6 +129,7 @@ class MainView(
             self,
         )
         self.soldier_bci = SoldierBCIController(self)
+        self.gesture = GestureController(self)
         self.experiment = ExperimentController(self)
         self.single_target_calibration = SingleTargetCalibrationController(self)
         self.recognition = RecognitionController(self)
@@ -163,49 +158,34 @@ class MainView(
         self._role_stack = QStackedWidget(self)
         self.research_widget = ResearchPage(self, self._role_stack)
         self.soldier_widget = SoldierPage(self, self._role_stack)
-        self.admin_widget = AdminPage(self, self._role_stack)
-        self.engineer_canvas_widget = EngineerCanvasPage(self, self._role_stack)
         self._role_widgets = {
             Role.RESEARCHER: self.research_widget,
             Role.SOLDIER: self.soldier_widget,
             Role.COMMANDER: self.soldier_widget,
-            Role.ADMIN: self.admin_widget,
-            Role.ENGINEER: self.engineer_canvas_widget,
         }
         for page in (
             self.research_widget,
             self.soldier_widget,
-            self.admin_widget,
-            self.engineer_canvas_widget,
         ):
             self._role_stack.addWidget(page)
             page.action_requested.connect(self.action_router.activate)
+        self.research_widget.subject_reorder_requested.connect(self.trial_analysis.move_subject)
         self._build_eeg_worker()
-        self.engineer_dashboard: EngineerDashboard | None = None
-        if system_monitor is not None and engineer_data_provider is not None:
-            self.engineer_dashboard = EngineerDashboard(
-                system_monitor, engineer_data_provider, self._role_stack,
-            )
-            self.engineer_dashboard.logout_requested.connect(self.logout_requested.emit)
-            self._role_stack.addWidget(self.engineer_dashboard)
         self._runtime_refresh_timer = QTimer(self)
         self._runtime_refresh_timer.timeout.connect(self._refresh_runtime)
         self._runtime_refresh_timer.start(300)
         self.setMouseTracking(True)
 
     def set_user(self, user: User) -> None:
+        self.gesture.shutdown()
         self.user = user
+        self.setProperty("workspaceRole", user.role.value)
         self.research_page = "采集"
         self.acquisition_stage = "setup"
         self.acquisition_tab = "Dashboard"
-        self.engineer_page = "系统监控"
         self.soldier_root = "作战地图"
         self.soldier_page = "脑控"
-        page = (
-            self.engineer_dashboard
-            if user.role == Role.ENGINEER and self.engineer_dashboard is not None
-            else self._role_widgets[user.role]
-        )
+        page = self._role_widgets[user.role]
         self._role_stack.setCurrentWidget(page)
         if user.role in {Role.RESEARCHER, Role.SOLDIER}:
             self._experiment_session_id = f"session-{datetime.now():%Y%m%d-%H%M%S}-{user.username}"
@@ -312,6 +292,7 @@ class MainView(
             self._notify(f"无法自动打开目录：{directory}")
 
     def deactivate(self) -> None:
+        self.gesture.shutdown()
         self.experiment.deactivate()
         self.single_target_calibration.deactivate()
         if self._stimulus_window is not None:
@@ -526,6 +507,8 @@ class MainView(
         super().update(*args)
         role_stack = getattr(self, "_role_stack", None)
         if role_stack is not None and role_stack.currentWidget() is not None:
+            if role_stack.currentWidget() is self.soldier_widget:
+                self.soldier_widget.sync_vision_panel()
             role_stack.currentWidget().update()
 
     def _notify(self, message: str) -> None:

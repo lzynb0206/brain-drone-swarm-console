@@ -11,7 +11,6 @@ from src.domain.models import (
     Role,
     SwarmCommand,
     SwarmStatus,
-    SystemMetrics,
     UAVTelemetry,
     User,
 )
@@ -31,7 +30,6 @@ __all__ = [
     "Role",
     "SwarmCommand",
     "SwarmStatus",
-    "SystemMetrics",
     "TargetPoint",
     "UAVTelemetry",
     "User",

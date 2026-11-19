@@ -17,6 +17,7 @@ from src.bci.config import LABEL_TO_FREQUENCY
 from src.domain import IntentResult
 from src.services.command_audit_repository import CommandAuditRepository
 from src.services.continuous_eeg_repository import ContinuousEEGRepository
+from src.services.acquisition_identity import acquisition_directory, capture_identity
 from src.services.experiment_record_schema import (
     PHASE_NAMES,
     RECOGNITION_FIELDS,
@@ -148,12 +149,15 @@ class ExperimentRecorder:
             if window_start is not None and window_end is not None else None
         )
         supplied_metadata = self._json_safe_dict(trial_metadata)
+        subject_id, session_id = capture_identity(supplied_metadata, (subject_id, session_id))
         with self._lock:
-            self._ensure_session(session_id, subject_id, source, timestamp)
+            self._ensure_session(session_id, subject_id, source, timestamp, supplied_metadata)
             if true_label:
                 requested_trial_id = str(supplied_metadata.get("trial_id", "")).strip()
                 trial_id = self._safe_trial_id(requested_trial_id or self.new_trial_id())
-                trial_path = self.raw_trial_dir / f"{trial_id}.npz"
+                directory = acquisition_directory(self.raw_trial_dir, supplied_metadata)
+                directory.mkdir(parents=True, exist_ok=True)
+                trial_path = directory / f"{trial_id}.npz"
                 if trial_path.exists():
                     raise ValueError(f"Trial ID already exists: {trial_id}")
                 phase_times = self._phase_times_from_metadata(supplied_metadata)
@@ -172,6 +176,9 @@ class ExperimentRecorder:
                 metadata = {
                     "trial_id": trial_id,
                     "subject_id": subject_id,
+                    "subject_name": supplied_metadata.get("subject_name", ""),
+                    "collection_type": supplied_metadata.get("collection_type", ""),
+                    "collection_scheme": supplied_metadata.get("collection_scheme", ""),
                     "session_id": session_id,
                     "start_time": start_time,
                     "source": source,
@@ -209,6 +216,9 @@ class ExperimentRecorder:
                     fs=np.asarray(result.sample_rate_hz, dtype=np.float32),
                     true_label=np.asarray(true_label),
                     subject_id=np.asarray(subject_id),
+                    subject_name=np.asarray(str(supplied_metadata.get("subject_name", ""))),
+                    collection_type=np.asarray(str(supplied_metadata.get("collection_type", ""))),
+                    collection_scheme=np.asarray(str(supplied_metadata.get("collection_scheme", ""))),
                     session_id=np.asarray(session_id),
                     start_time=np.asarray(start_time),
                     signal_quality=np.asarray(quality_json),
@@ -236,6 +246,9 @@ class ExperimentRecorder:
                         "trial_id": trial_id,
                         "start_time": start_time,
                         "subject_id": subject_id,
+                        "subject_name": supplied_metadata.get("subject_name", ""),
+                        "collection_type": supplied_metadata.get("collection_type", ""),
+                        "collection_scheme": supplied_metadata.get("collection_scheme", ""),
                         "session_id": session_id,
                         "path": relative_trial_path,
                         "true_label": true_label,
@@ -311,6 +324,7 @@ class ExperimentRecorder:
         unix_timestamp: float | None = None,
         clock_source: str = "",
     ) -> None:
+        subject_id, session_id = capture_identity(metadata or {}, (subject_id, session_id))
         self._marker_store.record(
             name,
             timestamp,
@@ -371,7 +385,8 @@ class ExperimentRecorder:
             source,
         )
 
-    def _ensure_session(self, session_id: str, subject_id: str, source: str, timestamp: str) -> None:
+    def _ensure_session(self, session_id: str, subject_id: str, source: str, timestamp: str,
+                        context: Mapping[str, object] | None = None) -> None:
         if not session_id or session_id in self._known_sessions:
             return
         safe_name = re.sub(r"[^0-9A-Za-z_.-]+", "_", session_id)
@@ -385,6 +400,9 @@ class ExperimentRecorder:
                 "raw_eeg_storage": "file_npz",
                 "postgresql_policy": "metadata_and_file_path_only",
             }
+            if context and context.get("acquisition_subject_id"):
+                payload.update({key: context.get(key, "") for key in (
+                    "subject_name", "subject_folder", "acquisition_date", "collection_type", "collection_scheme")})
             path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         self._known_sessions.add(session_id)
 

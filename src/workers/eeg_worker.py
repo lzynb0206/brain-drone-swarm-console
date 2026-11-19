@@ -14,6 +14,7 @@ from src.bci.config import DECISION_STEP_SECONDS, WINDOW_SECONDS
 from src.domain import EEGFrame, IntentResult
 from src.ports import EEGStream, IntentDecoder
 from src.services.experiment_recorder import ExperimentRecorder
+from src.services.acquisition_identity import capture_identity
 from src.services.experiment_timing import ExperimentClock, ExperimentMarkerOutlet
 from src.workers.continuous_eeg_recorder import ContinuousEEGRecorder
 from src.workers.labeled_trial_recorder import LabeledTrialRecorder
@@ -148,7 +149,9 @@ class EEGWorker(QThread):
         stamp = self.experiment_clock.stamp(timestamp, timestamp_domain)
         subject_id, session_id = self._experiment_context()
         context = dict(metadata or {})
-        self._current_online_recorder().record_marker(
+        subject_id, session_id = capture_identity(context, (subject_id, session_id))
+        marker_recorder = self.recorder if context.get("acquisition_subject_id") else self._current_online_recorder()
+        marker_recorder.record_marker(
             name,
             stamp.lsl_seconds,
             subject_id,
@@ -165,7 +168,7 @@ class EEGWorker(QThread):
             "clock_source": stamp.clock_source,
         })
         return {**stamp.as_dict(), "name": str(name), "published_to_lsl": published,
-                "local_marker_path": str(self._current_online_recorder().marker_log_path)}
+                "local_marker_path": str(marker_recorder.marker_log_path)}
 
     def record_trial_phase(
         self,

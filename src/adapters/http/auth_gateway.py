@@ -77,22 +77,23 @@ class HttpAuthGateway:
         return user
 
     def _save_session_and_user(self, data: dict[str, Any]) -> User:
+        self.session = None
         token = str(data.get("accessToken", ""))
         if not token:
             raise AuthError("认证服务返回的数据不完整")
+        profile = data.get("user") or {}
+        try:
+            role = Role(str(profile.get("role", Role.SOLDIER.value)))
+        except ValueError as exc:
+            raise AuthError("当前版本不支持此账号身份，请使用士兵、指挥官或科研人员账号") from exc
+        email = str(profile.get("email", "")).strip().lower()
+        display_name = str(profile.get("displayName", "")).strip() or email.split("@", 1)[0]
+        uid = str(profile.get("id", ""))
         self.session = JwtSession(
             access_token=token,
             token_type=str(data.get("tokenType", "Bearer")),
             expires_in=int(data.get("expiresIn", 3600)),
         )
-        profile = data.get("user") or {}
-        try:
-            role = Role(str(profile.get("role", Role.SOLDIER.value)))
-        except ValueError as exc:
-            raise AuthError("认证服务返回了未知身份") from exc
-        email = str(profile.get("email", "")).strip().lower()
-        display_name = str(profile.get("displayName", "")).strip() or email.split("@", 1)[0]
-        uid = str(profile.get("id", ""))
         return User(email, display_name, role, uid=uid, email=email)
 
     def _request(self, method: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:

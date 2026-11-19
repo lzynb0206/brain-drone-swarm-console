@@ -12,17 +12,18 @@ from typing import Protocol
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QInputDialog, QMessageBox, QWidget, QDialog, QFormLayout,
-                              QComboBox, QSpinBox, QDoubleSpinBox, QDialogButtonBox, QCheckBox, QLabel)
+                              QComboBox, QSpinBox, QDoubleSpinBox, QDialogButtonBox, QLabel)
 
 from src.bci.config import SAMPLE_RATE_HZ, SSVEP_CHANNEL_NAMES
 from src.services.subject_catalog import SubjectCatalog
+from src.services.acquisition_identity import acquisition_directory
 from src.views.automatic_ssvep_experiment_window import AutomaticSSVEPExperimentWindow
 from src.views.hybrid_experiment_window import HybridExperimentWindow
 from src.services.hybrid_experiment_protocol import MI_TASK_SETS
-from src.services.collection_plans import collection_schemes, hybrid_collection_config
+from src.services.collection_plans import REST_SCHEMES, collection_schemes, hybrid_collection_config
 from src.bci.montage import HYBRID, LEGACY, MONTAGES
-from src.views.acquisition_preflight_dialog import AcquisitionPreflightDialog
 from src.services.acquisition_preflight import audit_hybrid_run
+from src.services.external_recording import ExternalRecordingJournal
 
 
 class ExperimentHost(Protocol):
@@ -45,11 +46,104 @@ class ExperimentController:
     def __init__(self, host: ExperimentHost) -> None:
         self.host = host
         self.automatic_window: AutomaticSSVEPExperimentWindow | None = None
-        self.preflight = None
-        self._preflight_worker = None
-        self._preflight_time = 0.
         self._marker_failure = False
-        self.pilot_audit = None
+        self.selected_subject_id = ""
+        self.selected_subject_name = ""
+        self._subject_root: Path | None = None
+        self._run_context: dict[str, str] = {}
+        self.external_journal = None
+
+    @property
+    def external_recording(self):
+        return getattr(self.host.actions, "recording_mode", "local_eeg") == "external_bdf"
+
+    def set_recording_mode(self, mode):
+        if self.automatic_window is not None:
+            self.host._notify("请先关闭实验窗口再切换记录方式")
+            return
+        if mode not in ("local_eeg", "external_bdf"):
+            return
+        self.host.actions.recording_mode = mode
+        self.host._notify("独立呈现：无需本机 EEG；另一台电脑记录 BDF，本机保存实验日志" if self.external_recording else "本机 EEG：需要实时数据流和匹配的通道布局")
+        self.host.update()
+
+    def choose_subject(self, *, create: bool = False) -> None:
+        if self.automatic_window is not None:
+            self.host._notify("请先关闭当前实验窗口，再切换受试者")
+            return
+        recorder = self.host.experiment_recorder
+        if recorder is None:
+            self.host._notify("采集数据目录尚未就绪")
+            return
+        try:
+            catalog = SubjectCatalog(recorder.root)
+            parent = self.host if isinstance(self.host, QWidget) else None
+            options = [(key, value["display_name"]) for key, value in catalog.subjects.items()
+                       if key != "subject-other" and value.get("display_name") != "其他"]
+            if create or not options:
+                name, accepted = QInputDialog.getText(parent, "新增并确认采集受试者",
+                    "输入受试者编号或名称；确认后本次采集将自动归入该受试者：",
+                    text=catalog.next_default_name())
+                if not accepted:
+                    return
+                subject_id = catalog.create_subject(name)
+            else:
+                labels = [f"{name}  ·  {key}" for key, name in options]
+                current = next((i for i, (key, _) in enumerate(options)
+                                if key == self.selected_subject_id), 0)
+                choice, accepted = QInputDialog.getItem(parent, "确认采集受试者",
+                    "选择本轮受试者；原始数据、SSVEP 与 MI 阶段均自动归入此人：",
+                    labels, current, False)
+                if not accepted:
+                    return
+                subject_id = options[labels.index(choice)][0]
+            self.select_subject(subject_id)
+        except (OSError, ValueError) as exc:
+            self.host._notify(f"受试者选择失败：{exc}")
+
+    def select_subject(self, subject_id: str) -> None:
+        if self.automatic_window is not None:
+            raise ValueError("请先关闭当前实验窗口，再切换受试者")
+        recorder = self.host.experiment_recorder
+        if recorder is None:
+            raise ValueError("采集数据目录尚未就绪")
+        catalog = SubjectCatalog(recorder.root)
+        subject = catalog.subjects.get(subject_id)
+        if not subject or subject.get("display_name") == "其他":
+            raise ValueError("请选择具体受试者")
+        root = Path(recorder.root).resolve()
+        self.selected_subject_id = subject_id
+        self.selected_subject_name = subject["display_name"]
+        self._subject_root = root
+        self.host._notify(f"已确认采集受试者：{self.selected_subject_name}（{subject_id}）")
+        self.host.update()
+
+    def _require_subject(self) -> bool:
+        recorder = self.host.experiment_recorder
+        if (recorder is None or not self.selected_subject_id
+                or Path(recorder.root).resolve() != self._subject_root):
+            self.host._notify("请先在数据采集页选择并确认本轮受试者")
+            return False
+        return True
+
+    def _bind_run(self, window, paradigm: str, scheme: str) -> bool:
+        try:
+            catalog = SubjectCatalog(self.host.experiment_recorder.root)
+            context = catalog.bind_acquisition(self.selected_subject_id, window.run_id,
+                self._run_date(window.run_id), paradigm, scheme)
+            acquisition_directory(self.host.experiment_recorder.raw_trial_dir, context).mkdir(parents=True, exist_ok=True)
+            self.selected_subject_name = context["subject_name"]
+            self._run_context = context
+            self._marker_failure = False
+            self.external_journal = None
+            if self.external_recording:
+                self.external_journal = ExternalRecordingJournal(
+                    self.host.experiment_recorder.root, window.run_id, context, window.config)
+            return True
+        except (OSError, ValueError) as exc:
+            window.deleteLater()
+            self.host._notify(f"无法准备受试者采集目录：{exc}")
+            return False
 
     @property
     def running(self) -> bool:
@@ -71,59 +165,66 @@ class ExperimentController:
         if self.running:
             self.host._notify("请先结束本次实验再修改采集计划")
             return
-        if self.host.actions.paradigm_type == "SSVEP":
+        if self.host.actions.paradigm_type == "SSVEP" and self.host.actions.collection_scheme == "formal":
             self.host._configure_automatic_ssvep_experiment()
         else:
             self.configure_hybrid()
 
     def start_collection(self) -> None:
-        if self.host.actions.paradigm_type == "SSVEP":
+        if self.host.actions.paradigm_type == "SSVEP" and self.host.actions.collection_scheme == "formal":
             self.start_automatic()
         else:
-            scheme = self.host.actions.collection_scheme
-            self.start_hybrid(mode="rest" if scheme == "rest" else None, pilot=scheme == "pilot")
+            self.start_hybrid(scheme=self.host.actions.collection_scheme)
 
     def start_automatic(self) -> None:
+        if not self._require_subject():
+            return
         worker = self.host._pipeline_worker
-        if worker is None or not worker.isRunning():
-            self.host._notify("自动采集无法开始：请先在“采集”页启动实时 EEG 数据流")
-            return
-        last_frame = self.host.acquisition.last_frame_monotonic
-        if last_frame <= 0.0 or time.monotonic() - last_frame > 2.0:
-            self.host._notify("自动采集无法开始：最近 2 秒没有收到实时 EEG，请检查电极与数据流")
-            return
-        source = worker.source_name.strip()
-        if source.lower().startswith(("csv", "mock", "demo")):
-            self.host._notify("自动采集拒绝回放/模拟源：请选择实时硬件或 LSL EEG")
-            return
-        actual_channels = tuple(str(value) for value in self.host._eeg_channel_names)
-        if actual_channels != tuple(SSVEP_CHANNEL_NAMES):
-            self.host._notify(
-                "自动采集无法开始：通道顺序必须为 "
-                f"{', '.join(SSVEP_CHANNEL_NAMES)}；实际为 "
-                f"{', '.join(actual_channels) or '未知'}"
-            )
-            return
-        actual_rate = float(self.host._eeg_sample_rate or 0.0)
-        if abs(actual_rate - float(SAMPLE_RATE_HZ)) > 5.0:
-            self.host._notify(
-                f"自动采集无法开始：需要约 {SAMPLE_RATE_HZ:g} Hz 实时 EEG；"
-                f"实际为 {actual_rate:g} Hz"
-            )
-            return
-        if not self._confirm_generic_channel_mapping(actual_channels):
-            return
+        if not self.external_recording:
+            if worker is None or not worker.isRunning():
+                self.host._notify("自动采集无法开始：请先在“采集”页启动实时 EEG 数据流")
+                return
+            last_frame = self.host.acquisition.last_frame_monotonic
+            if last_frame <= 0.0 or time.monotonic() - last_frame > 2.0:
+                self.host._notify("自动采集无法开始：最近 2 秒没有收到实时 EEG，请检查电极与数据流")
+                return
+            source = worker.source_name.strip()
+            if source.lower().startswith(("csv", "mock", "demo")):
+                self.host._notify("自动采集拒绝回放/模拟源：请选择实时硬件或 LSL EEG")
+                return
+            actual_channels = tuple(str(value) for value in self.host._eeg_channel_names)
+            if actual_channels != tuple(SSVEP_CHANNEL_NAMES):
+                self.host._notify(
+                    "自动采集无法开始：通道顺序必须为 "
+                    f"{', '.join(SSVEP_CHANNEL_NAMES)}；实际为 "
+                    f"{', '.join(actual_channels) or '未知'}"
+                )
+                return
+            actual_rate = float(self.host._eeg_sample_rate or 0.0)
+            if abs(actual_rate - float(SAMPLE_RATE_HZ)) > 5.0:
+                self.host._notify(
+                    f"自动采集无法开始：需要约 {SAMPLE_RATE_HZ:g} Hz 实时 EEG；"
+                    f"实际为 {actual_rate:g} Hz"
+                )
+                return
+            if not self._confirm_generic_channel_mapping(actual_channels):
+                return
         if self.automatic_window is not None:
             self.automatic_window.showFullScreen()
             self.automatic_window.raise_()
             self.automatic_window.activateWindow()
             return
 
-        worker.set_paradigm_type("SSVEP")
+        self.host.actions.bci_control_enabled = False
+        if not self.external_recording:
+            worker.set_paradigm_type("SSVEP")
         window = AutomaticSSVEPExperimentWindow(
             self.host.actions.automatic_experiment_config,
             parent=self.host if isinstance(self.host, QWidget) else None,
+            external_recording=self.external_recording,
         )
+        if not self._bind_run(window, "SSVEP", "formal"):
+            return
         window.setAttribute(Qt.WA_DeleteOnClose, True)
         window.capture_requested.connect(self._capture_trial)
         window.phase_marker.connect(self._record_phase)
@@ -156,7 +257,6 @@ class ExperimentController:
             self.host._notify(str(exc))
             return
         self.host.actions.montage_id = montage.id
-        self.preflight = None
         if montage.mi:
             if self.host.actions.paradigm_type != "MI":
                 self.host.actions.paradigm_type = "SSVEP+MI混合"
@@ -176,7 +276,7 @@ class ExperimentController:
         paradigm = self.host.actions.paradigm_type
         scheme = self.host.actions.collection_scheme
         serial = paradigm != "MI"
-        rest_only = scheme == "rest"
+        rest_only = scheme in REST_SCHEMES
         pilot = scheme == "pilot"
         dialog = QDialog(self.host if isinstance(self.host, QWidget) else None)
         title = next(item.title for item in collection_schemes(paradigm) if item.id == scheme)
@@ -189,36 +289,36 @@ class ExperimentController:
         tasks.setCurrentIndex(tasks.findData(config.task_set))
         if not rest_only:
             layout.addRow("MI 任务（与训练模型一致）", tasks)
-        include_rest = QCheckBox("本轮先采专门静息（睁眼＋闭眼）")
-        include_rest.setChecked(config.include_dedicated_rest)
-        if not rest_only and not pilot:
-            layout.addRow(include_rest)
         note = QLabel(
             "试跑固定为 2 组，不采专门静息；时长与任务设置和正式采集共用。"
-            if pilot else "专门静息合计 3–5 分钟；闭眼结束后按空格确认睁眼。"
-            + ("\n取消勾选时本轮仅采短基线，不会标记为完成专门静息。" if not rest_only else "")
+            if pilot else "只运行所选的静息状态，默认 140 秒；到时提示音并自动结束，无需按空格。"
+            if rest_only else "开始前短暂休息，随后自动运行任务；睁眼、闭眼静息请分别选择独立方案。"
         )
         note.setWordWrap(True)
         layout.addRow(note)
         fields = {}
-        resting_fields = () if pilot else (("resting_open_seconds", "专门睁眼静息 / 秒"), ("resting_closed_seconds", "专门闭眼静息 / 秒"))
+        resting_fields = (("resting_open_seconds", "专门睁眼静息 / 秒"),) if scheme == "rest_open" else (
+            (("resting_closed_seconds", "专门闭眼静息 / 秒"),) if scheme == "rest_closed" else ())
         for name, title in resting_fields:
-            box = QSpinBox(); box.setRange(60, 240); box.setSingleStep(30); box.setValue(int(getattr(config, name)))
+            box = QSpinBox(); box.setRange(5, 240); box.setSingleStep(5); box.setValue(int(getattr(config, name)))
             fields[name] = box; layout.addRow(title, box)
         count_fields = []
         if not rest_only and not pilot:
-            count_fields.append(("repetitions", "每种目标×动作组合次数" if serial else "每种 MI 动作次数"))
-            if serial:
-                count_fields.append(("idle_trials", "起始空闲窗口数"))
+            count_fields.append(("serial_pair_count", "正式采集总组数") if serial else ("repetitions", "每种 MI 动作次数"))
         for name, title in count_fields:
-            box = QSpinBox(); box.setRange(1, 30); box.setValue(getattr(config, name))
+            box = QSpinBox()
+            box.setRange(1, 600 if name == "serial_pair_count" else 50)
+            box.setValue((config.serial_pair_count or replace(config, mode="serial").pair_count)
+                         if name == "serial_pair_count" else getattr(config, name))
             fields[name] = box; layout.addRow(title, box)
         timing_fields = []
         if not rest_only:
-            timing_fields.append(("cue_seconds", "提示 / 秒"))
+            timing_fields.append(("baseline_seconds", "开始前休息 / 秒"))
             if serial:
-                timing_fields.extend((("ssvep_seconds", "SSVEP / 秒"), ("gap_seconds", "两阶段间隔 / 秒")))
-            timing_fields.extend((("mi_seconds", "MI / 秒"), ("rest_seconds", "休息 / 秒")))
+                timing_fields.extend((("cue_seconds", "SSVEP 目标提示 / 秒"), ("ssvep_seconds", "SSVEP / 秒"),
+                                      ("gap_seconds", "两阶段间隔 / 秒")))
+            timing_fields.extend((("mi_cue_seconds", "MI 动作提示 / 秒"), ("mi_seconds", "MI 想象采集 / 秒"),
+                                  ("rest_seconds", "休息 / 秒")))
         for name, title in timing_fields:
             box = QDoubleSpinBox(); box.setRange(2 if name in ("ssvep_seconds", "mi_seconds") else .5, 30)
             box.setSingleStep(.5); box.setValue(getattr(config, name)); fields[name] = box; layout.addRow(title, box)
@@ -229,8 +329,6 @@ class ExperimentController:
                 values = {name: box.value() for name, box in fields.items()}
                 if not rest_only:
                     values["task_set"] = tasks.currentData()
-                    if not pilot:
-                        values["include_dedicated_rest"] = include_rest.isChecked()
                 updated = replace(config, **values).validate()
             except ValueError as exc:
                 self.host._notify(str(exc))
@@ -238,80 +336,40 @@ class ExperimentController:
             self.host.actions.hybrid_experiment_config = updated
             self.host._notify(f"{paradigm} 采集计划已更新")
 
-    def run_preflight(self):
-        if self.running:
-            self.host._notify("请结束当前实验后再运行试采检查")
-            return
-        worker = self.host._pipeline_worker
-        if worker is None or not worker.isRunning() or self.host.experiment_recorder is None:
-            self.host._notify("先应用候选 5+3 布局并启动实时数据流，再运行试采检查")
-            return
-        if worker.source_name.strip().lower().startswith(("csv", "mock", "demo")):
-            self.host._notify("正式采集检查需要真实硬件或 LSL，回放／模拟不能通过")
-            return
-        if self.host.actions.montage_id != HYBRID.id or tuple(self.host._eeg_channel_names) != HYBRID.names:
-            self.host._notify("先停流并应用候选布局：" + ", ".join(HYBRID.names))
-            return
-        self.preflight = None
-        self.host.actions.bci_control_enabled = False
-        worker.set_paradigm_type("SSVEP+MI混合")
-        dialog = AcquisitionPreflightDialog(worker, self.host.experiment_recorder.root,
-                                            self.host if isinstance(self.host, QWidget) else None)
-        dialog.exec()
-        if dialog.probe_result is not None:
-            self.preflight = dialog.probe_result
-            self._preflight_worker, self._preflight_time = worker, time.monotonic()
-            self.host._notify("试采检查通过；物理显示延迟仍需独立实测" if self.preflight["formal_ready"] else "试采检查未通过，请查看检查报告并修正")
-
-    def preflight_ready(self):
-        return bool(self.preflight and self.preflight.get("formal_ready")
-                    and self._preflight_worker is self.host._pipeline_worker
-                    and time.monotonic() - self._preflight_time <= 900
-                    and self.host.actions.montage_id == self.preflight.get("montage_id")
-                    and tuple(self.host._eeg_channel_names) == tuple(self.preflight.get("channel_names", ()))
-                    and tuple(self.host._eeg_original_channel_names or self.host._eeg_channel_names)
-                        == tuple(self.preflight.get("original_channel_names") or ()))
-
-    def pilot_signature(self, config):
-        return (config.mode, config.task_set, config.cue_seconds, config.ssvep_seconds, config.gap_seconds,
-                config.mi_seconds, config.rest_seconds, config.baseline_seconds, self.host.actions.montage_id,
-                (self.preflight or {}).get("id"))
-
-    def start_hybrid(self, mode=None, *, pilot=False):
+    def start_hybrid(self, mode=None, *, pilot=False, scheme=None):
         worker = self.host._pipeline_worker
         if self.automatic_window is not None:
             self.automatic_window.showFullScreen(); self.automatic_window.raise_(); return
-        if worker is None or not worker.isRunning() or time.monotonic() - self.host.acquisition.last_frame_monotonic > 2:
-            self.host._notify("请应用 5+3 布局，然后启动实时 EEG 数据流")
+        if not self._require_subject():
             return
-        if worker.source_name.strip().lower().startswith(("csv", "mock", "demo")):
-            self.host._notify("配对采集需要实时硬件或 LSL EEG；回放数据不能充当新采集")
-            return
-        if self.host.actions.montage_id != HYBRID.id or tuple(self.host._eeg_channel_names) != HYBRID.names:
-            self.host._notify("需要候选 5+3 实际接线：O1 Oz O2 P3 P4 C3 Cz C4；请停流后应用布局")
-            return
-        if abs(float(self.host._eeg_sample_rate) - SAMPLE_RATE_HZ) > 5:
-            self.host._notify("当前采样率与 250 Hz 配对采集配置不符")
-            return
-        if not self.preflight_ready():
-            self.host._notify("本次数据流尚未通过试采检查，或检查已超过 15 分钟；请先点“硬件／时间检查”")
-            return
-        paradigm = "MI" if mode == "mi" or (mode is None and self.host.actions.paradigm_type == "MI") else "SSVEP+MI混合"
+        if not self.external_recording:
+            if worker is None or not worker.isRunning() or time.monotonic() - self.host.acquisition.last_frame_monotonic > 2:
+                self.host._notify("请应用 5+3 布局，然后启动实时 EEG 数据流")
+                return
+            if worker.source_name.strip().lower().startswith(("csv", "mock", "demo")):
+                self.host._notify("配对采集需要实时硬件或 LSL EEG；回放数据不能充当新采集")
+                return
+            if self.host.actions.montage_id != HYBRID.id or tuple(self.host._eeg_channel_names) != HYBRID.names:
+                self.host._notify("需要候选 5+3 实际接线：O1 Oz O2 P3 P4 C3 Cz C4；请停流后应用布局")
+                return
+            if abs(float(self.host._eeg_sample_rate) - SAMPLE_RATE_HZ) > 5:
+                self.host._notify("当前采样率与 250 Hz 配对采集配置不符")
+                return
+        paradigm = "MI" if mode == "mi" or self.host.actions.paradigm_type == "MI" else "SSVEP+MI混合"
+        scheme = scheme or ("pilot" if pilot else "rest" if mode == "rest" else "formal")
+        if scheme in REST_SCHEMES:
+            paradigm = self.host.actions.paradigm_type
         config = hybrid_collection_config(
-            self.host.actions.hybrid_experiment_config, paradigm,
-            "pilot" if pilot else "rest" if mode == "rest" else "formal",
+            self.host.actions.hybrid_experiment_config, paradigm, scheme,
         )
-        if pilot:
-            self.pilot_audit = None
-        elif config.mode != "rest" and (not self.pilot_audit or not self.pilot_audit.get("passed")
-                or self.pilot_audit.get("signature") != self.pilot_signature(config)):
-            self.host._notify("先运行“流程试跑（2组）”并通过软件时序检查，再开始正式任务；试跑数据不进入正式分析")
-            return
         self.host.actions.bci_control_enabled = False
-        worker.set_paradigm_type("SSVEP+MI混合")
+        if not self.external_recording:
+            worker.set_paradigm_type("SSVEP+MI混合")
         self._marker_failure = False
         window = HybridExperimentWindow(config, self.host if isinstance(self.host, QWidget) else None,
-                                        preflight_id=self.preflight["id"])
+                                        external_recording=self.external_recording)
+        if not self._bind_run(window, paradigm, scheme):
+            return
         window.setAttribute(Qt.WA_DeleteOnClose, True)
         window.capture_requested.connect(self._capture_trial)
         window.phase_marker.connect(self._record_phase)
@@ -327,11 +385,13 @@ class ExperimentController:
         if window is None:
             return
         worker = self.host._pipeline_worker
-        if window.running and worker is not None:
+        if window.running and worker is not None and not self.external_recording:
             worker.cancel_experiment_trial("dashboard_deactivated")
         window.abort_immediately("dashboard_deactivated")
 
     def notify_error(self, message: str) -> None:
+        if self.external_recording:
+            return
         if self.running and self.automatic_window is not None:
             if "没有可用 EEG 通道" in str(message):
                 self.automatic_window.notify_quality_warning(str(message))
@@ -339,6 +399,8 @@ class ExperimentController:
             self.automatic_window.notify_trial_save_error(message)
 
     def notify_trial_saved(self, label: str, path: str) -> None:
+        if self.external_recording:
+            return
         if self.automatic_window is not None:
             if isinstance(self.automatic_window, HybridExperimentWindow):
                 try:
@@ -364,6 +426,8 @@ class ExperimentController:
                 "ssvep_idle_windows": quality.get("bn_idle_windows", 0)}
 
     def handle_worker_finished(self) -> None:
+        if self.external_recording:
+            return
         if self.running and self.automatic_window is not None:
             self.automatic_window.notify_trial_save_error("实时 EEG 采集线程已停止")
 
@@ -392,6 +456,12 @@ class ExperimentController:
     def _capture_trial(self, payload: object) -> None:
         worker = self.host._pipeline_worker
         window = self.automatic_window
+        if self.external_recording and window is not None and isinstance(payload, dict):
+            try:
+                self.external_journal.capture({**payload, **self._run_context})
+            except (OSError, ValueError, TypeError) as exc:
+                self._external_log_error(exc)
+            return
         if worker is None or window is None or not isinstance(payload, dict):
             return
         try:
@@ -401,17 +471,34 @@ class ExperimentController:
                 float(payload.get("marker_timestamp", time.time())),
                 duration_seconds=float(payload.get("duration_seconds", 0.0) or 0.0),
                 discard_seconds=float(payload.get("discard_seconds", 0.0) or 0.0),
-                metadata=payload,
+                metadata={**payload, **self._run_context},
             )
         except Exception as exc:
             window.notify_trial_save_error(str(exc))
             self.host._notify(f"自动试次启动失败：{exc}")
 
+    def _external_log_error(self, exc):
+        if self._marker_failure:
+            return
+        self._marker_failure = True
+        window = self.automatic_window
+        if window is not None:
+            window.external_log_failed = True
+            if window.running:
+                QTimer.singleShot(0, lambda: window.notify_trial_save_error(f"实验日志保存失败：{exc}"))
+        self.host._notify(f"实验日志保存失败：{exc}")
+
     def _record_phase(self, name: str, timestamp: float, metadata: object) -> None:
+        if self.external_recording:
+            try:
+                self.external_journal.phase(name, timestamp, dict(metadata or {}))
+            except (OSError, ValueError, TypeError) as exc:
+                self._external_log_error(exc)
+            return
         worker = self.host._pipeline_worker
         if worker is None:
             return
-        context = metadata if isinstance(metadata, dict) else {}
+        context = {**(metadata if isinstance(metadata, dict) else {}), **self._run_context}
         phase = str(name).removeprefix("auto_ssvep_")
         try:
             if phase in {"cue", "stimulus", "analysis", "rest"}:
@@ -430,9 +517,20 @@ class ExperimentController:
                 QTimer.singleShot(0, lambda: window.notify_trial_save_error("时间标记保存失败，已中止本次采集"))
 
     def _finish(self, status: str, summary: object) -> None:
+        if self.external_recording:
+            try:
+                self.external_journal.finish(status, dict(summary or {}))
+                self.host._notify(f"实验呈现{'完成' if status == 'completed' else '中止'}："
+                    f"已记录 {self.external_journal.completed} 个完整阶段；"
+                    f"未在本机保存 EEG。日志：{self.external_journal.path}；稍后导入 BDF 并确认时间对齐。")
+            except (OSError, ValueError, TypeError) as exc:
+                self.host._notify(f"实验汇总写入失败：{exc}；请保留已有日志")
+            return
         if status == "aborted" and self.host._pipeline_worker is not None:
             self.host._pipeline_worker.cancel_experiment_trial("automatic_protocol_aborted")
-        values = summary if isinstance(summary, dict) else {}
+        values = dict(summary) if isinstance(summary, dict) else {}
+        if values.get("run_id") == self._run_context.get("run_id"):
+            values.update(self._run_context)
         assignment_message = self._label_completed_run(values)
         if "completed_pairs" in values:
             recorder = self.host.experiment_recorder
@@ -447,12 +545,8 @@ class ExperimentController:
                         json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                     assignment_message += "；软件时序检查" + ("通过" if audit["software_timing_checks_passed"] else "有异常，请查看 timing-audit 报告")
                     if values.get("config", {}).get("purpose") == "pilot":
-                        from src.services.hybrid_experiment_protocol import HybridExperimentConfig
-                        self.pilot_audit = {"passed": audit["run_completed"] and audit["software_timing_checks_passed"] and audit["signal_quality_checks_passed"],
-                            "signature": self.pilot_signature(HybridExperimentConfig(**values["config"])),
-                            "run_id": values["run_id"]}
                         if not audit["signal_quality_checks_passed"]:
-                            assignment_message += "；试跑信号质量未通过，请检查电极后重试"
+                            assignment_message += "；试跑信号质量存在异常，详情见检查报告"
                 except OSError as exc:
                     assignment_message += f"；汇总保存失败：{exc}（原始试次文件仍保留）"
             self.host._notify(f"配对采集{'完成' if status == 'completed' else '中止'}："
@@ -470,7 +564,7 @@ class ExperimentController:
         )
 
     def _label_completed_run(self, values: dict) -> str:
-        """Ask once at run end and persist protected participant metadata."""
+        """Refresh the analysis browser using the identity fixed before capture."""
 
         recorder = self.host.experiment_recorder
         run_id = str(values.get("run_id", "")).strip()
@@ -480,33 +574,21 @@ class ExperimentController:
         try:
             catalog = SubjectCatalog(recorder.root)
         except (OSError, ValueError) as exc:
-            return f"；受试者标签未保存（{exc}）"
-        default_name = catalog.next_default_name()
-        existing = catalog.assignment_for_run(run_id)
-        if existing is not None:
-            default_name = existing.display_name
-        parent = self.automatic_window
-        name, accepted = QInputDialog.getText(
-            parent,
-            "保存采集数据标签",
-            "一级标签：受试者姓名或编号\n"
-            "二级标签将按本次采集日期自动生成；输入已有姓名会归入同一受试者：",
-            text=default_name,
-        )
-        chosen_name = str(name).strip() if accepted else default_name
-        acquisition_date = self._run_date(run_id)
-        try:
-            assignment = catalog.assign_run(
-                run_id,
-                acquisition_date,
-                chosen_name or default_name,
-                assignment_source="acquisition-finish-dialog",
-            )
-        except (OSError, ValueError) as exc:
-            return f"；受试者标签未保存（{exc}）"
+            return f"；受试者目录读取失败（{exc}，原始文件已保留）"
+        assignment = catalog.assignment_for_run(run_id)
+        if assignment is None:
+            return "；缺少批次受试者归属，请在数据分析页核对"
         browser = getattr(self.host, "trial_analysis", None)
-        if browser is not None and getattr(browser, "source_path", None) is not None:
+        if browser is not None:
             browser.load_project_data()
+            browser.select_subject(assignment.subject_id)
+            browser.select_date(assignment.acquisition_date)
+            # Prefer a complete pair over the run's idle calibration/rest stages.
+            records = [record for record in browser.records if record.experiment_id == run_id]
+            if records:
+                record = min(records, key=lambda row: (browser.paired_record(row) is None,
+                    row.analysis_kind != "ssvep", row.trial_id))
+                browser.select_record(browser.records.index(record))
         return (
             f"；已归档到 {assignment.display_name} / "
             f"{assignment.acquisition_date}"
@@ -523,6 +605,8 @@ class ExperimentController:
 
     def _window_destroyed(self, *_args) -> None:
         self.automatic_window = None
+        self._run_context = {}
+        self.external_journal = None
 
     def _quality_status(self, path: str) -> str:
         recorder = self.host.experiment_recorder

@@ -27,7 +27,7 @@ TRIAL_FIELDS = (
     "repetition", "random_seed", "cue_lsl_time", "stimulus_lsl_time",
     "analysis_lsl_time", "rest_lsl_time", "window_start_lsl_time",
     "window_end_lsl_time", "window_duration_seconds", "clock_source",
-    "trial_metadata_json",
+    "trial_metadata_json", "subject_name", "collection_type", "collection_scheme",
 )
 PHASE_NAMES = ("cue", "stimulus", "analysis", "rest")
 

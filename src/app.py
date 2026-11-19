@@ -34,8 +34,6 @@ class CommandConsoleWindow(QMainWindow):
             ssvep_test_recorder=self.container.ssvep_test_recorder,
             soldier_ssvep_recorder=self.container.soldier_ssvep_recorder,
             swarm_gateway=self.container.swarm_gateway,
-            system_monitor=self.container.system_monitor,
-            engineer_data_provider=self.container.engineer_data_provider,
         )
         self.pages.addWidget(self.login_view)
         self.pages.addWidget(self.main_view)

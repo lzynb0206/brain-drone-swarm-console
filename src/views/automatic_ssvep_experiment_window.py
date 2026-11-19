@@ -42,9 +42,12 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
     experiment_finished = Signal(str, object)
     SAVE_ACK_TIMEOUT_SECONDS = 10.0
 
-    def __init__(self, config: AutomaticExperimentConfig, parent=None) -> None:
+    def __init__(self, config: AutomaticExperimentConfig, parent=None, *, external_recording=False) -> None:
         super().__init__(parent, Qt.Window)
         self.config = config.validate()
+        self.external_recording = external_recording
+        self.external_log_failed = False
+        self.logged_segments = 0
         self.protocol = AutomaticExperimentProtocol(self.config)
         self.targets = tuple(
             StimulusTarget(label, float(frequency))
@@ -219,13 +222,16 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
                     "discard_seconds": float(self.config.discard_seconds),
                     "analysis_duration_seconds": float(self.config.analysis_seconds),
                     "marker_timestamp": self._phase_started_wall,
+                    "presentation_monotonic": self._phase_started_monotonic,
+                    "onset_estimate": "software_phase_transition",
+                    "presentation_is_physical_measurement": False,
                 }
             )
             self.capture_requested.emit(payload)
             mode = "真实空闲负样本（六块闪烁，只看中央）" if self.current_label == "空闲" else "视觉刺激"
             self.status_changed.emit(f"正在采集 {self.current_label} · {mode}")
         elif transition.phase == ExperimentPhase.SAVING:
-            self.status_changed.emit("刺激结束，正在等待原始 EEG 安全保存…")
+            self.status_changed.emit("刺激结束，实验日志已记录" if self.external_recording else "刺激结束，正在等待原始 EEG 安全保存…")
         elif transition.phase == ExperimentPhase.REST:
             self.status_changed.emit(
                 f"第 {transition.trial.trial_index}/{self.protocol.total_trials} 试次已保存 · 休息"
@@ -234,6 +240,9 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
             self._timer.stop()
             self._emit_terminal(transition.phase, transition.reason)
         self.update()
+        if transition.phase == ExperimentPhase.SAVING and self.external_recording and not self.external_log_failed:
+            self.logged_segments += 1
+            self._handle_transition(self.protocol.trial_saved(time.monotonic()), time.monotonic())
         if transition.phase == ExperimentPhase.SAVING and self._early_saved_ack is not None:
             label, path, quality = self._early_saved_ack
             self._early_saved_ack = None
@@ -291,6 +300,8 @@ class AutomaticSSVEPExperimentWindow(StimulusCanvas):
             "status": status,
             "reason": reason,
             "saved_trials": len(self._saved_paths),
+            "logged_segments": self.logged_segments,
+            "eeg_recorded_locally": not self.external_recording,
             "valid_trials": max(
                 0,
                 len(self._saved_paths)

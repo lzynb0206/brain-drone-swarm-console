@@ -18,7 +18,7 @@ class MainActionRouter(QObject):
     def activate(self, action: str, x: float = 0, y: float = 0) -> None:
         """Route every painted control to a stateful application action."""
         view = self.host
-        if (getattr(view.actions, "montage_id", "") in HYBRID_IDS
+        if (not view.experiment.external_recording and getattr(view.actions, "montage_id", "") in HYBRID_IDS
                 and (action in {"ssvep-command-test", "single-target-calibration-start", "guided-calibration-start"}
                      or action == "paradigm-start" and view.actions.paradigm_type == "SSVEP")):
             view._notify("当前为 5+3 布局，请在混合范式中启动配对采集；八通道 SSVEP 工具需要先恢复原布局")
@@ -37,13 +37,11 @@ class MainActionRouter(QObject):
         elif action.startswith("acquisition-tab:"):
             view.acquisition_tab = action.split(":", 1)[1]
             view.update()
-        elif action.startswith("engineer:"):
-            view.engineer_page = action.split(":", 1)[1]
-            view.update()
         elif action.startswith("soldier-root:"):
             view.soldier_root = action.split(":", 1)[1]
             view.update()
         elif action.startswith("soldier-page:"):
+            view.soldier_root = "单兵面板"
             view.soldier_page = action.split(":", 1)[1]
             view.update()
         elif action.startswith("paradigm-frequency:"):
@@ -63,8 +61,14 @@ class MainActionRouter(QObject):
             view._notify(f"脑控范式已切换：{view.actions.paradigm_type}")
         elif action.startswith("collection-scheme:"):
             view.experiment.select_collection_scheme(action.split(":", 1)[1])
+        elif action.startswith("collection-recording:"):
+            view.experiment.set_recording_mode(action.split(":", 1)[1])
         elif action == "collection-config":
             view.experiment.configure_collection()
+        elif action == "collection-subject":
+            view.experiment.choose_subject()
+        elif action == "collection-subject-new":
+            view.experiment.choose_subject(create=True)
         elif action == "collection-start":
             view.experiment.start_collection()
         elif action == "paradigm-size":
@@ -88,8 +92,6 @@ class MainActionRouter(QObject):
             view.experiment.configure_hybrid()
         elif action == "hybrid-pilot-start":
             view.experiment.start_hybrid(pilot=True)
-        elif action == "hybrid-preflight":
-            view.experiment.run_preflight()
         elif action == "hybrid-rest-start":
             view.experiment.start_hybrid(mode="rest")
         elif action == "hybrid-experiment-start":
@@ -173,6 +175,8 @@ class MainActionRouter(QObject):
             view.trial_analysis.choose_directory()
         elif action == "analysis-import-files":
             view.trial_analysis.choose_files()
+        elif action == "analysis-import-bdf":
+            view.trial_analysis.choose_bdf()
         elif action.startswith("analysis-subject:"):
             view.trial_analysis.select_subject(action.split(":", 1)[1])
         elif action == "analysis-subject-rename":
@@ -217,18 +221,6 @@ class MainActionRouter(QObject):
         elif action.startswith("log-filter:"):
             view.actions.log_filter = action.split(":", 1)[1]
             view.update()
-        elif action == "self-test":
-            view._notify(view.actions.run_self_test())
-        elif action == "admin-clean-cache":
-            view._notify(view.actions.clean_cache())
-        elif action == "admin-backup":
-            view._notify(view.actions.create_backup())
-        elif action == "admin-restore":
-            view._notify(view.actions.restore_backup())
-        elif action.startswith("admin-device:"):
-            view._show_device_dialog(action.split(":", 1)[1])
-        elif action.startswith("admin-user:"):
-            view._edit_user_dialog(action.split(":", 1)[1])
         elif action.startswith("swarm-command:"):
             view._notify(view.actions.send_swarm_command(action.split(":", 1)[1]))
         elif action == "swarm-configure-uris":

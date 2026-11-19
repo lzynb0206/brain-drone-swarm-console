@@ -37,7 +37,7 @@ class ResearchSingleTargetViewMixin:
         )
         for index, (number, title, body) in enumerate(steps):
             y = 205 + index * 79
-            c.circle(74, y + 19, 18, "#e7f4f8", CYAN)
+            c.circle(74, y + 19, 18, PANEL_SOFT, CYAN)
             c.text(56, y + 1, 36, 36, number, 10, TEXT, True, Qt.AlignCenter)
             c.text(105, y - 2, 260, 25, title, 13, TEXT, True)
             c.text(105, y + 23, 260, 36, body, 9, MUTED)

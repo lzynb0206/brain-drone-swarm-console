@@ -15,6 +15,7 @@ from src.widgets.scifi_canvas import (
     RESEARCH_PANEL as PANEL,
     RESEARCH_PANEL_SOFT as PANEL_SOFT,
     RESEARCH_RED as RED,
+    RESEARCH_SELECTION as SELECTION,
     RESEARCH_TEXT as TEXT,
     RESEARCH_YELLOW as YELLOW,
     Canvas,
@@ -32,8 +33,8 @@ class ResearchCollectionViewMixin:
     def _research_integrated_collector(self, c: Canvas) -> None:
         """One-stop direct hardware/LSL recorder based on the standalone tool."""
 
-        bg, panel, border = "#eef1f4", "#ffffff", "#ccd3da"
-        ink, sub, blue = "#26323c", "#697681", "#2e628f"
+        bg, panel, border = BG, "#ffffff", BORDER
+        ink, sub, blue = TEXT, MUTED, CYAN
         c.rect(0, 56, 1280, 664, bg)
         c.text(24, 67, 600, 32, "EEG 一体化采集器", 18, ink, True)
         c.text(24, 96, 860, 21, "ExpandableEEG / OpenBCI直连 · LSL兼容输入 · 8通道实时波形 · CSV自动保存", 10, sub)
@@ -52,11 +53,11 @@ class ResearchCollectionViewMixin:
             else str(getattr(self.eeg_stream, "source_name", "obci_eeg1")).replace("LSL · ", "")
         )
         c.text(474, 136, 66, 24, "当前设备", 9, sub, True)
-        c.rect(540, 133, 260, 31, "#f7f9fa", border, 2)
+        c.rect(540, 133, 260, 31, PANEL_SOFT, border, 2)
         c.text(550, 133, 240, 31, source_value, 9, ink)
         self._light_button(c, 815, 133, 118, 31, "刷新/选择", False, blue)
-        self._light_button(c, 941, 133, 134, 31, "开始采集", False, "#31875a")
-        self._light_button(c, 1083, 133, 116, 31, "停止采集", False, "#bd4b4b")
+        self._light_button(c, 941, 133, 134, 31, "开始采集", False, GREEN)
+        self._light_button(c, 1083, 133, 116, 31, "停止采集", False, RED)
         self._hit(815, 133, 118, 31, "collector-refresh")
         self._hit(941, 133, 134, 31, "collector-start")
         self._hit(1083, 133, 116, 31, "collector-stop")
@@ -65,9 +66,9 @@ class ResearchCollectionViewMixin:
         c.text(485, 177, 140, 22, "采样率：250 Hz", 9, sub)
         c.text(650, 177, 270, 22, "连接：蓝牙虚拟COM/串口（115200）", 9, sub)
         running = self._pipeline_worker is not None and self._pipeline_worker.isRunning()
-        c.circle(1105, 188, 6, "#39a96b" if running else "#c45555")
+        c.circle(1105, 188, 6, GREEN if running else RED)
         c.text(1118, 176, 114, 24, "采集中" if running else "未采集", 9, ink, True)
-        c.text(39, 203, 1170, 20, self._eeg_status, 9, "#3b6f95")
+        c.text(39, 203, 1170, 20, self._eeg_status, 9, CYAN)
 
         csv_stats = self._raw_csv_recorder.snapshot()
         health = self._eeg_health
@@ -87,7 +88,7 @@ class ResearchCollectionViewMixin:
         for index, (label, value) in enumerate(metrics):
             x = 24 + index * 306
             c.text(x, 238, 294, 20, label, 9, sub)
-            c.rect(x, 260, 294, 48, "#e3e7ea", border, 3)
+            c.rect(x, 260, 294, 48, SELECTION, border, 3)
             c.text(x, 260, 294, 48, value, 13, ink, True, Qt.AlignCenter)
 
         # The standalone LSL recorder's file and plot controls are retained.
@@ -111,7 +112,7 @@ class ResearchCollectionViewMixin:
         c.rect(928, 350, 328, 350, panel, border, 4)
         c.text(942, 354, 300, 27, "运行日志 / 数据质量", 11, ink, True)
         gaps = int(health.get("gap_count", 0) or 0)
-        c.text(942, 385, 140, 20, f"数据缺口：{gaps}", 9, "#b44d4d" if gaps else "#31875a", True)
+        c.text(942, 385, 140, 20, f"数据缺口：{gaps}", 9, RED if gaps else GREEN, True)
         c.text(1090, 385, 150, 20, f"通道：{len(self._eeg_channel_names) or 8}", 9, sub, False, Qt.AlignRight)
         c.line(942, 410, 1242, 410, border)
         events = list(self._eeg_events)[:11]
@@ -122,7 +123,7 @@ class ResearchCollectionViewMixin:
         c.text(
             942, 660, 300, 28,
             "暂停波形只停止绘图，CSV仍持续保存全部样本。",
-            8, "#8b6b2e", False, Qt.AlignCenter,
+            8, YELLOW, False, Qt.AlignCenter,
         )
 
     def _research_lsl_collector(self, c: Canvas) -> None:
@@ -141,8 +142,8 @@ class ResearchCollectionViewMixin:
         c.rect(50, 170, 486, 36, PANEL_SOFT, BORDER, 3)
         c.text(64, 170, 458, 36, stream_name, 10, TEXT)
         self._light_button(c, 552, 170, 140, 36, "刷新 / 选择")
-        self._light_button(c, 704, 170, 128, 36, "开始收集", False, "#31875a")
-        self._light_button(c, 844, 170, 128, 36, "停止收集", False, "#bd4b4b")
+        self._light_button(c, 704, 170, 128, 36, "开始收集", False, GREEN)
+        self._light_button(c, 844, 170, 128, 36, "停止收集", False, RED)
         self._light_button(c, 984, 170, 152, 36, "打开数据目录")
         self._hit(552, 170, 140, 36, "lsl-collector-refresh")
         self._hit(704, 170, 128, 36, "lsl-collector-start")
@@ -177,7 +178,7 @@ class ResearchCollectionViewMixin:
             c, 1084, 322, 164, 32,
             "恢复波形" if collector.waveform_paused else "暂停波形",
             collector.waveform_paused,
-            "#2e628f",
+            CYAN,
         )
         self._hit(1084, 322, 164, 32, "lsl-collector-pause")
 
@@ -213,7 +214,7 @@ class ResearchCollectionViewMixin:
         c.p.setClipRect(QRectF(x, y, w, h))
         for index, values in enumerate(histories):
             baseline = y + row_height * (index + 0.5)
-            c.line(x, baseline, x + w, baseline, "#e1e7ee")
+            c.line(x, baseline, x + w, baseline, "#e5e5e5")
             label = collector.channel_names[index] if index < len(collector.channel_names) else f"CH{index + 1}"
             c.text(x, baseline - 10, 54, 20, label[:8], 8, MUTED)
             if len(values) < 2:

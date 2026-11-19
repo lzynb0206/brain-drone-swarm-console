@@ -5,7 +5,7 @@ import unittest
 
 from PySide6.QtWidgets import QApplication, QWidget
 
-from src.adapters.mock import MockSwarmGateway, MockSystemMonitor
+from src.adapters.mock import MockSwarmGateway
 from src.adapters.real.crazyflie_command_queue import CrazyflieCommandQueue
 from src.adapters.real.crazyflie_telemetry import CrazyflieTelemetryMapper
 from src.controllers import (
@@ -15,9 +15,8 @@ from src.controllers import (
     LSLCollectionController,
     SoldierBCIController,
 )
-from src.domain import SwarmCommand
+from src.domain import Role, SwarmCommand, User
 from src.services import WorkbenchService
-from src.services.admin_operations_service import AdminOperationsService
 from src.services.bci_execution_service import BCIExecutionService
 from src.services.research_workbench_service import ResearchWorkbenchService
 from src.services.swarm_control_service import SwarmControlService
@@ -30,21 +29,19 @@ class RefactoredBoundaryTest(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_workbench_facade_composes_focused_services(self) -> None:
-        service = WorkbenchService(MockSwarmGateway(), MockSystemMonitor())
+        service = WorkbenchService(MockSwarmGateway())
 
         self.assertIsInstance(service.research, ResearchWorkbenchService)
         self.assertIsInstance(service.swarm, SwarmControlService)
         self.assertIsInstance(service.bci, BCIExecutionService)
-        self.assertIsInstance(service.admin, AdminOperationsService)
         service.paradigm_frequency = 15.0
         self.assertEqual(15.0, service.research.paradigm_frequency)
 
     def test_role_pages_are_real_widgets_and_emit_semantic_actions(self) -> None:
-        view = MainView(swarm_gateway=MockSwarmGateway(), system_monitor=MockSystemMonitor())
+        view = MainView(swarm_gateway=MockSwarmGateway())
         try:
             self.assertIsInstance(view.research_widget, QWidget)
             self.assertIsInstance(view.soldier_widget, QWidget)
-            self.assertIsInstance(view.admin_widget, QWidget)
             self.assertIsInstance(view.acquisition, EEGAcquisitionController)
             self.assertIsInstance(view.csv_replay, CSVReplayController)
             self.assertIsInstance(view.lsl_collector, LSLCollectionController)
@@ -52,6 +49,21 @@ class RefactoredBoundaryTest(unittest.TestCase):
             self.assertIsInstance(view.experiment, ExperimentController)
             view.research_widget.action_requested.emit("algorithm-select:SVM", 0.0, 0.0)
             self.assertEqual("SVM", view.actions.algorithm)
+        finally:
+            view.close()
+
+    def test_only_supported_roles_have_workspaces_and_registration_choices(self) -> None:
+        from src.views.login_view import ROLE_CHOICES
+
+        self.assertEqual({role.value for role in Role}, {"soldier", "commander", "researcher"})
+        self.assertEqual({role for _, role in ROLE_CHOICES}, set(Role))
+        view = MainView(swarm_gateway=MockSwarmGateway())
+        try:
+            self.assertEqual(view._role_stack.count(), 2)
+            for role in Role:
+                view.set_user(User(role.value, role.label, role))
+                expected = view.research_widget if role == Role.RESEARCHER else view.soldier_widget
+                self.assertIs(view._role_stack.currentWidget(), expected)
         finally:
             view.close()
 
