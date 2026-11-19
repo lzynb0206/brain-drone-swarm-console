@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMainWindow, QStackedWidget
 
+from src import APP_TITLE
 from src.container import ApplicationContainer, create_default_container
 from src.domain import User
 from src.views.login_view import LoginView
@@ -17,7 +18,7 @@ class CommandConsoleWindow(QMainWindow):
     def __init__(self, container: ApplicationContainer | None = None) -> None:
         super().__init__()
         self.container = container or create_default_container()
-        self.setWindowTitle("脑控无人机蜂群作战系统 v1.0")
+        self.setWindowTitle(APP_TITLE)
         self.resize(1280, 720)
         self.setMinimumSize(1024, 576)
 
@@ -44,14 +45,14 @@ class CommandConsoleWindow(QMainWindow):
     def _show_main_view(self, user: User) -> None:
         self.main_view.set_user(user)
         self.pages.setCurrentWidget(self.main_view)
-        self.setWindowTitle("脑控无人机蜂群作战系统 v1.0")
+        self.setWindowTitle(APP_TITLE)
 
     def _show_login_view(self) -> None:
         self.main_view.deactivate()
         self.container.auth_service.logout()
         self.login_view.reset()
         self.pages.setCurrentWidget(self.login_view)
-        self.setWindowTitle("脑控无人机蜂群作战系统 v1.0")
+        self.setWindowTitle(APP_TITLE)
 
     def keyPressEvent(self, event) -> None:  # type: ignore[override]
         if event.key() == Qt.Key_Escape and self.pages.currentWidget() is self.main_view:

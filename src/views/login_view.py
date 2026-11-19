@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src import APP_TITLE, __version__
 from src.ports import AuthError
 from src.domain import Role, User
 from src.services.auth_service import AuthService
@@ -183,7 +184,7 @@ class LoginView(BackdropWidget):
         mark_row.addStretch()
         column.addLayout(mark_row)
         column.addSpacing(13)
-        title = QLabel("脑控无人机蜂群作战系统 v1.0")
+        title = QLabel(APP_TITLE)
         title.setObjectName("loginTitle")
         title.setAlignment(Qt.AlignCenter)
         column.addWidget(title)
@@ -233,7 +234,7 @@ class LoginView(BackdropWidget):
         column.addWidget(card)
         root.addWidget(content, 0, Qt.AlignHCenter)
         root.addStretch(2)
-        version = QLabel("V1.0.0 版权所有")
+        version = QLabel(f"V{__version__} 版权所有")
         version.setObjectName("loginVersion")
         version.setAlignment(Qt.AlignCenter)
         version.setFixedHeight(24)

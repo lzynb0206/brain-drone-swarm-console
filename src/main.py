@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
+from src import APP_NAME, __version__
 from src.app import CommandConsoleWindow
 
 
@@ -31,7 +32,8 @@ def _set_ui_font(app: QApplication) -> None:
 
 def main() -> int:
     app = QApplication(sys.argv)
-    app.setApplicationName("脑控无人机蜂群作战系统")
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(__version__)
     app.setOrganizationName("Brain Control Lab")
 
     _set_ui_font(app)
