@@ -89,7 +89,8 @@ class SoldierViewMixin:
         c.fill("#f5f5f5")
         c.panel(300, 82, 606, 612)
         c.text(326, 87, 520, 30, "驾驶参数与手动操控", 14, TEXT, True)
-        c.panel(920, 82, 330, 330, "任务与编队")
+        task_x, task_y, task_width, task_height = 920, 82, 330, 330
+        c.panel(task_x, task_y, task_width, task_height, "任务与编队")
         gateway_status = self.swarm_gateway.status() if self.swarm_gateway is not None else None
         telemetry = tuple(self.swarm_gateway.list_uavs()) if self.swarm_gateway is not None else ()
         configured_uris = tuple(
@@ -316,11 +317,20 @@ class SoldierViewMixin:
         c.line(448 + 350 * max(0.0, min(1.0, confidence)), 653, 798, 653, "#dddddd", 6)
         score_name = "FBCCA分数" if "FBCCA" in decoder_name else "置信度"
         c.text(806, 628, 100, 51, f"{score_name}\n{confidence * 100:.1f}%", 14, TEXT, True)
-        c.circle(1148, 608, 64, "#151515" if emergency else "#333333", RED, 4)
-        c.circle(1148, 608, 73, QColor(40, 40, 40, 15))
+        emergency_cx = task_x + task_width / 2
+        emergency_cy = (task_y + task_height + 694) / 2
+        emergency_radius = 96
+        halo_radius = emergency_radius + 10
+        c.circle(emergency_cx, emergency_cy, halo_radius, QColor(40, 40, 40, 15))
+        c.circle(emergency_cx, emergency_cy, emergency_radius,
+                 "#151515" if emergency else "#333333", RED, 4)
         emergency_label = "确认已重启\n复位并断开" if emergency else "紧急停止"
-        c.text(1084, 545, 128, 126, emergency_label, 13 if emergency else 19, "#ffffff", True, Qt.AlignCenter)
-        self._hit(1075, 535, 146, 146, "swarm-emergency-reset" if emergency else "swarm-emergency-stop")
+        c.text(emergency_cx - emergency_radius, emergency_cy - emergency_radius,
+               emergency_radius * 2, emergency_radius * 2, emergency_label,
+               18 if emergency else 24, "#ffffff", True, Qt.AlignCenter)
+        self._hit(emergency_cx - halo_radius, emergency_cy - halo_radius,
+                  halo_radius * 2, halo_radius * 2,
+                  "swarm-emergency-reset" if emergency else "swarm-emergency-stop")
 
     def _soldier_status(self, c: Canvas) -> None:
         # 【真实接口接入点】UI-04 / M3：注意力、疲劳、压力和心率应来自
