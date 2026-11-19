@@ -132,7 +132,7 @@ class ResearchCollectionViewMixin:
         collector = self.lsl_collector
         c.rect(0, 56, 1280, 664, BG)
         c.text(32, 69, 420, 32, "LSL 脑电收集", 20, TEXT, True)
-        c.text(32, 100, 840, 21, "发现并接收 type=EEG 的 LSL 数据流，同时保留原始时间戳并写入 CSV。", 10, MUTED)
+        c.text(32, 106, 840, 21, "接收 EEG 数据流并保存 CSV", 10, MUTED)
 
         c.rect(32, 132, 1216, 104, PANEL, BORDER, 5)
         stream_name = str(

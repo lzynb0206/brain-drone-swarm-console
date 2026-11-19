@@ -32,12 +32,15 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.gateway = MockSwarmGateway()
         self.service = WorkbenchService(self.gateway)
 
-    def test_algorithm_selection_is_stateful(self) -> None:
-        self.service.select_algorithm("SVM")
-        self.service.load_algorithm()
-        self.service.set_default_algorithm()
-        self.assertEqual("SVM", self.service.default_algorithm)
-        self.assertIn("SVM", self.service.loaded_algorithms)
+    def test_algorithm_follows_acquisition_mode(self) -> None:
+        from src.bci.montage import HYBRID
+        self.service.recording_mode = "local_eeg"
+        self.assertEqual("FBCCA", self.service.algorithm)
+        self.service.montage_id = HYBRID.id
+        self.assertEqual("BN-FBCCA-B", self.service.algorithm)
+        self.service.recording_mode = "external_bdf"
+        self.assertEqual("external32", self.service.acquisition_profile.id)
+        self.assertEqual("FBCCA", self.service.algorithm)
 
     def test_swarm_commands_and_emergency_stop_use_gateway(self) -> None:
         self.service.send_swarm_command("takeoff")
@@ -268,33 +271,26 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
     def test_painted_actions_change_application_state(self) -> None:
         self.view._activate("paradigm-frequency:15")
-        self.view._activate("algorithm-select:LSTM")
-        self.view._activate("algorithm-load")
+        self.view._activate("acquisition-profile:hybrid8")
         self.view._activate("data-tab:数据浏览")
         self.view._activate("swarm-command:takeoff")
         self.view._activate("swarm-command:right")
 
         self.assertEqual(15, self.view.actions.paradigm_frequency)
-        self.assertEqual("LSTM", self.view.actions.algorithm)
-        self.assertIn("LSTM", self.view.actions.loaded_algorithms)
+        self.assertEqual("BN-FBCCA-B", self.view.actions.algorithm)
         self.assertEqual("数据浏览", self.view.actions.data_tab)
         self.assertEqual("right", self.gateway.command_log[-1].action)
 
-    def test_bn_algorithms_can_be_selected_and_loaded_from_library(self) -> None:
-        from src.bci.bn_fbcca import BNFBCCADecoder
-        from src.bci.runtime_decoder import RuntimeIntentDecoder
-
-        self.view.intent_decoder = RuntimeIntentDecoder({
-            "BN-FBCCA-A": BNFBCCADecoder("a"),
-            "BN-FBCCA-B": BNFBCCADecoder("b"),
-        }, "BN-FBCCA-A")
-        actions = self._render_page(self.view.research_widget, "_research_algorithm")
-        for mode in ("A", "B"):
-            self.assertIn(f"algorithm-select:BN-FBCCA-{mode}", actions)
-        self.view._activate("algorithm-select:BN-FBCCA-B")
-        self.view._activate("algorithm-load")
-        self.assertEqual("BN-FBCCA-B", self.view.intent_decoder.active_name)
-        self.assertIn("BN-FBCCA-B", self.view.actions.loaded_algorithms)
+    def test_hybrid_mode_configures_decoder_without_loading_a_model(self) -> None:
+        from src.bci.montage import HYBRID
+        self.view._activate("acquisition-profile:hybrid8")
+        self.assertEqual(HYBRID.names, self.view._eeg_channel_names)
+        self.assertEqual("BN-FBCCA-B", self.view.actions.algorithm)
+        self.assertEqual("SSVEP+MI混合", self.view.actions.paradigm_type)
+        self.view.research_widget.collection_section = "advanced"
+        actions = self._render_page(self.view.research_widget, "_research_data_collection")
+        self.assertIn("decoder-settings", actions)
+        self.assertNotIn("algorithm-load", actions)
         self.assertEqual([], self.gateway.command_log)
 
     def test_research_acquisition_tabs_are_stateful(self) -> None:
@@ -303,7 +299,9 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertEqual("采集", self.view.research_page)
         self.assertEqual("LSL", self.view.acquisition_tab)
 
-    def test_research_navigation_exposes_hardware_free_ssvep_command_test(self) -> None:
+    def test_ssvep_advanced_settings_expose_hardware_free_command_test(self) -> None:
+        self.view.research_page = "数据采集"
+        self.view.research_widget.collection_section = "advanced"
         actions = self._render_page(self.view.research_widget, "_paint_research")
 
         self.assertIn("ssvep-command-test", actions)
@@ -353,20 +351,10 @@ class MainViewActionRoutingTest(unittest.TestCase):
             self.assertEqual(current[1] + current[2], following[1])
         self.assertEqual(1, len({width for _name, _x, width in RESEARCH_NAV_ITEMS}))
 
-    def test_research_navigation_exposes_new_workspaces(self) -> None:
+    def test_research_navigation_keeps_independent_pages(self) -> None:
         names = [name for name, _x, _width in RESEARCH_NAV_ITEMS]
 
-        self.assertIn("CSV回放", names)
-        self.assertIn("范式算法", names)
-        self.assertIn("数据采集", names)
-        self.assertIn("数据分析", names)
-        self.assertNotIn("数据", names)
-        self.assertNotIn("帮助", names)
-        self.assertNotIn("控制", names)
-        self.assertNotIn("映射", names)
-        self.assertNotIn("实验", names)
-        self.assertNotIn("范式", names)
-        self.assertNotIn("算法", names)
+        self.assertEqual(["采集", "LSL收集", "CSV回放", "数据采集", "数据分析", "SSVEP测试"], names)
 
     def test_research_header_only_keeps_explicit_logout_action(self) -> None:
         actions = self._render_page(self.view.research_widget, "_paint_research")
@@ -378,7 +366,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.assertFalse(self.view.research_widget.show_corner_logout)
 
     def test_research_workspace_uses_light_palette(self) -> None:
-        self.view.research_page = "范式算法"
+        self.view.research_page = "数据采集"
         image = QImage(1280, 720, QImage.Format_ARGB32)
         image.fill(Qt.black)
         painter = QPainter(image)
@@ -389,18 +377,25 @@ class MainViewActionRoutingTest(unittest.TestCase):
 
         self.assertEqual("#171717", image.pixelColor(10, 10).name())
         self.assertEqual(RESEARCH_BG.name(), image.pixelColor(10, 100).name())
-        self.assertEqual(RESEARCH_PANEL.name(), image.pixelColor(650, 220).name())
+        self.assertEqual(RESEARCH_PANEL.name(), image.pixelColor(650, 260).name())
 
-    def test_combined_paradigm_algorithm_page_scrolls(self) -> None:
-        self.view.research_page = "范式算法"
-        event = MagicMock()
-        event.pixelDelta.return_value = QPoint(0, 0)
-        event.angleDelta.return_value = QPoint(0, -120)
-
-        self.view.research_widget.wheelEvent(event)
-
-        self.assertEqual(72.0, self.view.research_widget.research_scroll_offset)
-        event.accept.assert_called_once()
+    def test_top_navigation_clicks_open_independent_pages(self) -> None:
+        self.view.resize(1280, 720)
+        self.view.set_user(User("researcher", "测试科研员", Role.RESEARCHER))
+        self.view.show()
+        self.app.processEvents()
+        page = self.view.research_widget
+        for name, x, width in RESEARCH_NAV_ITEMS[:-1]:
+            with self.subTest(page=name):
+                QTest.mouseClick(page, Qt.LeftButton, pos=QPoint(x + width // 2, 28))
+                self.app.processEvents()
+                self.assertEqual(name, self.view.research_page)
+                image = page.grab().toImage()
+                self.assertEqual("#f1f1f1", image.pixelColor(x + 2, 2).name())
+        _name, x, width = RESEARCH_NAV_ITEMS[-1]
+        with patch.object(self.view, "_open_ssvep_test") as opener:
+            QTest.mouseClick(page, Qt.LeftButton, pos=QPoint(x + width // 2, 28))
+        opener.assert_called_once_with()
 
     def test_data_collection_is_a_distinct_research_page(self) -> None:
         self.view._activate("research:数据采集")
@@ -410,7 +405,8 @@ class MainViewActionRoutingTest(unittest.TestCase):
             self.view.research_widget,
             "_research_data_collection",
         )
-        self.assertIn("collection-config", actions)
+        self.assertIn("collection-section:parameters", actions)
+        self.assertNotIn("collection-config", actions)
         self.assertIn("collection-start", actions)
 
     def test_data_analysis_page_exposes_import_actions(self) -> None:
@@ -609,6 +605,7 @@ class MainViewActionRoutingTest(unittest.TestCase):
         repaint.assert_not_called()
 
     def test_acquisition_setup_keeps_primary_actions_available(self) -> None:
+        self.view._activate("acquisition-profile:ssvep8")
         self.view.acquisition_stage = "setup"
         actions = self._render_page(self.view.research_widget, "_research_acquisition")
         self.assertIn("openbci-serial-autoconnect", actions)
@@ -673,18 +670,17 @@ class MainViewActionRoutingTest(unittest.TestCase):
         self.view._center_joysticks(send=True)
         self.assertEqual((0.0, 0.0, 0.0), self.gateway.manual_input)
 
-    def test_real_mouse_click_hits_painted_algorithm_card(self) -> None:
+    def test_real_mouse_click_selects_acquisition_profile(self) -> None:
         self.view.resize(1280, 720)
         self.view.set_user(User("researcher", "测试科研员", Role.RESEARCHER))
-        self.view.research_page = "范式算法"
-        self.view.research_widget._research_scroll_offset = 520.0
-        self.view.actions.algorithm = "SVM"
+        self.view.research_page = "采集"
         self.view.show()
         self.app.processEvents()
 
-        QTest.mouseClick(self.view.research_widget, Qt.LeftButton, pos=QPoint(100, 485))
+        QTest.mouseClick(self.view.research_widget, Qt.LeftButton, pos=QPoint(100, 160))
 
         self.assertEqual("FBCCA", self.view.actions.algorithm)
+        self.assertEqual("ssvep8", self.view.actions.acquisition_profile.id)
 
     def test_unconnected_flow_page_renders_completely(self) -> None:
         gateway = CrazyflieSwarmGateway(CrazyflieSwarmConfig(uris=("radio://test/01",)))

@@ -6,11 +6,7 @@ from PySide6.QtCore import QMimeData, QPointF, QRect, Qt, Signal
 from PySide6.QtGui import QDrag, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
-from src.views.research_view import (
-    RESEARCH_COMBINED_MAX_SCROLL,
-    RESEARCH_COMBINED_PAGE,
-    ResearchViewMixin,
-)
+from src.views.research_view import ResearchViewMixin
 from src.views.soldier_view import SoldierViewMixin
 from src.views.soldier_shell import SoldierShellMixin
 from src.widgets.scifi_canvas import Canvas
@@ -108,12 +104,16 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
     subject_reorder_requested = Signal(str, str, bool)
     SUBJECT_MIME = "application/x-brain-drone-subject-card"
 
+    @property
+    def acquisition_profile(self):
+        return self.context.acquisition_profile
+
     def __init__(self, context: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(context, parent)
+        self.collection_section = ""
         self._research_scroll_offset = 0.0
         self._research_effective_scroll_offset = 0.0
         self._research_content_scrolling = False
-        self._research_section_y_offset = 0.0
         self._subject_press = None
         self._subject_drag_id = ""
         self._subject_drop_target = None
@@ -247,19 +247,13 @@ class ResearchPage(ResearchViewMixin, RoleCanvasPage):
             # content height.  Hit testing must use that same effective value;
             # otherwise clearing a tall report leaves invisible, displaced hit
             # regions behind even though the page has visibly returned to top.
-            y += self._research_section_y_offset - self._research_effective_scroll_offset
+            y -= self._research_effective_scroll_offset
             if y + h < 56 or y > 720:
                 return
         super()._hit(x, y, w, h, action)
 
     def wheelEvent(self, event) -> None:  # type: ignore[override]
-        current_page = {
-            "范式": RESEARCH_COMBINED_PAGE,
-            "算法": RESEARCH_COMBINED_PAGE,
-        }.get(self.research_page, self.research_page)
-        if current_page == RESEARCH_COMBINED_PAGE:
-            max_scroll = RESEARCH_COMBINED_MAX_SCROLL
-        elif current_page == "数据分析":
+        if self.research_page == "数据分析":
             max_scroll = self._research_data_max_scroll()
         else:
             super().wheelEvent(event)

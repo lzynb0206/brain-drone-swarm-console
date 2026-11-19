@@ -1,0 +1,54 @@
+{
+  "dataset": "EEGMMIDB 1.0.0",
+  "source": "https://doi.org/10.13026/C28G6P",
+  "cohort": "S001..S012",
+  "excluded": [],
+  "exclusion_source": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5066028/",
+  "run_train": [
+    4,
+    8
+  ],
+  "run_test": 12,
+  "subjects": 12,
+  "method": "Three-channel 8\u201330 Hz CSP + shrinkage LDA",
+  "micro": {
+    "n": 180,
+    "correct": 116,
+    "accuracy": 0.6444444444444445,
+    "balanced_accuracy": 0.6452569169960474,
+    "brier": 0.23427144767995137,
+    "nll": 0.7448046250632125
+  },
+  "cluster": {
+    "accuracy": {
+      "mean": 0.6444444444444445,
+      "ci95": [
+        0.5777777777777777,
+        0.7222222222222222
+      ]
+    },
+    "brier": {
+      "mean": 0.23427144767995137,
+      "ci95": [
+        0.18091180192090342,
+        0.28372718724441137
+      ]
+    },
+    "nll": {
+      "mean": 0.7448046250632125,
+      "ci95": [
+        0.554131531852553,
+        0.9393639832787392
+      ]
+    },
+    "balanced_accuracy": {
+      "mean": 0.6458333333333334,
+      "ci95": [
+        0.5811011904761904,
+        0.7209821428571429
+      ]
+    }
+  },
+  "trial_rule": "Imagery annotations T1/T2 lasting >=3 s with all samples available; every training and test run must contain both classes.",
+  "omitted_trial_count": 0
+}

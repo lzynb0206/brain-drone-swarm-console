@@ -42,15 +42,9 @@ RESEARCH_RED = QColor("#595959")
 # Keep drawing and hit testing on the same grid.  The research header used to
 # duplicate these values in two modules, which made the clickable regions drift
 # away from the labels whenever one side was adjusted.
-RESEARCH_NAV_ITEMS = (
-    ("采集", 238, 112),
-    ("LSL收集", 350, 112),
-    ("CSV回放", 462, 112),
-    ("范式算法", 574, 112),
-    ("数据采集", 686, 112),
-    ("数据分析", 798, 112),
-    ("单目标校准", 910, 112),
-    ("SSVEP测试", 1022, 112),
+RESEARCH_NAV_ITEMS = tuple(
+    (name, 238 + index * 149, 149)
+    for index, name in enumerate(("采集", "LSL收集", "CSV回放", "数据采集", "数据分析", "SSVEP测试"))
 )
 
 

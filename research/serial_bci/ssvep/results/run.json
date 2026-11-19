@@ -1,0 +1,21 @@
+{
+  "input_sha256": {
+    "benchmark": "eb0839f6f0ca2955975a15acdd443cfe8ad817369b55e25d6e971c09644cdf80",
+    "beta": "eb6d72fe95c8ef439554ce97d3d29326961a9fb88fb4d533676816b8a336c5f2"
+  },
+  "seconds": 6.095632042037323,
+  "windows": [
+    1.5,
+    1.0,
+    2.0
+  ],
+  "frequencies": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+  ],
+  "primary_seconds": 1.5
+}

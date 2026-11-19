@@ -52,6 +52,7 @@ class HybridExperimentConfig:
     rest_eye_state: str = "both"
     purpose: str = "formal"
     serial_pair_count: int | None = None
+    serial_study_seed: int | None = None
 
     def validate(self):
         if self.mode not in ("serial", "mi", "rest") or self.task_set not in MI_TASK_SETS:
@@ -62,6 +63,8 @@ class HybridExperimentConfig:
             raise ValueError("重复次数必须为 1–50 的整数")
         if self.serial_pair_count is not None and (type(self.serial_pair_count) is not int or not 1 <= self.serial_pair_count <= 600):
             raise ValueError("正式串行总组数必须为 1–600 的整数")
+        if self.serial_study_seed is not None and (type(self.serial_study_seed) is not int or not 0 <= self.serial_study_seed <= 2147483647):
+            raise ValueError("论文串行采集种子应为 0–2147483647 的整数")
         if not isinstance(self.idle_trials, int) or not 0 <= self.idle_trials <= 30:
             raise ValueError("空闲校准次数必须为 0–30 的整数")
         if self.rest_eye_state not in ("open", "closed", "both"):

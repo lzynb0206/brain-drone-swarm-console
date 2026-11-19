@@ -37,6 +37,39 @@ class PairedTrialAnalysisTest(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_experiment_kind_filter_keeps_joint_stages_together_and_preserves_records(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sp, mp = write_pair(root)
+            view = MainView()
+            try:
+                browser = view.trial_analysis
+                browser.load_source(root)
+                ss = next(row for row in browser.records if row.stage == "ssvep")
+                mi = next(row for row in browser.records if row.stage == "mi")
+                self.assertEqual(("SSVEP+MI混合",), browser.kinds)
+                self.assertEqual({"起飞", "想象左手"}, set(browser.labels))
+                browser.records += [
+                    replace(ss, pair_id="", trial_id="standalone-ssvep"),
+                    replace(mi, pair_id="", trial_id="standalone-mi"),
+                    replace(ss, pair_id="", stage="rest_open", true_label="睁眼静息", trial_id="rest"),
+                ]
+                original = tuple(browser.records)
+                self.assertEqual(("SSVEP", "MI", "SSVEP+MI混合", "rest"), browser.kinds)
+                for kind, label, trial in (("SSVEP", "起飞", "standalone-ssvep"),
+                                           ("MI", "想象左手", "standalone-mi"),
+                                           ("rest", "睁眼静息", "rest")):
+                    browser.select_kind(kind)
+                    self.assertEqual((label,), browser.labels)
+                    self.assertEqual(trial, browser.selected_record.trial_id)
+                    self.assertEqual(1, len(browser.selected_label_records))
+                browser.select_kind("SSVEP+MI混合")
+                browser.select_label("想象左手")
+                self.assertEqual(ss, browser.paired_record(browser.selected_record))
+                self.assertEqual(original, tuple(browser.records))
+            finally:
+                view.close()
+
     def test_mi_uses_named_motor_channels_and_does_not_call_fbcca(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -45,7 +78,7 @@ class PairedTrialAnalysisTest(unittest.TestCase):
             record = service.read_metadata(path)
             self.assertEqual('mi', record.analysis_kind)
             self.assertTrue(record.is_serial_pair)
-            with patch('src.services.trial_analysis_service.FBCCADecoder.decode') as decoder:
+            with patch('src.bci.fbcca_decoder.FBCCADecoder.decode') as decoder:
                 report = service.generate_report(record, 0, 3)
             decoder.assert_not_called()
             metrics = json.loads(report.metrics_path.read_text())

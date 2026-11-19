@@ -7,19 +7,13 @@ from PySide6.QtCore import QRectF
 from src.views.research_acquisition_view import ResearchAcquisitionViewMixin
 from src.views.research_collection_view import ResearchCollectionViewMixin
 from src.views.research_configuration_view import ResearchConfigurationViewMixin
-from src.views.research_single_target_view import ResearchSingleTargetViewMixin
 from src.widgets.scifi_canvas import RESEARCH_BG, RESEARCH_NAV_ITEMS, Canvas
-
-
-RESEARCH_COMBINED_PAGE = "范式算法"
-RESEARCH_COMBINED_MAX_SCROLL = 520.0
 
 
 class ResearchViewMixin(
     ResearchCollectionViewMixin,
     ResearchAcquisitionViewMixin,
     ResearchConfigurationViewMixin,
-    ResearchSingleTargetViewMixin,
 ):
     """Dispatch the researcher shell to focused page renderers."""
 
@@ -28,8 +22,6 @@ class ResearchViewMixin(
         c.fill(RESEARCH_BG)
         current_page = {
             "实验": "CSV回放",
-            "范式": RESEARCH_COMBINED_PAGE,
-            "算法": RESEARCH_COMBINED_PAGE,
         }.get(self.research_page, self.research_page)
         c.top_nav(current_page)
         for name, x, width in RESEARCH_NAV_ITEMS:
@@ -43,17 +35,11 @@ class ResearchViewMixin(
             "LSL收集": self._research_lsl_collector,
             "CSV回放": self._research_replay,
             "实验": self._research_replay,
-            RESEARCH_COMBINED_PAGE: self._research_paradigm_algorithm,
-            "范式": self._research_paradigm_algorithm,
-            "算法": self._research_paradigm_algorithm,
             "数据采集": self._research_data_collection,
             "数据分析": self._research_data,
-            "单目标校准": self._research_single_target_calibration,
         }
         renderer = renderers[self.research_page]
-        if current_page == RESEARCH_COMBINED_PAGE:
-            max_scroll = RESEARCH_COMBINED_MAX_SCROLL
-        elif current_page == "数据分析":
+        if current_page == "数据分析":
             max_scroll = self._research_data_max_scroll()
         else:
             renderer(c)
@@ -72,12 +58,10 @@ class ResearchViewMixin(
             c.p.translate(0, -scroll_offset)
             self._research_effective_scroll_offset = scroll_offset
             self._research_content_scrolling = True
-            self._research_section_y_offset = 0.0
             renderer(c)
         finally:
             self._research_content_scrolling = False
             self._research_effective_scroll_offset = 0.0
-            self._research_section_y_offset = 0.0
             c.p.restore()
         if max_scroll > 0:
             self._research_scrollbar(c, scroll_offset, max_scroll)
@@ -93,7 +77,5 @@ class ResearchViewMixin(
 
 
 __all__ = [
-    "RESEARCH_COMBINED_MAX_SCROLL",
-    "RESEARCH_COMBINED_PAGE",
     "ResearchViewMixin",
 ]

@@ -1,0 +1,41 @@
+{
+  "seconds": 15.475850917166099,
+  "source": "Nakanishi",
+  "target": "Wearable",
+  "seconds_per_epoch": 1.5,
+  "source_trials": 1800,
+  "target_trials": 24480,
+  "test_trials": 19584,
+  "calibration_blocks": [
+    1,
+    2
+  ],
+  "test_blocks": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "frequencies": [
+    9.25,
+    11.25,
+    13.25,
+    9.75,
+    11.75,
+    13.75,
+    10.25,
+    12.25,
+    14.25,
+    10.75,
+    12.75,
+    14.75
+  ],
+  "sha256": {
+    "nakanishi": "9ded44d352cd9716f2f8d1e23689f66e365f1748f755c67cc9a9d5c2bdf7ded0",
+    "wearable": "37a39fedb7c983e774e493a6160dbe69a91602d151fe1383bfa98c84ca4f6e7a"
+  }
+}

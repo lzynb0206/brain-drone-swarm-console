@@ -90,7 +90,11 @@ class AcquisitionPreflightDialog(QDialog):
                 self.probe_result = save_probe(self.root, self.probe, self.markers, self.mapping.isChecked(),
                                          self.worker.experiment_clock.source)
                 r = self.probe_result
-                lines = ["软件检查通过" if r["formal_ready"] else "检查未通过，请修正后重新检查",
+                if r.get("study_technical_ready") and r.get("signal_quality_warnings"):
+                    status = "接线、时间与标记检查通过；信号质量告警已保存，论文方案可继续采集"
+                else:
+                    status = "软件检查通过" if r["formal_ready"] else "技术检查未通过，请修正后重新检查"
+                lines = [status,
                          f"实测采样率：{r.get('measured_rate_hz', 0) or 0:.2f} Hz",
                          f"采集样本：{r['sample_count']}",
                          "本机标记落盘与时间范围：" + ("通过" if r["local_marker_sequence_verified"] else "未通过"),

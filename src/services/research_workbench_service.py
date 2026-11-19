@@ -7,7 +7,8 @@ from collections.abc import Callable
 from src.bci.config import TARGET_FREQUENCIES_HZ
 from src.services.ssvep_experiment_protocol import AutomaticExperimentConfig
 from src.services.hybrid_experiment_protocol import HybridExperimentConfig
-from src.bci.montage import LEGACY
+from src.bci.montage import LEGACY, HYBRID_IDS
+from src.services.acquisition_profiles import PROFILES_BY_ID
 
 
 class ResearchWorkbenchService:
@@ -19,10 +20,7 @@ class ResearchWorkbenchService:
         self.paradigm_type = "SSVEP"
         self.stimulus_size = 40
         self.duty_cycle = 60
-        self.algorithm = "FBCCA"
-        self.algorithm_mode = "固定解码"
-        self.loaded_algorithms = {"FBCCA"}
-        self.default_algorithm = "FBCCA"
+        self.decoder_settings_by_profile = {}
         self.data_tab = "标签管理"
         self.selected_session = 2
         self.log_filter = "INFO"
@@ -33,13 +31,28 @@ class ResearchWorkbenchService:
         self.recording_mode = "external_bdf"
 
     @property
+    def acquisition_profile(self):
+        key = ("external32" if self.recording_mode == "external_bdf" else
+               "hybrid8" if self.montage_id in HYBRID_IDS else "ssvep8")
+        return PROFILES_BY_ID[key]
+
+    @property
+    def decoder_settings(self):
+        profile = self.acquisition_profile
+        return self.decoder_settings_by_profile.get(profile.id, profile.default_settings())
+
+    @property
+    def algorithm(self):
+        return self.acquisition_profile.algorithm
+
+    @property
     def collection_scheme(self) -> str:
         return self.collection_schemes.get(self.paradigm_type, "formal")
 
     def apply_paradigm(self) -> str:
         if self.paradigm_type != "SSVEP":
             return self._record(
-                f"{self.paradigm_type} 科研实验：在数据采集页选择独立呈现或本机 EEG；MI 模型离线验证"
+                f"{self.paradigm_type} 科研实验：在实验采集页选择独立呈现或本机 EEG；MI 模型离线验证"
             )
         return self._record(
             f"范式已应用：{self.paradigm_frequency}Hz，尺寸{self.stimulus_size}%，占空比{self.duty_cycle}%"
@@ -50,56 +63,6 @@ class ResearchWorkbenchService:
         self.stimulus_size = 40
         self.duty_cycle = 60
         return self._record("范式参数已恢复默认")
-
-    def select_algorithm(self, name: str) -> str:
-        self.algorithm = name
-        return self._record(f"已选择算法 {name}")
-
-    def load_algorithm(self) -> str:
-        self.loaded_algorithms.add(self.algorithm)
-        return self._record(f"算法 {self.algorithm} 已加载")
-
-    def unload_algorithm(self) -> str:
-        if self.algorithm == self.default_algorithm:
-            return self._record("默认算法不能卸载，请先设置其他默认算法")
-        self.loaded_algorithms.discard(self.algorithm)
-        return self._record(f"算法 {self.algorithm} 已卸载")
-
-    def set_default_algorithm(self) -> str:
-        self.loaded_algorithms.add(self.algorithm)
-        self.default_algorithm = self.algorithm
-        return self._record(f"默认算法已设为 {self.algorithm}")
-
-    def benchmark_algorithm(self) -> str:
-        if self.algorithm in ("BN-FBCCA-A", "BN-FBCCA-B"):
-            return self._record(
-                f"{self.algorithm} 请同时评估六类识别率、触发率和空闲误触发率；"
-                "B模式需先进行当前会话的空闲校准，置信度为分数差指标"
-            )
-        if self.algorithm == "个人算法-Xz":
-            return self._record(
-                "个人算法-Xz使用最新60条中的51条主动指令训练双FBCCA分数＋LogReg；"
-                "整块留一准确率为内部估计，当前模型仅限科研分析"
-            )
-        if self.algorithm == "个人算法-Lzy":
-            return self._record(
-                "个人算法-Lzy使用完整5秒、三个重叠4秒FBCCA窗及本人非目标分数基线；"
-                "整块留一结果为探索性内部验证，仍需新会话复测"
-            )
-        if self.algorithm == "个人校准融合":
-            return self._record(
-                "个人校准融合使用完整5秒、两套FBCCA分数和LogReg；"
-                "当前整块留一结果仅是探索性内部验证，需用新会话数据复测"
-            )
-        if self.algorithm == "个人模板-SSVEP":
-            return self._record(
-                "60段单目标数据已用于个人模板＋FBCCA一致性识别；请在SSVEP测试页另采在线结果评估"
-            )
-        if self.algorithm == "Transformer-SSVEP":
-            return self._record(
-                "Transformer基准应按会话划分，并报告准确率、空闲误触发率和触发延迟"
-            )
-        return self._record("FBCCA 为无训练解码器；请使用同一批带标签试次作为基线")
 
     def generate_dataset(self) -> str:
         return self._record("当前阶段保存原始带标签试次，尚未执行训练/验证集划分")

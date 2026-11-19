@@ -1,0 +1,19 @@
+{
+  "source": "Benchmark",
+  "test": "BETA",
+  "seconds": 1.5,
+  "source_crossfit": "leave one subject out for background",
+  "source_correct": 1165,
+  "source_wrong": 95,
+  "standardization": "StandardScaler fit on OOF training margins only",
+  "features": "top minus rank 2 through 6",
+  "ridge_C": 1,
+  "gmm_components_per_outcome": 2,
+  "gmm_covariance": "full",
+  "gmm_reg_covar": 0.01,
+  "gmm_n_init": 3,
+  "seed": 20261119,
+  "bootstrap_participants": 10000,
+  "logloss_clip": 1e-06,
+  "prior": "empirical OOF correctness rate"
+}

@@ -1,0 +1,303 @@
+[
+  {
+    "run": "hybrid-20261103-122156-da2fba",
+    "status": "calibration_only",
+    "eligible": 46,
+    "ss_correct": 11,
+    "mi_correct": 28,
+    "false8": 8,
+    "non8": 39,
+    "missed8": 7,
+    "true8": 7,
+    "target_hand_counts": [
+      [
+        3,
+        4
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        3
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        4
+      ]
+    ],
+    "ss_confusion_true_by_pred": [
+      [
+        0,
+        0,
+        1,
+        4,
+        2,
+        0
+      ],
+      [
+        1,
+        4,
+        1,
+        1,
+        0,
+        1
+      ],
+      [
+        2,
+        1,
+        2,
+        2,
+        0,
+        0
+      ],
+      [
+        1,
+        1,
+        3,
+        2,
+        0,
+        1
+      ],
+      [
+        2,
+        1,
+        2,
+        2,
+        0,
+        1
+      ],
+      [
+        2,
+        1,
+        2,
+        0,
+        0,
+        3
+      ]
+    ],
+    "mi_confusion_true_by_pred": [
+      [
+        8,
+        15
+      ],
+      [
+        3,
+        20
+      ]
+    ]
+  },
+  {
+    "run": "hybrid-20261107-175736-34bffc",
+    "eligible": 16,
+    "status": "four_training_blocks_required"
+  },
+  {
+    "run": "hybrid-20261107-183429-ae56ab",
+    "status": "calibration_only",
+    "eligible": 42,
+    "ss_correct": 8,
+    "mi_correct": 20,
+    "false8": 10,
+    "non8": 35,
+    "missed8": 6,
+    "true8": 7,
+    "target_hand_counts": [
+      [
+        4,
+        3
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        3,
+        4
+      ],
+      [
+        3,
+        4
+      ],
+      [
+        4,
+        4
+      ]
+    ],
+    "ss_confusion_true_by_pred": [
+      [
+        1,
+        2,
+        3,
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        3,
+        0,
+        0,
+        0,
+        2
+      ],
+      [
+        4,
+        0,
+        1,
+        3,
+        0,
+        0
+      ],
+      [
+        2,
+        1,
+        1,
+        2,
+        1,
+        0
+      ],
+      [
+        1,
+        2,
+        1,
+        1,
+        1,
+        1
+      ],
+      [
+        3,
+        3,
+        1,
+        1,
+        0,
+        0
+      ]
+    ],
+    "mi_confusion_true_by_pred": [
+      [
+        2,
+        18
+      ],
+      [
+        4,
+        18
+      ]
+    ]
+  },
+  {
+    "run": "hybrid-20261114-203558-04ff04",
+    "eligible": 2,
+    "status": "four_training_blocks_required"
+  },
+  {
+    "run": "hybrid-20261114-203736-ffab36",
+    "status": "calibration_only",
+    "eligible": 48,
+    "ss_correct": 6,
+    "mi_correct": 27,
+    "false8": 7,
+    "non8": 40,
+    "missed8": 7,
+    "true8": 8,
+    "target_hand_counts": [
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        4
+      ]
+    ],
+    "ss_confusion_true_by_pred": [
+      [
+        1,
+        0,
+        1,
+        3,
+        2,
+        1
+      ],
+      [
+        0,
+        1,
+        0,
+        1,
+        3,
+        3
+      ],
+      [
+        1,
+        0,
+        3,
+        0,
+        2,
+        2
+      ],
+      [
+        1,
+        1,
+        1,
+        0,
+        3,
+        2
+      ],
+      [
+        4,
+        0,
+        0,
+        0,
+        1,
+        3
+      ],
+      [
+        1,
+        4,
+        1,
+        1,
+        1,
+        0
+      ]
+    ],
+    "mi_confusion_true_by_pred": [
+      [
+        18,
+        6
+      ],
+      [
+        15,
+        9
+      ]
+    ]
+  }
+]

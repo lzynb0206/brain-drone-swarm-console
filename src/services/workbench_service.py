@@ -19,7 +19,7 @@ class WorkbenchService:
 
     _RESEARCH_FIELDS = frozenset({
         "paradigm_frequency", "paradigm_type", "stimulus_size", "duty_cycle",
-        "algorithm", "algorithm_mode", "loaded_algorithms", "default_algorithm",
+        "algorithm", "acquisition_profile", "decoder_settings", "decoder_settings_by_profile",
         "data_tab", "selected_session", "log_filter",
         "automatic_experiment_config",
         "hybrid_experiment_config", "montage_id",
@@ -82,21 +82,6 @@ class WorkbenchService:
 
     def reset_paradigm(self) -> str:
         return self.research.reset_paradigm()
-
-    def select_algorithm(self, name: str) -> str:
-        return self.research.select_algorithm(name)
-
-    def load_algorithm(self) -> str:
-        return self.research.load_algorithm()
-
-    def unload_algorithm(self) -> str:
-        return self.research.unload_algorithm()
-
-    def set_default_algorithm(self) -> str:
-        return self.research.set_default_algorithm()
-
-    def benchmark_algorithm(self) -> str:
-        return self.research.benchmark_algorithm()
 
     def generate_dataset(self) -> str:
         return self.research.generate_dataset()

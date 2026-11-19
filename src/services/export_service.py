@@ -26,8 +26,8 @@ class WorkbenchExportService:
                 "duty_cycle_percent": self.research.duty_cycle,
             },
             "algorithm": self.research.algorithm,
-            "algorithm_mode": self.research.algorithm_mode,
-            "default_algorithm": self.research.default_algorithm,
+            "acquisition_profile": self.research.acquisition_profile.id,
+            "decoder_settings": self.research.decoder_settings.to_dict(),
             "automatic_ssvep_experiment": {
                 "labels": list(automatic.labels),
                 "repetitions_per_label": automatic.repetitions_per_label,

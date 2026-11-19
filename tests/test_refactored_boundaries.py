@@ -47,8 +47,8 @@ class RefactoredBoundaryTest(unittest.TestCase):
             self.assertIsInstance(view.lsl_collector, LSLCollectionController)
             self.assertIsInstance(view.soldier_bci, SoldierBCIController)
             self.assertIsInstance(view.experiment, ExperimentController)
-            view.research_widget.action_requested.emit("algorithm-select:SVM", 0.0, 0.0)
-            self.assertEqual("SVM", view.actions.algorithm)
+            view.research_widget.action_requested.emit("acquisition-profile:hybrid8", 0.0, 0.0)
+            self.assertEqual("hybrid8", view.actions.acquisition_profile.id)
         finally:
             view.close()
 

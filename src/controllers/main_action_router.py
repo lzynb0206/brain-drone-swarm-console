@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.bci.montage import HYBRID_IDS
+from src.widgets.scifi_canvas import RESEARCH_NAV_ITEMS
 
 from PySide6.QtCore import QObject, Slot
 
@@ -19,7 +20,7 @@ class MainActionRouter(QObject):
         """Route every painted control to a stateful application action."""
         view = self.host
         if (not view.experiment.external_recording and getattr(view.actions, "montage_id", "") in HYBRID_IDS
-                and (action in {"ssvep-command-test", "single-target-calibration-start", "guided-calibration-start"}
+                and (action == "ssvep-command-test"
                      or action == "paradigm-start" and view.actions.paradigm_type == "SSVEP")):
             view._notify("当前为 5+3 布局，请在混合范式中启动配对采集；八通道 SSVEP 工具需要先恢复原布局")
             return
@@ -27,13 +28,31 @@ class MainActionRouter(QObject):
             view.deactivate()
             view.logout_requested.emit()
         elif action.startswith("research:"):
-            next_page = action.split(":", 1)[1]
+            requested = action.split(":", 1)[1]
+            next_page = {"实验": "CSV回放"}.get(requested, requested)
+            if next_page not in {name for name, _x, _w in RESEARCH_NAV_ITEMS if name != "SSVEP测试"}:
+                return
             if view.research_page != next_page:
                 reset_scroll = getattr(view.research_widget, "reset_research_scroll", None)
                 if callable(reset_scroll):
                     reset_scroll()
             view.research_page = next_page
             view.update()
+        elif action.startswith("acquisition-profile:"):
+            view.acquisition_profile.select(action.split(":", 1)[1])
+        elif action == "decoder-settings":
+            view._configure_decoder_settings()
+        elif action.startswith("research-choice:"):
+            view._show_research_choice_menu(action.split(":", 1)[1], x, y)
+        elif action.startswith("collection-section:"):
+            section = action.split(":", 1)[1]
+            page = view.research_widget
+            page.collection_section = "" if page.collection_section == section else section
+            view.update()
+        elif action == "research-stimulus-settings":
+            view._configure_research_stimulus()
+        elif action.startswith("analysis-kind:"):
+            view.trial_analysis.select_kind(action.split(":", 1)[1])
         elif action.startswith("acquisition-tab:"):
             view.acquisition_tab = action.split(":", 1)[1]
             view.update()
@@ -51,7 +70,11 @@ class MainActionRouter(QObject):
             if view.experiment.running:
                 view._notify("请先结束当前采集，再切换范式")
                 return
-            view.actions.paradigm_type = action.split(":", 1)[1]
+            paradigm = action.split(":", 1)[1]
+            if paradigm not in view.actions.acquisition_profile.paradigms:
+                view._notify("请先选择支持此实验类型的采集模式")
+                return
+            view.actions.paradigm_type = paradigm
             if view._pipeline_worker is not None:
                 mode = ("SSVEP+MI混合" if getattr(view.actions, "montage_id", "") in HYBRID_IDS
                         else view.actions.paradigm_type)
@@ -102,12 +125,6 @@ class MainActionRouter(QObject):
             view._configure_automatic_ssvep_experiment()
         elif action == "automatic-experiment-start":
             view.experiment.start_automatic()
-        elif action == "single-target-calibration-start":
-            view.single_target_calibration.start("isolated")
-        elif action == "guided-calibration-start":
-            view.single_target_calibration.start("guided")
-        elif action == "single-target-calibration-analyze":
-            view.single_target_calibration.analyze_latest()
         elif action == "soldier-ssvep-control":
             view._open_ssvep_control()
         elif action.startswith("collector-source:"):
@@ -156,19 +173,6 @@ class MainActionRouter(QObject):
             view.csv_replay.set_speed(float(action.rsplit(":", 1)[1]))
         elif action == "csv-seek":
             view.csv_replay.seek((x - 384) / 650)
-        elif action.startswith("algorithm-select:"):
-            view._notify(view.actions.select_algorithm(action.split(":", 1)[1]))
-        elif action.startswith("algorithm-mode:"):
-            view.actions.algorithm_mode = action.split(":", 1)[1]
-            view._notify(f"算法模式已切换：{view.actions.algorithm_mode}")
-        elif action == "algorithm-load":
-            view._notify(view._activate_selected_decoder())
-        elif action == "algorithm-unload":
-            view._notify(view._unload_selected_decoder())
-        elif action == "algorithm-default":
-            view._notify(view._set_default_selected_decoder())
-        elif action == "algorithm-benchmark":
-            view._notify(view.actions.benchmark_algorithm())
         elif action == "analysis-load-project":
             view.trial_analysis.load_project_data()
         elif action == "analysis-import-directory":

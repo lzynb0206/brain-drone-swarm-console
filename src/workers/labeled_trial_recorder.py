@@ -10,6 +10,7 @@ from typing import Callable, Mapping
 import numpy as np
 
 from src.bci.preprocessing import assess_signal_quality
+from src.bci.decoder_settings import DecoderSettings
 from src.bci.montage import HYBRID_IDS, MONTAGES, research_decoder
 from src.domain import IntentResult
 from src.ports import EEGStream, IntentDecoder
@@ -486,11 +487,13 @@ class LabeledTrialRecorder:
         timing_ok = bool(len(delta) and np.isfinite(delta).all() and np.all(delta > 0) and delta.max() <= .02)
         stage = metadata.get("stage")
         if stage == "ssvep":
-            contract = (metadata.get("run_id"), montage.id, float(fs), eeg.shape[1])
+            settings = (DecoderSettings.from_dict(metadata["decoder_settings"])
+                        if metadata.get("decoder_settings") else None)
+            contract = (metadata.get("run_id"), montage.id, float(fs), eeg.shape[1], settings)
             if not contract[0]:
                 raise ValueError("串行采集缺少 run_id")
             if self._hybrid_decoder is None or self._hybrid_contract != contract:
-                self._hybrid_decoder = research_decoder(montage.id)
+                self._hybrid_decoder = research_decoder(montage.id, settings)
                 self._hybrid_contract = contract
             try:
                 result = self._hybrid_decoder.decode(eeg, fs)

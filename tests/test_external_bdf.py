@@ -20,14 +20,14 @@ from src.services.mi_trial_analysis import motor_features
 from src.views.main_view import MainView
 
 
-def write_bdf(path, seconds=20, fs=200):
-    names = ('O1','Oz','O2','C3','Cz','C4','FC3','CP3','Trigger')
+def write_bdf(path, seconds=20, fs=200, names=None):
+    names = names or ('O1','Oz','O2','C3','Cz','C4','FC3','CP3','Trigger')
     count=len(names)
     def fixed(value, size):
         return str(value).encode().ljust(size,b' ')
     h = (b'\xffBIOSEMI'+fixed('',80)+fixed('',80)+fixed('10.11.26',8)+fixed('12.00.00',8)
          +fixed(256*(count+1),8)+fixed('24BIT',44)+fixed(seconds,8)+fixed(1,8)+fixed(count,4))
-    fields=[(names,16),(['']*count,80),(['uV']*8+[''],8),([-8388608]*count,8),
+    fields=[(names,16),(['']*count,80),(['uV']*(count-1)+[''],8),([-8388608]*count,8),
             ([8388607]*count,8),([-8388608]*count,8),([8388607]*count,8),(['']*count,80),
             ([fs]*count,8),(['']*count,32)]
     for values,width in fields:

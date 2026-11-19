@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QDialog,
+    QComboBox,
+    QMenu,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -17,13 +20,149 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.bci.config import WINDOW_SECONDS
+from src.bci.config import WINDOW_SECONDS, TARGET_FREQUENCIES_HZ
+from src.bci.decoder_settings import DecoderSettings
+from src.services.acquisition_profiles import ACQUISITION_PROFILES
+from src.services.collection_plans import COLLECTION_PARADIGMS, collection_schemes
 from src.services.ssvep_experiment_protocol import AutomaticExperimentConfig
 from src.views.ssvep_stimulus_window import SSVEPStimulusWindow
 
 
+class SwarmUriEditor(QPlainTextEdit):
+    """Offer an explicit Tab-to-fill example without configuring it implicitly."""
+
+    EXAMPLE_URI = "radio://0/80/2M/E7E7E7E704"
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setPlaceholderText(f"{self.EXAMPLE_URI}  （Tab 填入）")
+        palette = self.palette()
+        palette.setColor(QPalette.PlaceholderText, QColor("#8c8c8c"))
+        self.setPalette(palette)
+        self.setTabChangesFocus(True)
+
+    def event(self, event) -> bool:
+        if (
+            event.type() == QEvent.KeyPress
+            and event.key() == Qt.Key_Tab
+            and event.modifiers() == Qt.NoModifier
+            and not self.toPlainText().strip()
+        ):
+            self.selectAll()
+            self.insertPlainText(self.EXAMPLE_URI)
+            event.accept()
+            return True
+        return super().event(event)
+
+
 class MainDialogsMixin:
     """Own the dashboard's confirmation and configuration dialogs."""
+
+    def _show_research_choice_menu(self, kind: str, x: float, y: float) -> None:
+        if kind != "analysis-kind" and self.experiment.running:
+            return
+        if kind == "profile":
+            if self.acquisition_profile.locked:
+                return
+            options = [(profile.title, f"acquisition-profile:{profile.id}", self.actions.acquisition_profile.id == profile.id)
+                       for profile in ACQUISITION_PROFILES]
+        elif kind == "paradigm":
+            options = [(title.replace("混合", "联合实验"), f"paradigm-type:{value}", self.actions.paradigm_type == value)
+                       for value, title in COLLECTION_PARADIGMS if value in self.actions.acquisition_profile.paradigms]
+        elif kind == "scheme":
+            options = [(item.title, f"collection-scheme:{item.id}", self.actions.collection_scheme == item.id)
+                       for item in collection_schemes(self.actions.paradigm_type)]
+        elif kind == "analysis-kind":
+            options = [(self.trial_analysis.kind_title(value), f"analysis-kind:{value}", self.trial_analysis.selected_kind == value)
+                       for value in self.trial_analysis.kinds]
+        else:
+            return
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu { background: white; color: #202020; border: 1px solid #dedede; }"
+                          "QMenu::item { padding: 9px 28px; }"
+                          "QMenu::item:selected { background: #ededed; }")
+        for title, action, selected in options:
+            item = menu.addAction(title)
+            item.setCheckable(True)
+            item.setChecked(selected)
+            item.triggered.connect(lambda _checked=False, name=action: self._activate(name))
+        menu.aboutToHide.connect(menu.deleteLater)
+        page = self.research_widget
+        menu.popup(page.mapToGlobal(QPoint(round(x * page.width() / 1280), round(y * page.height() / 720))))
+
+    def _configure_decoder_settings(self) -> None:
+        if not self.acquisition_profile._can_edit():
+            return
+        current = self.actions.decoder_settings
+        dialog = QDialog(self)
+        dialog.setObjectName("decoderSettingsDialog")
+        dialog.setWindowTitle(f"{self.actions.acquisition_profile.title} · FBCCA 参数")
+        dialog.setMinimumWidth(480)
+        form = QFormLayout(dialog)
+        form.setContentsMargins(20, 20, 20, 20)
+        form.setSpacing(12)
+        harmonics = QSpinBox(dialog)
+        harmonics.setObjectName("decoderHarmonics")
+        harmonics.setRange(1, 6)
+        harmonics.setValue(current.harmonics)
+        filtering = QComboBox(dialog)
+        filtering.setObjectName("decoderFilter")
+        filtering.addItem("FFT 滤波器组", "fft")
+        filtering.addItem("Butterworth 4 阶滤波器组", "butter4")
+        filtering.setCurrentIndex(filtering.findData(current.filter_method))
+        score, margin = QDoubleSpinBox(dialog), QDoubleSpinBox(dialog)
+        for control, name, value in ((score, "decoderMinScore", current.min_score),
+                                      (margin, "decoderMinMargin", current.min_margin)):
+            control.setObjectName(name)
+            control.setRange(0, 3)
+            control.setDecimals(3)
+            control.setSingleStep(.01)
+            control.setValue(value)
+        form.addRow("固定解码流程", QLabel(self.actions.algorithm, dialog))
+        form.addRow("谐波数量", harmonics)
+        form.addRow("滤波方式", filtering)
+        form.addRow("最低原始分数", score)
+        form.addRow("最低分数差值", margin)
+        form.addRow(QLabel("各模式独立设置，参数写入本轮实验记录。", dialog))
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel, dialog)
+        buttons.button(QDialogButtonBox.Save).setText("保存")
+        buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+        if dialog.exec() == QDialog.Accepted:
+            self.acquisition_profile.configure_decoder(DecoderSettings(
+                harmonics=harmonics.value(), filter_method=filtering.currentData(),
+                min_score=score.value(), min_margin=margin.value(),
+            ))
+
+    def _configure_research_stimulus(self) -> None:
+        if self.experiment.running:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("SSVEP 刺激设置")
+        form = QFormLayout(dialog)
+        frequency = QComboBox(dialog)
+        for value in TARGET_FREQUENCIES_HZ:
+            frequency.addItem(f"{value:g} Hz", value)
+        frequency.setCurrentIndex(frequency.findData(self.actions.paradigm_frequency))
+        size, duty = QSpinBox(dialog), QSpinBox(dialog)
+        for control, value in ((size, self.actions.stimulus_size), (duty, self.actions.duty_cycle)):
+            control.setRange(1, 100)
+            control.setSuffix(" %")
+            control.setValue(value)
+        form.addRow("选中目标频率", frequency)
+        form.addRow("刺激尺寸", size)
+        form.addRow("占空比", duty)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+        if dialog.exec() == QDialog.Accepted:
+            self.actions.paradigm_frequency = frequency.currentData()
+            self.actions.stimulus_size = size.value()
+            self.actions.duty_cycle = duty.value()
+            self._notify(self.actions.apply_paradigm())
 
     def _configure_automatic_ssvep_experiment(self) -> None:
         """Edit the visible, reproducible acquisition protocol."""
@@ -295,7 +434,7 @@ class MainDialogsMixin:
         dialog.resize(520, 360)
         layout = QVBoxLayout(dialog)
         layout.addWidget(QLabel("每行填写一个 Crazyflie URI，可配置多架（必须先断开）：", dialog))
-        editor = QPlainTextEdit(dialog)
+        editor = SwarmUriEditor(dialog)
         editor.setPlainText(current)
         layout.addWidget(editor, 1)
         buttons = QDialogButtonBox(

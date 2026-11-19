@@ -27,10 +27,11 @@ MONTAGES = {m.id: m for m in (LEGACY, HYBRID_V1, HYBRID)}
 HYBRID_IDS = frozenset((HYBRID_V1.id, HYBRID.id))
 
 
-def research_decoder(montage_id):
+def research_decoder(montage_id, settings=None):
     """Versioned, non-actuating decoder used only when saving research trials."""
     from src.bci.bn_fbcca import BNFBCCADecoder
+    from src.bci.decoder_settings import DecoderSettings
     if montage_id not in HYBRID_IDS:
         raise ValueError("Unknown hybrid montage")
-    return BNFBCCADecoder("b", channels_1based=(1, 2, 3, 4, 5),
-                         filter_method="butter4" if montage_id == HYBRID.id else "fft")
+    settings = settings or DecoderSettings(filter_method="butter4" if montage_id == HYBRID.id else "fft")
+    return BNFBCCADecoder("b", channels_1based=(1, 2, 3, 4, 5), **settings.to_dict())

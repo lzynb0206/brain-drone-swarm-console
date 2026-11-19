@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QApplication, QDialog, QLabel, QSpinBox
+from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QLabel, QLineEdit, QSpinBox
 
 from src.bci.montage import HYBRID, LEGACY
 from src.services.collection_plans import collection_schemes, hybrid_collection_config
@@ -80,8 +80,13 @@ class CollectionWorkspaceTest(unittest.TestCase):
 
     def setUp(self):
         self.view = MainView()
-        self.view.actions.recording_mode = "local_eeg"
+        self.view._activate("acquisition-profile:hybrid8")
         self.view.research_page = "数据采集"
+
+    def select_paradigm(self, paradigm):
+        if paradigm not in self.view.actions.acquisition_profile.paradigms:
+            self.view._activate("acquisition-profile:" + ("ssvep8" if paradigm == "SSVEP" else "hybrid8"))
+        self.view._activate("paradigm-type:" + paradigm)
 
     def tearDown(self):
         self.view.experiment.automatic_window = None
@@ -103,9 +108,9 @@ class CollectionWorkspaceTest(unittest.TestCase):
         return {action for _, action in page._regions}, labels
 
     def test_serial_formal_defaults_to_eighty_four_and_can_edit_the_total(self):
-        self.view._activate("paradigm-type:SSVEP+MI混合")
+        self.select_paradigm("SSVEP+MI混合")
         _,labels=self.render()
-        self.assertIn("84 组",labels)
+        self.assertTrue(any("84 组" in label for label in labels))
         self.assertNotIn("每组合次数",labels)
         def edit_count(dialog):
             labels={label.text() for label in dialog.findChildren(QLabel)}
@@ -121,58 +126,94 @@ class CollectionWorkspaceTest(unittest.TestCase):
         self.assertEqual(82,len(build_hybrid_plan(config)))
         self.view._activate("collection-scheme:pilot")
         _,labels=self.render()
-        self.assertIn("2 组",labels)
+        self.assertTrue(any("2 组" in label for label in labels))
+
+    def test_opt_in_study_uses_participant_seed_and_links_preflight(self):
+        self.select_paradigm("SSVEP+MI混合")
+        def configure(dialog):
+            dialog.findChild(QCheckBox).setChecked(True)
+            seed = next(w for w in dialog.findChildren(QLineEdit) if w.placeholderText().startswith("输入本受试者"))
+            seed.setText("11381")
+            return QDialog.Accepted
+        with patch.object(QDialog, "exec", configure):
+            self.view._activate("collection-config")
+        config = hybrid_collection_config(self.view.actions.hybrid_experiment_config, "SSVEP+MI混合", "formal")
+        plan = build_hybrid_plan(config)
+        self.assertEqual(11381, config.random_seed)
+        self.assertEqual(8, sum(t.block == 0 for t in plan))
+        self.assertEqual(14, sum(t.mi_label is None for t in plan))
+        for b in range(1, 8):
+            self.assertEqual(12, len({(t.ssvep_label,t.mi_label) for t in plan if t.block == b and t.mi_label}))
+        self.view._eeg_channel_names = HYBRID.names
+        self.view.actions.montage_id = HYBRID.id
+        self.view._pipeline_worker = MagicMock(source_name="LSL fixture")
+        self.view.acquisition.last_frame_monotonic = time.monotonic()
+        self.view._eeg_sample_rate = 250
+        with TemporaryDirectory() as folder:
+            self.view.experiment_recorder = ExperimentRecorder(folder)
+            self.view.experiment.select_subject(SubjectCatalog(folder).create_subject("F001"))
+            with patch("src.controllers.experiment_controller.AcquisitionPreflightDialog") as check, \
+                    patch("src.controllers.experiment_controller.HybridExperimentWindow") as window, \
+                    patch("src.controllers.experiment_controller.QTimer.singleShot"):
+                check.return_value.probe_result = None
+                self.view._activate("collection-start")
+                window.assert_not_called()
+                check.return_value.probe_result = {"formal_ready":True,"id":"preflight-fixture"}
+                window.return_value.run_id = "hybrid-20261119-120000-study"
+                self.view._activate("collection-start")
+                self.assertEqual(config, window.call_args.args[0])
+                self.assertEqual("preflight-fixture", window.call_args.kwargs["preflight_id"])
 
     def test_switching_on_collection_page_retains_parameters_and_scheme_per_paradigm(self):
         base = replace(self.view.actions.hybrid_experiment_config, repetitions=11)
         self.view.actions.hybrid_experiment_config = base
-        self.view._activate("paradigm-type:MI")
+        self.select_paradigm("MI")
         self.view._activate("collection-scheme:pilot")
         actions, labels = self.render()
-        self.assertIn("2 组", labels)
+        self.assertTrue(any("2 组" in label for label in labels))
         self.assertNotIn("SSVEP 时间", labels)
         self.assertIn("collection-start", actions)
-        self.view._activate("paradigm-type:SSVEP+MI混合")
+        self.select_paradigm("SSVEP+MI混合")
         self.assertEqual("formal", self.view.actions.collection_scheme)
         self.view._activate("collection-scheme:rest_closed")
-        self.view._activate("paradigm-type:MI")
+        self.select_paradigm("MI")
         self.assertEqual("pilot", self.view.actions.collection_scheme)
         self.assertEqual(base, self.view.actions.hybrid_experiment_config)
         self.assertEqual("数据采集", self.view.research_page)
-        self.view._activate("paradigm-type:SSVEP")
+        self.select_paradigm("SSVEP")
         self.view._activate("collection-scheme:rest_open")
         self.assertEqual("rest_open", self.view.actions.collection_scheme)
-        self.view._activate("paradigm-type:SSVEP+MI混合")
+        self.select_paradigm("SSVEP+MI混合")
         self.assertEqual("rest_closed", self.view.actions.collection_scheme)
 
     def test_all_schemes_share_controls_without_overlapping_click_regions(self):
-        expected_switches = {"paradigm-type:" + p for p in ("SSVEP", "MI", "SSVEP+MI混合")}
         for paradigm in ("SSVEP", "MI", "SSVEP+MI混合"):
-            self.view._activate("paradigm-type:" + paradigm)
+            self.select_paradigm(paradigm)
             for scheme in collection_schemes(paradigm):
-                with self.subTest(paradigm=paradigm, scheme=scheme.id):
-                    self.view._activate("collection-scheme:" + scheme.id)
-                    actions, labels = self.render()
-                    self.assertTrue(expected_switches <= actions)
-                    self.assertTrue({"collection-config", "collection-start"} <= actions)
-                    self.assertNotIn("hybrid-preflight", actions)
-                    self.assertIn("实验数据采集", labels)
-                    self.assertFalse(any("待完成硬件" in label or "待完成当前范式" in label for label in labels))
-                    regions = self.view.research_widget._regions
-                    for i, (rect, action) in enumerate(regions):
-                        self.assertGreaterEqual(rect.top(), 56)
-                        self.assertLessEqual(rect.bottom(), 720)
-                        self.assertLessEqual(rect.right(), 1280)
-                        for other, other_action in regions[i + 1:]:
-                            self.assertFalse(rect.intersects(other), (action, other_action))
+                self.view._activate("collection-scheme:" + scheme.id)
+                for section in ("", "parameters", "wiring", "advanced"):
+                    with self.subTest(paradigm=paradigm, scheme=scheme.id, section=section):
+                        self.view.research_widget.collection_section = section
+                        actions, labels = self.render()
+                        self.assertTrue({"research-choice:profile", "research-choice:scheme", "collection-start"} <= actions)
+                        self.assertEqual(section == "parameters", "collection-config" in actions)
+                        self.assertEqual(section == "advanced" and paradigm == "SSVEP", "ssvep-command-test" in actions)
+                        self.assertIn("实验数据采集", labels)
+                        regions = self.view.research_widget._regions
+                        for i, (rect, action) in enumerate(regions):
+                            self.assertGreaterEqual(rect.top(), 56)
+                            self.assertLessEqual(rect.bottom(), 720)
+                            self.assertLessEqual(rect.right(), 1280)
+                            for other, other_action in regions[i + 1:]:
+                                self.assertFalse(rect.intersects(other), (action, other_action))
 
     def test_running_experiment_locks_scheme_paradigm_layout_and_configuration(self):
-        self.view._activate("paradigm-type:MI")
+        self.select_paradigm("MI")
         self.view.experiment.automatic_window = SimpleNamespace(running=True)
         actions, _ = self.render()
-        self.assertFalse(any(a.startswith(("paradigm-type:", "collection-scheme:", "montage:")) for a in actions))
+        self.assertFalse(any(a.startswith(("paradigm-type:", "collection-scheme:", "montage:", "research-choice:")) for a in actions))
         self.assertNotIn("collection-config", actions)
-        self.view._activate("paradigm-type:SSVEP")
+        self.select_paradigm("SSVEP")
         self.view._activate("collection-scheme:rest_open")
         self.view._activate("montage:" + HYBRID.id)
         with patch.object(self.view.experiment, "configure_hybrid") as configure:
@@ -180,10 +221,10 @@ class CollectionWorkspaceTest(unittest.TestCase):
         configure.assert_not_called()
         self.assertEqual("MI", self.view.actions.paradigm_type)
         self.assertEqual("formal", self.view.actions.collection_scheme)
-        self.assertEqual(LEGACY.id, self.view.actions.montage_id)
+        self.assertEqual(HYBRID.id, self.view.actions.montage_id)
 
     def test_applying_hybrid_layout_preserves_mi_selection(self):
-        self.view._activate("paradigm-type:MI")
+        self.select_paradigm("MI")
         self.view.acquisition.stream = SimpleNamespace(configure_montage=MagicMock())
         self.view._activate("montage:" + HYBRID.id)
         self.assertEqual("MI", self.view.actions.paradigm_type)
@@ -208,7 +249,7 @@ class CollectionWorkspaceTest(unittest.TestCase):
             for paradigm in ("MI", "SSVEP+MI混合"):
                 for scheme in collection_schemes(paradigm):
                     self.view.experiment.automatic_window = None
-                    self.view._activate("paradigm-type:" + paradigm)
+                    self.select_paradigm(paradigm)
                     self.view._activate("collection-scheme:" + scheme.id)
                     expected = hybrid_collection_config(self.view.actions.hybrid_experiment_config, paradigm, scheme.id)
                     window.reset_mock()
@@ -219,7 +260,8 @@ class CollectionWorkspaceTest(unittest.TestCase):
                     self.assertFalse(self.view.actions.bci_control_enabled)
                     self.assertEqual(catalog.subjects.keys(), {self.view.experiment.selected_subject_id})
         self.view.experiment.automatic_window = None
-        self.view._activate("paradigm-type:SSVEP")
+        worker.isRunning.return_value = False
+        self.select_paradigm("SSVEP")
         with patch.object(self.view.experiment, "start_automatic") as automatic:
             self.view._activate("collection-start")
         automatic.assert_called_once_with()
@@ -230,7 +272,7 @@ class CollectionWorkspaceTest(unittest.TestCase):
             return QDialog.Rejected
 
         with patch.object(QDialog, "exec", inspect_dialog):
-            self.view._activate("paradigm-type:MI")
+            self.select_paradigm("MI")
             self.view._activate("collection-config")
             self.assertIn("每种 MI 动作次数", self.dialog_labels)
             self.assertIn("MI 动作提示 / 秒", self.dialog_labels)
@@ -254,13 +296,13 @@ class CollectionWorkspaceTest(unittest.TestCase):
             self.assertIn("专门闭眼静息 / 秒", self.dialog_labels)
             self.assertNotIn("专门睁眼静息 / 秒", self.dialog_labels)
         with patch.object(self.view, "_configure_automatic_ssvep_experiment") as configure:
-            self.view._activate("paradigm-type:SSVEP")
+            self.select_paradigm("SSVEP")
             self.view._activate("collection-config")
         configure.assert_called_once_with()
 
     def test_editing_one_rest_duration_preserves_the_other_state_and_task_settings(self):
         before=self.view.actions.hybrid_experiment_config
-        self.view._activate("paradigm-type:SSVEP+MI混合")
+        self.select_paradigm("SSVEP+MI混合")
         self.view._activate("collection-scheme:rest_closed")
         def edit_duration(dialog):
             fields=dialog.findChildren(QSpinBox)

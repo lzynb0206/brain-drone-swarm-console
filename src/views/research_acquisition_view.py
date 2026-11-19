@@ -6,6 +6,8 @@ import numpy as np
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
+from src.services.acquisition_profiles import ACQUISITION_PROFILES
+
 from src.widgets.scifi_canvas import (
     RESEARCH_BG as BG,
     RESEARCH_BLUE as BLUE,
@@ -77,8 +79,7 @@ class ResearchAcquisitionViewMixin:
         sample_rate = self._eeg_sample_rate or self._openbci_sample_rate
 
         c.text(32, 69, 310, 31, "实时脑电采集", 20, TEXT, True)
-        c.circle(350, 84, 5, GREEN if connected else RED)
-        c.text(363, 70, 410, 28, self._eeg_status, 10, TEXT if connected else MUTED)
+        c.text(32, 99, 700, 13, self._eeg_status, 8, TEXT if connected else MUTED)
         self._light_button(c, 820, 70, 112, 32, "返回连接配置")
         self._light_button(
             c, 944, 70, 132, 32,
@@ -127,80 +128,59 @@ class ResearchAcquisitionViewMixin:
             self._hit(x, 164, tab_width, 38, f"acquisition-tab:{tab}")
 
     def _acquisition_setup(self, c: Canvas) -> None:
-        """Direct connection page styled like the rest of the research console."""
-
         c.rect(0, 56, 1280, 664, BG)
-        c.text(32, 72, 430, 34, "建立脑电采集会话", 21, TEXT, True)
-        c.text(32, 105, 690, 24, "连接 ExpandableEEG / Cyton 兼容设备，确认参数后进入实时监测。", 11, MUTED)
-        c.rect(1018, 76, 230, 30, PANEL_SOFT, BORDER, 15)
-        c.circle(1038, 91, 5, YELLOW)
-        c.text(1052, 76, 176, 30, "等待设备连接", 10, TEXT, True)
+        c.text(32, 72, 420, 34, "脑电采集", 21, TEXT, True)
+        profile = self.actions.acquisition_profile
+        locked = self.acquisition_profile.locked
+        for index, option in enumerate(ACQUISITION_PROFILES):
+            x = 32 + index * 412
+            selected = profile.id == option.id
+            c.rect(x, 128, 392, 90, SELECTION if selected else PANEL, TEXT if selected else BORDER, 6)
+            c.circle(x + 24, 154, 5, TEXT if selected else BORDER)
+            c.text(x + 44, 138, 332, 30, option.title, 15, TEXT, selected)
+            c.text(x + 24, 178, 344, 24, option.description, 11, MUTED)
+            if not locked:
+                self._hit(x, 128, 392, 90, f"acquisition-profile:{option.id}")
 
-        card_y, card_h = 150, 396
-        cards = ((32, 350), (398, 430), (844, 404))
-        for x, width in cards:
-            c.rect(x, card_y, width, card_h, PANEL, BORDER, 5)
+        c.rect(32, 246, 480, 420, PANEL, BORDER, 6)
+        c.rect(532, 246, 716, 420, PANEL, BORDER, 6)
+        if profile.id == "external32":
+            c.text(56, 266, 432, 30, "外部 BDF 采集", 16, TEXT, True)
+            c.text(56, 318, 432, 28, "32 通道设备在外部采集软件中录制", 12, TEXT)
+            c.text(56, 362, 432, 28, "本机呈现实验，保存标签与阶段时间", 12, TEXT)
+            c.button(56, 428, 432, 42, "进入实验采集", True)
+            self._hit(56, 428, 432, 42, "research:数据采集")
+            c.text(56, 504, 432, 24, "采集完成后导入 BDF 和同轮事件日志", 11, MUTED)
+            c.button(56, 550, 204, 36, "导入 BDF")
+            self._hit(56, 550, 204, 36, "analysis-import-bdf")
+            c.text(556, 266, 480, 30, "实验配置", 16, TEXT, True)
+            c.text(556, 328, 668, 32, "SSVEP / MI / SSVEP＋MI", 20, TEXT, True)
+            c.text(556, 392, 668, 28, "在数据采集页选择实验类型、受试者和实验方案", 12, MUTED)
+            c.text(556, 438, 668, 28, "SSVEP 使用 FBCCA；MI 按所选电极离线分析", 12, MUTED)
+            c.text(556, 484, 668, 28, "导入时确认通道名称和时间对齐", 12, MUTED)
+            return
 
-        c.text(52, 168, 310, 26, "01  采集配置", 15, TEXT, True)
-        c.text(52, 201, 310, 22, "数据源", 9, MUTED, True)
-        c.rect(52, 228, 310, 46, SELECTION, BORDER, 3)
-        c.circle(72, 251, 6, GREEN)
-        c.text(90, 228, 254, 46, "ExpandableEEG / Cyton", 11, TEXT, True)
-        c.text(52, 294, 310, 22, "传输协议", 9, MUTED, True)
-        c.rect(52, 321, 310, 42, PANEL_SOFT, BORDER, 3)
-        c.text(66, 321, 282, 42, "Bluetooth COM / Native RFCOMM", 10, TEXT)
-        for index, (label, value) in enumerate((("通道数", "8 CH"), ("采样率", "250 Hz"))):
-            x = 52 + index * 160
-            c.rect(x, 388, 150, 66, PANEL_SOFT, BORDER, 3)
-            c.text(x + 12, 396, 126, 19, label, 9, MUTED)
-            c.text(x + 12, 418, 126, 26, value, 15, TEXT, True)
-        c.text(52, 478, 310, 44, "固定使用 8 通道硬件配置，避免会话间参数漂移。", 10, MUTED)
-
-        c.text(418, 168, 390, 26, "02  选择并连接设备", 15, TEXT, True)
-        c.text(418, 204, 390, 22, "系统蓝牙配对后，设备会映射为 COM 或 /dev/cu.*", 9, MUTED)
-        port = self._collector_selected_device or "尚未选择串口设备"
-        c.rect(418, 236, 390, 48, PANEL_SOFT, BORDER, 3)
-        c.text(434, 236, 358, 48, port[-48:], 10, TEXT)
-        self._light_button(c, 418, 300, 184, 40, "刷新 / 选择设备")
-        self._light_button(c, 618, 300, 190, 40, "开始采集会话", False, GREEN)
-        self._hit(418, 300, 184, 40, "openbci-serial-autoconnect")
-        self._hit(618, 300, 190, 40, "openbci-start-session")
-        c.rect(418, 362, 390, 94, PANEL_SOFT, BORDER, 3)
-        c.circle(440, 389, 6, YELLOW)
-        c.text(456, 374, 332, 30, self._eeg_status, 10, TEXT, True)
-        c.text(438, 411, 350, 29, "只接入真实硬件，不自动播放 CSV 或生成模拟 EEG。", 9, MUTED)
-        self._light_button(c, 418, 478, 136, 34, "接入说明")
-        self._hit(418, 478, 136, 34, "openbci-guide")
-
-        c.text(864, 168, 364, 26, "03  会话数据链路", 15, TEXT, True)
-        steps = (
-            ("连接", "蓝牙串口直连采集板"),
-            ("监测", "8 通道波形与频谱"),
-            ("质检", "信号质量与丢包检测"),
-            ("广播", "按需启动 LSL 输出"),
-            ("保存", "LSL 收集页写入 CSV"),
-        )
-        for index, (label, description) in enumerate(steps):
-            y = 211 + index * 58
-            c.circle(884, y + 17, 13, SELECTION, BORDER)
-            c.text(871, y + 4, 26, 26, str(index + 1), 9, CYAN, True, Qt.AlignCenter)
-            c.text(912, y, 58, 22, label, 10, TEXT, True)
-            c.text(970, y, 248, 22, description, 9, MUTED)
-            if index < len(steps) - 1:
-                c.line(884, y + 31, 884, y + 48, BORDER, 2)
-
-        c.rect(32, 566, 1216, 112, PANEL_SOFT, BORDER, 5)
-        c.text(56, 580, 240, 28, "清晰的数据职责", 13, TEXT, True)
-        responsibilities = (
-            ("采集", "硬件连接与实时监测"),
-            ("LSL 收集", "网络流接收与 CSV 保存"),
-            ("CSV回放", "CSV 回放与算法验证"),
-        )
-        for index, (label, value) in enumerate(responsibilities):
-            x = 318 + index * 294
-            c.rect(x, 582, 270, 64, PANEL, BORDER, 3)
-            c.text(x + 16, 590, 86, 20, label, 10, CYAN, True)
-            c.text(x + 16, 613, 238, 22, value, 10, TEXT)
+        c.text(56, 266, 432, 30, "连接设备", 16, TEXT, True)
+        c.text(56, 318, 432, 24, "串口 / 蓝牙设备 · 8 通道 · 250 Hz", 11, MUTED)
+        c.rect(56, 354, 432, 48, PANEL_SOFT, BORDER, 4)
+        port = self._collector_selected_device or "尚未选择设备"
+        c.text(72, 354, 400, 48, port[-46:], 11, TEXT)
+        c.button(56, 420, 202, 42, "刷新 / 选择设备")
+        c.button(270, 420, 218, 42, "进入采集", True)
+        self._hit(56, 420, 202, 42, "openbci-serial-autoconnect")
+        self._hit(270, 420, 218, 42, "openbci-start-session")
+        c.line(56, 494, 488, 494, BORDER)
+        c.text(56, 516, 432, 24, "连接状态", 10, MUTED)
+        c.circle(63, 561, 5, MUTED)
+        c.text(80, 542, 408, 40, self._eeg_status, 11, TEXT)
+        self._light_button(c, 56, 608, 116, 32, "连接帮助")
+        self._hit(56, 608, 116, 32, "openbci-guide")
+        c.text(556, 266, 480, 30, "实时信号", 16, TEXT, True)
+        c.text(556, 304, 668, 24, "O1 / Oz / O2 / P3 / P4 ＋ C3 / Cz / C4" if profile.id == "hybrid8"
+               else "O1 / Oz / O2 / PO3 / POz / PO4 / P3 / P4", 11, MUTED)
+        c.line(556, 338, 1224, 338, BORDER)
+        c.text(556, 412, 668, 62, "等待设备连接", 22, MUTED, False, Qt.AlignCenter)
+        c.text(556, 479, 668, 28, "选择设备后进入采集", 11, MUTED, False, Qt.AlignCenter)
 
     def _acquisition_dashboard_page(self, c: Canvas) -> None:
         """Compact three-panel runtime overview in the research light theme."""
@@ -303,6 +283,7 @@ class ResearchAcquisitionViewMixin:
             c.text(946, 545, 290, 38, result.reason, 10, ink)
         c.rect(946, 606, 298, 69, PANEL_SOFT, border, 2)
         c.text(958, 613, 274, 55, "CSV 回放不会直接启用无人机脑控。\n它用于复盘、算法验证和结果对比。", 10, YELLOW)
+
 
     def _light_button(
         self, c: Canvas, x: float, y: float, w: float, h: float, label: str,

@@ -18,14 +18,14 @@
 | 工作空间 | 主要功能 | 界面设计 |
 | --- | --- | --- |
 | 士兵 / 指挥官 | 作战地图、脑控驾驶、视觉手势、状态监控、手动控制 | 黑白灰主题；左侧导航支持靠近展开、离开收回、手动折叠和固定展开 |
-| 科研人员 | 硬件采集、LSL 收集、CSV 回放、范式算法、数据采集与分析、单目标校准 | 黑白灰主题；保留顶部导航和原有分页布局，脑电曲线按通道保留区分色 |
+| 科研人员 | 采集、LSL收集、CSV回放、数据采集、数据分析、SSVEP测试 | 黑白灰主题；各功能保留独立顶部入口；数据采集参数默认折叠，脑电曲线按通道保留区分色 |
 
 主要能力：
 
 - **脑电接入**：ExpandableEEG / Cyton 兼容设备原生串口采集、LSL 流接收和广播、CSV 记录与回放。
 - **实验工作流**：SSVEP、MI、SSVEP＋MI 混合采集，正式任务、试跑和静息方案，受试者确认、事件标记与试次归档。
 - **数据分析**：按受试者 → 日期 → 动作 → 试次筛选，截取分析时间段，查看波形、频谱、质量和解码结果；支持外部 BDF 与同轮实验日志对齐。
-- **算法工作台**：FBCCA、BN-FBCCA、个人模板、个人校准融合及 Transformer 等算法入口；训练、评估和复现实验脚本独立于界面运行。
+- **固定解码流程**：采集模式自动配置纯 SSVEP 的 FBCCA 或 5+3 联合采集的 BN-FBCCA-B；高级设置直接调整谐波数、滤波方式与分数门限，无需加载模型。MI 保留原始数据并进行离线分析。
 - **无人机控制**：Crazyflie / Crazyradio 接入，Flow / Lighthouse 相关控制、编队、手动摇杆、受控降落和急停。正常启动不会自动启用飞控。
 - **视觉手势**：本机摄像头、MJPEG 网络摄像头和视频文件输入；实时画面、16 时间片事件图、11 类 SNN 结果及推理耗时。
 
@@ -71,7 +71,7 @@ Windows 将表中的 Python 路径替换为 `.\.venv312\Scripts\python.exe`。�
 - **后端认证**：其他账号默认连接 `http://127.0.0.1:8080` 的 Spring Boot / JWT 服务；后端服务独立部署，不包含在本仓库中。
 - **离线演示认证**：设置 `BDS_AUTH_BACKEND=mock` 后，`research`、`commander` 等名称路由到相应角色；普通演示账号需填写非空密码，但不会校验真实凭据。
 
-程序直接读取系统环境变量，**不会自动加载 `.env`**。[`.env.example`](.env.example) 是配置参考，包含可选模型和设备参数。下面列的是代码中未设置环境变量时的默认值。
+程序直接读取系统环境变量，**不会自动加载 `.env`**。[`.env.example`](.env.example) 是配置参考，包含采集与设备参数。下面列的是代码中未设置环境变量时的默认值。
 
 | 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |
@@ -80,10 +80,9 @@ Windows 将表中的 Python 路径替换为 `.\.venv312\Scripts\python.exe`。�
 | `BDS_EEG_BACKEND` | `lsl` | EEG 初始数据源；`csv` 为显式回放模式 |
 | `BDS_LSL_STREAM_NAME` / `BDS_LSL_STREAM_TYPE` | `obci_eeg1` / `EEG` | 目标 LSL 流 |
 | `BDS_EEG_SAMPLE_RATE` | `250` | 配置采样率，单位 Hz |
-| `BDS_EEG_WINDOW_SECONDS` | `4` | 基线解码窗口，单位秒；个人算法可能使用自己的窗口 |
+| `BDS_EEG_WINDOW_SECONDS` | `4` | 实时 SSVEP 解码窗口，单位秒 |
 | `BDS_EEG_DATA_ROOT` | 项目下 `data/` | 采集与实验数据根目录 |
 | `BDS_EEG_CSV_PATH` | `data/research_experiments/samples/start-1.csv` | CSV 模式输入，文件需自行准备 |
-| `BDS_INTENT_DECODER` | `fbcca` | 启动时选择的解码器 |
 | `BDS_SOLDIER_EEG_PORT` | 空 | 士兵一键链路指定串口；为空时尝试识别唯一设备 |
 | `BDS_SWARM_BACKEND` | `disabled` | `flowdeck` 启用真实 Crazyflie 接口 |
 | `BDS_CRAZYFLIE_URIS` | 空 | 一架或多架设备的无线 URI |
@@ -106,18 +105,28 @@ $env:BDS_AUTH_BACKEND = "mock"
 
 **1. 脑电采集与回放**
 
-1. 科研人员顶部“采集”页选择串口设备，建立采集会话。
-2. 在采集总览检查通道波形、频谱和数据状态，使用信号质量、丢包检测及硬件设置子页查看细节。
-3. 需要跨进程或跨程序使用信号时启动 LSL 输出，再在“LSL收集”发现流、开始接收并保存 CSV。
-4. 已有 CSV 在“CSV回放”导入，可暂停、调整播放速度或定位时间；回放用于复盘和算法验证。
+1. 在科研人员顶部“采集”先选择采集模式。纯 SSVEP 和 5+3 模式自动配置电极布局，再选择串口设备、进入会话并启动数据流；32 通道模式直接进入外部 BDF 实验流程。
+2. 在“采集”的采集总览检查通道波形、频谱和数据状态，使用信号质量、丢包检测及硬件设置子页查看细节。
+3. 需要跨进程或跨程序使用信号时启动 LSL 输出，再切换到顶部“LSL收集”发现流、开始接收并保存 CSV。
+4. 已有 CSV 在顶部“CSV回放”导入，可暂停、调整播放速度或定位时间；回放用于复盘和算法验证。
 
 **2. 科研实验与数据分析**
 
-1. 在“范式算法”选择实验范式与解码算法。
-2. 在“数据采集”确认受试者，选择正式任务、试跑或静息方案，并核对采集计划。
+1. 在“采集”或“数据采集”选择采集模式；5+3 模式支持联合实验或单独 MI，32 通道外部 BDF 模式支持 SSVEP、MI 或联合实验。解码流程自动配置，高级设置直接编辑 FBCCA 参数。
+2. 确认受试者，选择正式任务、试跑或静息方案，并核对采集计划。
 3. 使用本机实时 EEG 时，核对电极布局并完成采集前检查；使用外部设备时，选择“独立呈现 / 外部 BDF”。
 4. 外部记录需要同时保存 BDF 和本机同轮事件日志，在“数据分析”导入时填写时间偏移、漂移与对齐依据。
-5. 按受试者、日期、动作和具体试次筛选，选择分析片段并查看结果。单目标模板采集另有“单目标校准”入口。
+5. 按受试者、日期、实验类型、动作和具体试次筛选，选择分析片段并查看结果。联合实验的 SSVEP、MI 阶段保留配对关系。
+
+| 采集模式 | 数据来源 / 电极 | 解码与分析 |
+| --- | --- | --- |
+| 纯 SSVEP · 8 通道 | 本机 EEG；O1、Oz、O2、PO3、POz、PO4、P3、P4 | FBCCA，无需加载模型 |
+| SSVEP＋MI · 5+3 | 本机 EEG；O1、Oz、O2、P3、P4 + C3、Cz、C4 | SSVEP 阶段固定 BN-FBCCA-B；MI 离线分析 |
+| 32 通道 · 外部 BDF | 外部设备记录 BDF，本机保存呈现事件 | 导入时按名称选择 SSVEP / MI 电极并确认时间对齐 |
+
+实验参数、接线与信号、高级设置默认收起。各模式在本次软件会话中保留自己的 FBCCA 参数；开始实验后，参数写入事件日志和试次元数据，后续分析按记录中的参数解码。运行中的数据流或实验会锁定模式与解码参数。32 通道模式不连接本机 32 通道硬件、不生成模拟 EEG。
+
+独立的范式算法页、单目标校准，以及 Lzy / Xz / 个人模板 / 个人校准融合的专用代码、训练脚本和模型文件已移除；科研原始数据和历史分析结果保留。
 
 人工时间对齐会被标记为未验证，不能等同于硬件同步；仅内部交叉验证的成绩不能直接作为实机准确率。
 
@@ -150,7 +159,7 @@ CSV、模拟信号和未经独立验证的模型不能直接进入实机脑控�
 | `src/services/`、`src/domain/`、`src/ports/` | 业务规则、数据模型与接口契约 |
 | `src/adapters/`、`src/integrations/` | 认证、EEG、无人机与摄像头外部接入 |
 | `src/bci/`、`src/ml/`、`src/workers/` | 解码、模型训练推理及后台任务 |
-| `models/` | 随仓库提供的手势权重、个人模型与元数据 |
+| `models/` | 手势权重及科研解码门限文件 |
 | `scripts/` | 设备桥接、训练、评估、公开数据准备及复现实验工具 |
 | `tests/` | 单元、集成和离屏界面测试 |
 | `data/` | 本地科研数据、采集记录与试次索引 |
@@ -210,11 +219,11 @@ The supported roles are **Soldier / Operator, Commander and Researcher**. System
 | Workspace | Main capabilities | Navigation and appearance |
 | --- | --- | --- |
 | Soldier / Commander | Map, BCI driving, visual gestures, status monitoring and manual controls | Monochrome theme; left sidebar expands on approach, collapses on leave and supports manual toggling or pinning |
-| Researcher | Hardware acquisition, LSL collection, CSV replay, paradigms, algorithms, experiments, analysis and single-target calibration | Monochrome theme with the existing top navigation and page layout; EEG traces retain channel colors |
+| Researcher | Acquisition, LSL Collection, CSV Replay, Data Collection, Data Analysis, SSVEP Test | Monochrome theme with independent top navigation entries; collection parameters are collapsed by default; EEG traces retain channel colors |
 
 Core features include native serial acquisition from ExpandableEEG / Cyton-compatible devices; LSL receiving and broadcasting; CSV recording and replay; labeled SSVEP, MI and hybrid trials; subject-based data organization; external BDF import; and waveform, spectrum, quality and decoder analysis.
 
-The decoder workspace exposes FBCCA, BN-FBCCA, personal templates, personal score calibration and Transformer options. Crazyflie / Crazyradio integration includes Flow / Lighthouse-related controls, formations, manual input, landing and emergency stop. Camera input supports local devices, MJPEG streams and video files, with live previews, 16-step event images and 11-class SNN inference.
+Acquisition modes configure FBCCA or the hybrid BN-FBCCA-B workflow automatically. Advanced Settings edits harmonics, filtering and score thresholds directly; no model-loading step is required. MI remains an offline analysis workflow. Crazyflie / Crazyradio integration includes Flow / Lighthouse-related controls, formations, manual input, landing and emergency stop. Camera input supports local devices, MJPEG streams and video files, with live previews, 16-step event images and 11-class SNN inference.
 
 ### Installation and launch
 
@@ -267,10 +276,9 @@ The application reads process environment variables and **does not automatically
 | `BDS_EEG_BACKEND` | `lsl` | Initial EEG source; `csv` explicitly selects replay |
 | `BDS_LSL_STREAM_NAME` / `BDS_LSL_STREAM_TYPE` | `obci_eeg1` / `EEG` | Target LSL stream |
 | `BDS_EEG_SAMPLE_RATE` | `250` | Configured sample rate in Hz |
-| `BDS_EEG_WINDOW_SECONDS` | `4` | Baseline decoding window in seconds; personal algorithms may use their own window |
+| `BDS_EEG_WINDOW_SECONDS` | `4` | Live SSVEP decoding window in seconds |
 | `BDS_EEG_DATA_ROOT` | Project `data/` directory | Recording and experiment root |
 | `BDS_EEG_CSV_PATH` | `data/research_experiments/samples/start-1.csv` | CSV input; supply the file separately |
-| `BDS_INTENT_DECODER` | `fbcca` | Initial decoder |
 | `BDS_SOLDIER_EEG_PORT` | Empty | Explicit serial port for the soldier workflow; otherwise detect a unique device |
 | `BDS_SWARM_BACKEND` | `disabled` | Use `flowdeck` for the real Crazyflie adapter |
 | `BDS_CRAZYFLIE_URIS` | Empty | Radio URIs for one or more drones |
@@ -288,18 +296,28 @@ In PowerShell, set `$env:BDS_AUTH_BACKEND = "mock"`, then launch the Windows com
 
 **EEG acquisition and replay**
 
-1. Open **采集 / Acquisition**, select the serial device and establish a session.
+1. Open **采集 / Acquisition** and choose a mode. Pure SSVEP and 5+3 modes configure electrode mapping automatically; select a serial device, enter the session and start streaming. The 32-channel mode opens the external BDF experiment workflow.
 2. Inspect waveforms, spectra, quality, packet loss and hardware settings.
-3. Start LSL broadcasting when needed. Use **LSL收集 / LSL Collection** to discover the stream, receive samples and save CSV recordings.
-4. Import an existing CSV in **CSV回放 / CSV Replay** to pause, change playback speed or seek. Replay is intended for review and algorithm evaluation.
+3. Start LSL broadcasting when needed. Switch to the **LSL收集 / LSL Collection** top tab to discover the stream, receive samples and save CSV recordings.
+4. Import an existing CSV in the **CSV回放 / CSV Replay** top tab to pause, change playback speed or seek. Replay is intended for review and algorithm evaluation.
 
 **Experiments and analysis**
 
-1. Select the paradigm and decoder in **范式算法 / Paradigms and Algorithms**.
-2. In **数据采集 / Data Collection**, confirm the subject, choose a formal, pilot or resting protocol, and review the plan.
+1. Choose a mode in **Acquisition** or **Data Collection**. The 5+3 mode supports joint or MI-only experiments; external BDF supports SSVEP, MI and joint experiments. Decoding is configured automatically, and Advanced Settings edits FBCCA parameters directly.
+2. Confirm the subject, choose a formal, pilot or resting protocol, and review the plan.
 3. For local EEG, check electrode mapping and complete the preflight acquisition check. For another recording system, select independent presentation / external BDF.
 4. Keep both the BDF and the matching event log. During import in **数据分析 / Data Analysis**, provide the time offset, drift and alignment evidence.
-5. Filter by subject, date, action and trial, select an analysis interval and inspect results. **单目标校准 / Single-target Calibration** provides a separate template collection workflow.
+5. Filter by subject, date, experiment type, action and trial, then select an analysis interval. SSVEP and MI stages retain their pairing in joint experiments.
+
+| Acquisition mode | Source / electrodes | Decoding and analysis |
+| --- | --- | --- |
+| Pure SSVEP · 8 channels | Local EEG; O1, Oz, O2, PO3, POz, PO4, P3, P4 | FBCCA without model loading |
+| SSVEP + MI · 5+3 | Local EEG; O1, Oz, O2, P3, P4 + C3, Cz, C4 | Fixed BN-FBCCA-B for SSVEP; offline MI analysis |
+| 32 channels · External BDF | Another recorder saves BDF; this app logs stimulus events | Select SSVEP / MI channels by name and confirm alignment during import |
+
+Parameters, wiring/signal details and advanced settings are collapsed by default. Each mode retains its settings during the application session. New event logs and trial metadata preserve the chosen FBCCA parameters for later analysis. Active streaming or experiments lock mode and parameter changes. The external BDF mode does not connect local 32-channel hardware or generate simulated EEG.
+
+The separate paradigm/algorithm page, single-target calibration, and Lzy / Xz / personal-template / personal-score implementations, training scripts and model artifacts have been removed. Raw research recordings and historical analysis results are preserved.
 
 Manual alignment is marked as unverified, not hardware-synchronized. Internal cross-validation results are not equivalent to independently validated live-control accuracy.
 
@@ -329,14 +347,14 @@ Capture and inference run in a separate process, stopped on logout or window clo
 | `src/services/`, `src/domain/`, `src/ports/` | Business rules, data models and interfaces |
 | `src/adapters/`, `src/integrations/` | Authentication, EEG, drone and camera integrations |
 | `src/bci/`, `src/ml/`, `src/workers/` | Decoders, training/inference and background tasks |
-| `models/` | Included gesture weights, personal models and metadata |
+| `models/` | Gesture weights and research decoder gate files |
 | `scripts/` | Device bridges, training, evaluation, public-data preparation and reproduction tools |
 | `tests/` | Unit, integration and offscreen UI tests |
 | `data/`, `outputs/` | Local datasets, recordings, indexes and research results |
 
 Runtime recordings are separated into `data/research_experiments/`, `data/ssvep_realtime_tests/` and `data/soldier_ssvep_flights/`. Set `BDS_EEG_DATA_ROOT` to relocate them.
 
-Git includes source, tests, configuration examples and non-ignored model files. Research datasets, runtime recordings, `outputs/`, virtual environments, caches and local `.env` files remain on the local machine according to [`.gitignore`](.gitignore); cloning does not download them. Recording directories are created when used, and missing experimental data is not silently generated. Optional Transformer / FB-EEGNet weights must be trained or supplied separately.
+Git includes source, tests, configuration examples and non-ignored model files. Research datasets, runtime recordings, `outputs/`, virtual environments, caches and local `.env` files remain on the local machine according to [`.gitignore`](.gitignore); cloning does not download them. Recording directories are created when used, and missing experimental data is not silently generated. Standalone Transformer / FB-EEGNet research scripts use separately trained weights and do not replace the application’s fixed collection decoder.
 
 ### Testing and development
 

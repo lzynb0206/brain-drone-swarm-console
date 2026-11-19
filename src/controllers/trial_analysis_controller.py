@@ -93,6 +93,7 @@ class TrialAnalysisController(QObject):
         self.selected_date = ""
         self.subject_page = 0
         self.date_page = 0
+        self.selected_kind = ""
         self.selected_label = ""
         self.selected_experiment_id = ""
         self.experiment_page = 0
@@ -105,6 +106,35 @@ class TrialAnalysisController(QObject):
         self.paired_report_pixmap: QPixmap | None = None
         self.report_pair_id = ""
         self.report_note = ""
+
+    @staticmethod
+    def record_kind(record) -> str:
+        if getattr(record, "analysis_kind", "") == "rest":
+            return "rest"
+        paradigm = str(getattr(record, "paradigm_type", ""))
+        if getattr(record, "is_serial_pair", False) or ("MI" in paradigm and "SSVEP" in paradigm):
+            return "SSVEP+MI混合"
+        if paradigm == "MI" or getattr(record, "analysis_kind", "") == "mi":
+            return "MI"
+        return "SSVEP"
+
+    @staticmethod
+    def kind_title(kind: str) -> str:
+        return {"SSVEP": "SSVEP", "MI": "MI 运动想象", "SSVEP+MI混合": "SSVEP＋MI 联合", "rest": "静息"}.get(kind, kind)
+
+    @property
+    def kinds(self) -> tuple[str, ...]:
+        available = {self.record_kind(record) for record in self.records
+                     if self._record_in_selected_subject_date(record, filter_kind=False)}
+        return tuple(kind for kind in ("SSVEP", "MI", "SSVEP+MI混合", "rest") if kind in available)
+
+    def select_kind(self, kind: str) -> None:
+        if kind not in self.kinds:
+            return
+        self.selected_kind = kind
+        self._clear_report()
+        self._select_first_label()
+        self.host.update()
 
     @property
     def labels(self) -> tuple[str, ...]:
@@ -575,6 +605,7 @@ class TrialAnalysisController(QObject):
         record = self.records[record_index]
         self.selected_subject_id = str(getattr(record, "subject_id", ""))
         self.selected_date = str(getattr(record, "acquisition_date", ""))
+        self.selected_kind = self.record_kind(record)
         self.selected_label = record.true_label
         self.selected_experiment_id = self._record_experiment_id(record)
         self.selected_record_index = record_index
@@ -635,6 +666,8 @@ class TrialAnalysisController(QObject):
         self._select_first_label()
 
     def _select_first_label(self) -> None:
+        if self.selected_kind not in self.kinds:
+            self.selected_kind = next(iter(self.kinds), "")
         labels = self.labels
         self.selected_label = labels[0] if labels else ""
         self.selected_experiment_id = ""
@@ -665,9 +698,10 @@ class TrialAnalysisController(QObject):
         self.page = 0
         self._select_first_visible()
 
-    def _record_in_selected_subject_date(self, record: TrialAnalysisRecord) -> bool:
+    def _record_in_selected_subject_date(self, record: TrialAnalysisRecord, *, filter_kind: bool = True) -> bool:
         return (
             str(getattr(record, "subject_id", "")) == self.selected_subject_id
+            and (not filter_kind or not self.selected_kind or self.record_kind(record) == self.selected_kind)
             and (
                 self.selected_date == self.ALL_DATES
                 or str(getattr(record, "acquisition_date", "")) == self.selected_date

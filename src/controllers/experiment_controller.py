@@ -11,8 +11,9 @@ from typing import Protocol
 
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (QInputDialog, QMessageBox, QWidget, QDialog, QFormLayout,
-                              QComboBox, QSpinBox, QDoubleSpinBox, QDialogButtonBox, QLabel)
+                              QComboBox, QSpinBox, QDoubleSpinBox, QDialogButtonBox, QLabel, QCheckBox, QLineEdit)
 
 from src.bci.config import SAMPLE_RATE_HZ, SSVEP_CHANNEL_NAMES
 from src.services.subject_catalog import SubjectCatalog
@@ -23,6 +24,7 @@ from src.services.hybrid_experiment_protocol import MI_TASK_SETS
 from src.services.collection_plans import REST_SCHEMES, collection_schemes, hybrid_collection_config
 from src.bci.montage import HYBRID, LEGACY, MONTAGES
 from src.services.acquisition_preflight import audit_hybrid_run
+from src.views.acquisition_preflight_dialog import AcquisitionPreflightDialog
 from src.services.external_recording import ExternalRecordingJournal
 
 
@@ -122,7 +124,7 @@ class ExperimentController:
         recorder = self.host.experiment_recorder
         if (recorder is None or not self.selected_subject_id
                 or Path(recorder.root).resolve() != self._subject_root):
-            self.host._notify("请先在数据采集页选择并确认本轮受试者")
+            self.host._notify("请先在实验采集页选择并确认本轮受试者")
             return False
         return True
 
@@ -133,6 +135,11 @@ class ExperimentController:
                 self._run_date(window.run_id), paradigm, scheme)
             acquisition_directory(self.host.experiment_recorder.raw_trial_dir, context).mkdir(parents=True, exist_ok=True)
             self.selected_subject_name = context["subject_name"]
+            context.update(acquisition_profile=self.host.actions.acquisition_profile.id,
+                           decoder_settings=self.host.actions.decoder_settings.to_dict())
+            if not self.external_recording:
+                montage = MONTAGES[self.host.actions.montage_id]
+                context.update(montage_id=montage.id, channel_names=list(montage.names))
             self._run_context = context
             self._marker_failure = False
             self.external_journal = None
@@ -322,6 +329,23 @@ class ExperimentController:
         for name, title in timing_fields:
             box = QDoubleSpinBox(); box.setRange(2 if name in ("ssvep_seconds", "mi_seconds") else .5, 30)
             box.setSingleStep(.5); box.setValue(getattr(config, name)); fields[name] = box; layout.addRow(title, box)
+        study = None
+        if serial and scheme == "formal":
+            study = QCheckBox("采用论文串行方案（84 对、开头 8 段空闲、左右手）")
+            seed = QLineEdit("" if config.serial_study_seed is None else str(config.serial_study_seed))
+            seed.setValidator(QIntValidator(0, 2147483647, seed))
+            seed.setPlaceholderText("输入本受试者预先分配的整数种子")
+            layout.addRow(study)
+            layout.addRow("论文方案随机种子", seed)
+
+            def toggle_study(enabled):
+                layout.setRowVisible(seed, enabled)
+                for widget in (tasks, *fields.values()):
+                    layout.setRowVisible(widget, not enabled)
+
+            study.toggled.connect(toggle_study)
+            study.setChecked(config.serial_study_seed is not None)
+            toggle_study(study.isChecked())
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject); layout.addRow(buttons)
         if dialog.exec() == QDialog.Accepted:
@@ -329,6 +353,10 @@ class ExperimentController:
                 values = {name: box.value() for name, box in fields.items()}
                 if not rest_only:
                     values["task_set"] = tasks.currentData()
+                if study is not None:
+                    if study.isChecked() and not seed.hasAcceptableInput():
+                        raise ValueError("请先输入本受试者的论文方案随机种子")
+                    values["serial_study_seed"] = int(seed.text()) if study.isChecked() else None
                 updated = replace(config, **values).validate()
             except ValueError as exc:
                 self.host._notify(str(exc))
@@ -342,15 +370,18 @@ class ExperimentController:
             self.automatic_window.showFullScreen(); self.automatic_window.raise_(); return
         if not self._require_subject():
             return
+        resting_ssvep = (self.host.actions.paradigm_type == "SSVEP"
+                         and (scheme in REST_SCHEMES or mode == "rest"))
+        required_montage = LEGACY if resting_ssvep else HYBRID
         if not self.external_recording:
             if worker is None or not worker.isRunning() or time.monotonic() - self.host.acquisition.last_frame_monotonic > 2:
-                self.host._notify("请应用 5+3 布局，然后启动实时 EEG 数据流")
+                self.host._notify("请在采集页选择对应模式，然后启动实时 EEG 数据流")
                 return
             if worker.source_name.strip().lower().startswith(("csv", "mock", "demo")):
                 self.host._notify("配对采集需要实时硬件或 LSL EEG；回放数据不能充当新采集")
                 return
-            if self.host.actions.montage_id != HYBRID.id or tuple(self.host._eeg_channel_names) != HYBRID.names:
-                self.host._notify("需要候选 5+3 实际接线：O1 Oz O2 P3 P4 C3 Cz C4；请停流后应用布局")
+            if self.host.actions.montage_id != required_montage.id or tuple(self.host._eeg_channel_names) != required_montage.names:
+                self.host._notify("请核对本轮实际接线：" + " ".join(required_montage.names))
                 return
             if abs(float(self.host._eeg_sample_rate) - SAMPLE_RATE_HZ) > 5:
                 self.host._notify("当前采样率与 250 Hz 配对采集配置不符")
@@ -362,11 +393,24 @@ class ExperimentController:
         config = hybrid_collection_config(
             self.host.actions.hybrid_experiment_config, paradigm, scheme,
         )
+        preflight_id = ""
+        if config.serial_study_seed is not None:
+            if self.external_recording:
+                self.host._notify("论文串行方案需要本机实时 EEG，以保存同钟配对 NPZ")
+                return
+            check = AcquisitionPreflightDialog(worker, self.host.experiment_recorder.root,
+                                               self.host if isinstance(self.host, QWidget) else None)
+            outcome = check.exec()
+            report = check.probe_result or {}
+            if outcome == QDialog.Rejected or not report.get("study_technical_ready", report.get("formal_ready", False)):
+                self.host._notify("论文串行采集尚未开始，请核对预检显示的接线和采集结果")
+                return
+            preflight_id = report["id"]
         self.host.actions.bci_control_enabled = False
         if not self.external_recording:
             worker.set_paradigm_type("SSVEP+MI混合")
         self._marker_failure = False
-        window = HybridExperimentWindow(config, self.host if isinstance(self.host, QWidget) else None,
+        window = HybridExperimentWindow(config, self.host if isinstance(self.host, QWidget) else None, preflight_id=preflight_id,
                                         external_recording=self.external_recording)
         if not self._bind_run(window, paradigm, scheme):
             return

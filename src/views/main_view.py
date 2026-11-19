@@ -26,7 +26,6 @@ from src.controllers import (
     LSLCollectionController,
     ManualFlightController,
     RecognitionController,
-    SingleTargetCalibrationController,
     SoldierBCIController,
     ToastController,
     TrialAnalysisController,
@@ -39,6 +38,7 @@ from src.services import (
     RawEEGCsvRecorder,
     WorkbenchService,
 )
+from src.controllers.acquisition_profile_controller import AcquisitionProfileController
 from src.controllers.main_action_router import MainActionRouter
 from src.controllers.gesture_controller import GestureController
 from src.views.main_dialogs import MainDialogsMixin
@@ -82,11 +82,6 @@ class MainView(
             swarm_gateway,
             soldier_ssvep_recorder or experiment_recorder,
         )
-        active_decoder = str(getattr(intent_decoder, "active_name", "")).strip()
-        if active_decoder:
-            self.actions.algorithm = active_decoder
-            self.actions.default_algorithm = active_decoder
-            self.actions.loaded_algorithms.add(active_decoder)
         self.user: User | None = None
         self.research_page = "采集"
         self.acquisition_stage = "setup"
@@ -131,7 +126,7 @@ class MainView(
         self.soldier_bci = SoldierBCIController(self)
         self.gesture = GestureController(self)
         self.experiment = ExperimentController(self)
-        self.single_target_calibration = SingleTargetCalibrationController(self)
+        self.acquisition_profile = AcquisitionProfileController(self)
         self.recognition = RecognitionController(self)
         self.manual_flight = ManualFlightController(self)
         analysis_root = (
@@ -294,7 +289,6 @@ class MainView(
     def deactivate(self) -> None:
         self.gesture.shutdown()
         self.experiment.deactivate()
-        self.single_target_calibration.deactivate()
         if self._stimulus_window is not None:
             self._stimulus_window.close()
         if self.acquisition.raw_recorder.is_recording:
@@ -312,7 +306,6 @@ class MainView(
         self.soldier_bci.reset_state()
 
     def _on_eeg_frame(self, frame: EEGFrame) -> None:
-        self.single_target_calibration.ingest_frame(frame)
         self.soldier_bci.complete_after_frame(frame)
         self.acquisition.handle_frame(
             frame,
@@ -323,31 +316,6 @@ class MainView(
 
     def _on_recognition(self, result: IntentResult) -> None:
         self.recognition.process(result)
-
-    def _activate_selected_decoder(self) -> str:
-        """Activate the selected UI algorithm in the live decoder manager."""
-
-        selector = getattr(self.intent_decoder, "select", None)
-        if callable(selector):
-            try:
-                message = str(selector(self.actions.algorithm))
-            except Exception as exc:
-                return f"算法未加载：{exc}"
-            self.actions.load_algorithm()
-            return message
-        return self.actions.load_algorithm()
-
-    def _set_default_selected_decoder(self) -> str:
-        message = self._activate_selected_decoder()
-        if message.startswith("算法未加载"):
-            return message
-        return self.actions.set_default_algorithm()
-
-    def _unload_selected_decoder(self) -> str:
-        active = str(getattr(self.intent_decoder, "active_name", "")).strip()
-        if active and active == self.actions.algorithm:
-            return "运行中的解码器不能卸载，请先加载另一个可用算法"
-        return self.actions.unload_algorithm()
 
     def _run_simulated_structured_mission(self) -> None:
         """Inject the hand-written FBCCA-style result into the normal mission path."""
@@ -378,7 +346,6 @@ class MainView(
         if self._pipeline_worker is not worker:
             return
         self.experiment.handle_worker_finished()
-        self.single_target_calibration.handle_worker_finished()
         self.acquisition.close_recording_after_worker()
         self.soldier_bci.handle_worker_finished()
         self.update()

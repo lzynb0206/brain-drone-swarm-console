@@ -51,6 +51,7 @@ class AcquisitionProbe:
     def report(self):
         x, t = self.arrays()
         errors = list(self.errors)
+        quality_warnings = []
         result = {"sample_count": len(t), "source_id": self.source_id,
                   "channel_names": list(self.names), "original_channel_names": self.original_names,
                   "physical_electrode_positions_verified_by_software": False,
@@ -79,14 +80,16 @@ class AcquisitionProbe:
                 quality = assess_signal_quality(x, 250.)
                 bad = [n for n, ok in zip(self.names, quality["usable_mask"]) if not ok]
                 if bad:
-                    errors.append("需检查这些电极的信号：" + ", ".join(bad))
+                    quality_warnings.append("需检查这些电极的信号：" + ", ".join(bad))
                 result["signal_quality"] = quality
             result.update(duration_seconds=span, measured_rate_hz=rate,
                           largest_sample_gap_seconds=float(np.max(dt)),
                           latest_sample_age_seconds=float(ages[-1]),
                           max_sample_age_seconds=float(np.max(ages)))
-        result["errors"] = sorted(set(errors))
-        result["software_checks_passed"] = not errors
+        result["technical_errors"] = sorted(set(errors))
+        result["signal_quality_warnings"] = quality_warnings
+        result["errors"] = sorted(set(errors + quality_warnings))
+        result["software_checks_passed"] = not result["errors"]
         return result
 
 
@@ -121,12 +124,15 @@ def save_probe(root, probe, markers, mapping_confirmed, clock_source):
     result["local_marker_sequence_verified"] = valid_markers and marker_inside and disk_ok
     result["lsl_publication_requested_successfully"] = bool(markers) and all(m.get("published_to_lsl") for m in markers)
     result["lsl_receiver_delivery_verified"] = False
+    technical_errors = result["technical_errors"]
     if not valid_markers or not marker_inside or not disk_ok:
-        result["errors"].append("本机标记顺序、磁盘记录或标记与 EEG 时间范围不一致")
+        technical_errors.append("本机标记顺序、磁盘记录或标记与 EEG 时间范围不一致")
     if clock_source == "time.monotonic_fallback":
-        result["errors"].append("使用后备时钟，未验证与 LSL 标记的时钟关系")
+        technical_errors.append("使用后备时钟，未验证与 LSL 标记的时钟关系")
     if not mapping_confirmed:
-        result["errors"].append("实验员尚未核对实际接线")
+        technical_errors.append("实验员尚未核对实际接线")
+    result["study_technical_ready"] = not technical_errors
+    result["errors"] = technical_errors + result["signal_quality_warnings"]
     result["software_checks_passed"] = not result["errors"]
     result["formal_ready"] = result["software_checks_passed"] and bool(mapping_confirmed)
     np.savez_compressed(root/result["raw_file"], eeg=x, sample_timestamps=t, fs=250.,

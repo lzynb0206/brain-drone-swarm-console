@@ -46,8 +46,11 @@ def hybrid_collection_config(
         raise ValueError("MI / SSVEP＋MI 混合采集需要对应范式")
     if scheme != "rest" and scheme not in {item.id for item in collection_schemes(paradigm)}:
         raise ValueError("当前范式不支持此采集方案")
+    if paradigm == "SSVEP+MI混合" and scheme == "formal" and base.serial_study_seed is not None:
+        return HybridExperimentConfig(serial_pair_count=84, idle_trials=8, random_seed=base.serial_study_seed,
+                                      serial_study_seed=base.serial_study_seed).validate()
     config = replace(base, mode="mi" if paradigm == "MI" else "serial", purpose="formal",
-                     include_dedicated_rest=False, idle_trials=0)
+                     include_dedicated_rest=False, idle_trials=0, serial_study_seed=None)
     if scheme in (*REST_SCHEMES, "rest"):
         config = replace(config, mode="rest", include_dedicated_rest=True,
                          rest_eye_state={"rest_open": "open", "rest_closed": "closed"}.get(scheme, "both"))

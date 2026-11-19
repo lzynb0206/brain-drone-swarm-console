@@ -1,4 +1,4 @@
-"""Feature extraction used by the dual-evidence personal score calibrator.
+"""Dual-FBCCA feature extraction used by the offline comparison benchmarks.
 
 This deliberately mirrors the fixed configuration selected in the October-24
 offline audit.  It does not run FFT merely for plotting: each FFT mask is an
@@ -14,7 +14,13 @@ import numpy as np
 from src.bci.config import TARGET_FREQUENCIES_HZ
 from src.bci.fbcca_decoder import _canonical_correlation
 from src.bci.preprocessing import fft_bandpass, notch_mains, remove_linear_drift
-from src.ml.personal_score_contract import FEATURE_NAMES
+
+# Stable feature order shared by the comparison scripts.
+FEATURE_NAMES = tuple(
+    f"{branch}:{frequency:g}Hz"
+    for branch in ("standard50", "equal46")
+    for frequency in TARGET_FREQUENCIES_HZ
+)
 
 
 @dataclass(frozen=True)
@@ -82,24 +88,24 @@ def extract_dual_fbcca_features(
     if fs <= 0.0:
         raise ValueError("EEG sample rate must be positive")
     if data.ndim != 2 or data.shape[0] < int(channel_count):
-        raise ValueError(f"个人校准融合需要前 {channel_count} 个枕区 EEG 通道")
+        raise ValueError(f"双 FBCCA 特征需要前 {channel_count} 个枕区 EEG 通道")
     if data.shape[1] < int(sample_count):
         seconds = int(sample_count) / fs
-        raise ValueError(f"个人校准融合需要完整 {seconds:g} 秒 EEG 窗口")
+        raise ValueError(f"双 FBCCA 特征需要完整 {seconds:g} 秒 EEG 窗口")
     data = data[:int(channel_count), -int(sample_count):].copy()
     if not np.isfinite(data).all():
-        raise ValueError("EEG 含 NaN/Inf，不能提取个人校准特征")
+        raise ValueError("EEG 含 NaN/Inf，不能提取双 FBCCA 特征")
     data = remove_linear_drift(data)
     data = notch_mains(data, fs, 50.0, 30.0)
     scale = data.std(axis=1, keepdims=True)
     if np.any(scale[:, 0] <= 1e-12):
-        raise ValueError("EEG 存在平坦通道，不能提取个人校准特征")
+        raise ValueError("EEG 存在平坦通道，不能提取双 FBCCA 特征")
     data /= scale
     standard = _branch_scores(data, fs, high_hz=50.0, equal_weights=False)
     equal = _branch_scores(data, fs, high_hz=46.0, equal_weights=True)
     values = np.concatenate((standard, equal))
     if values.shape != (len(FEATURE_NAMES),):
-        raise RuntimeError("个人校准特征维数与模型契约不一致")
+        raise RuntimeError("双 FBCCA 特征维数与定义不一致")
     return DualFBCCAFeatureResult(values, standard, equal)
 
 

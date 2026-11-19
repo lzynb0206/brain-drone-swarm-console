@@ -60,7 +60,8 @@ class BNFBCCADecoder:
 
     def __init__(self, mode="b", *, confidence_threshold=0.70, min_idle_windows=8,
                  max_idle_windows=256, calibration_path: Path | None = None,
-                 channels_1based=None, filter_method="fft"):
+                 channels_1based=None, filter_method="fft", harmonics=4,
+                 min_score=FBCCA_MIN_SCORE, min_margin=FBCCA_MIN_MARGIN):
         if mode not in ("a", "b"):
             raise ValueError("BN mode must be a or b")
         if not 0 <= confidence_threshold <= 1:
@@ -71,7 +72,9 @@ class BNFBCCADecoder:
         self.confidence_threshold = float(confidence_threshold)
         self.min_idle_windows = int(min_idle_windows)
         self.max_idle_windows = int(max_idle_windows)
-        self._fbcca = FBCCADecoder(filter_method=filter_method,
+        self.min_score, self.min_margin = float(min_score), float(min_margin)
+        self._fbcca = FBCCADecoder(filter_method=filter_method, harmonics=harmonics,
+            min_score=min_score, min_margin=min_margin,
             **({"channels_1based": channels_1based} if channels_1based is not None else {}))
         if calibration_path is not None and filter_method != "fft":
             raise ValueError("Existing BN gate files require the original FFT filter")
@@ -163,7 +166,7 @@ class BNFBCCADecoder:
             result = normalize_scores(raw, self.mode, background)
             matching_gate = self._gate_contract is None or contract == self._gate_contract
             accepted = (ready and matching_gate and len(original.used_channels_1based) >= 2
-                        and gate_scores(result, raw, self.confidence_threshold))
+                        and gate_scores(result, raw, self.confidence_threshold, self.min_score, self.min_margin))
             reason = ("空闲校准不足" if not ready else "门控标定窗口不匹配" if not matching_gate
                       else "通过 BN 门控" if accepted else "未通过 BN 置信度/原始分数/差值门控")
             quality = {**original.signal_quality,

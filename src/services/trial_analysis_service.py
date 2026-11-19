@@ -20,7 +20,7 @@ from src.bci.config import (
     LABEL_TO_FREQUENCY,
     SSVEP_CHANNEL_NAMES,
 )
-from src.bci.fbcca_decoder import FBCCADecoder
+from src.bci.decoder_settings import DecoderSettings
 from src.bci.montage import HYBRID_IDS, MONTAGES
 from src.bci.preprocessing import (
     FILTER_BANK_HIGH_EDGE_HZ,
@@ -67,6 +67,7 @@ class TrialAnalysisRecord:
     ssvep_channel_names: tuple[str, ...] = ()
     mi_channel_names: tuple[str, ...] = ()
     alignment_status: str = ""
+    decoder_settings: DecoderSettings | None = None
 
     @property
     def collection_label(self) -> str:
@@ -255,6 +256,8 @@ class TrialAnalysisService:
                 ssvep_channel_names=tuple(context.get('ssvep_channel_names') or ()),
                 mi_channel_names=tuple(context.get('mi_channel_names') or ()),
                 alignment_status=str(context.get('alignment_status') or ''),
+                decoder_settings=(DecoderSettings.from_dict(context["decoder_settings"])
+                                  if context.get("decoder_settings") else None),
                 record_kind=str(context.get("record_kind") or ""),
                 preceding_ssvep_trial_id=str(context.get("preceding_ssvep_trial_id") or ""),
                 ssvep_true_label=str(context.get("ssvep_true_label") or ""),
@@ -352,16 +355,17 @@ class TrialAnalysisService:
             return generate_mi_report(self, record, eeg, window, start, end, quality)
         decoder_error = ""
         try:
-            decoder = FBCCADecoder()
+            settings = record.decoder_settings or DecoderSettings()
+            decoder = settings.create_decoder()
             if record.ssvep_channel_names:
                 if any(n not in record.channel_names for n in record.ssvep_channel_names):
                     raise ValueError('所选 SSVEP 电极不在文件中')
                 indices = tuple(record.channel_names.index(n) for n in record.ssvep_channel_names)
-                decoder = FBCCADecoder(channels_1based=tuple(i+1 for i in indices))
+                decoder = settings.create_decoder(channels_1based=tuple(i+1 for i in indices))
             elif record.montage_id in HYBRID_IDS:
                 montage = MONTAGES[record.montage_id]
                 indices = montage.indices(record.channel_names, "SSVEP")
-                decoder = FBCCADecoder(channels_1based=tuple(i + 1 for i in indices))
+                decoder = settings.create_decoder(channels_1based=tuple(i + 1 for i in indices))
             result = decoder.decode(window, record.sample_rate_hz)
             candidate_label = result.label
             confidence = float(result.confidence)
@@ -402,7 +406,8 @@ class TrialAnalysisService:
                 "confidence": confidence,
                 "margin": margin,
                 "accepted": accepted,
-                "score_threshold": FBCCA_MIN_SCORE,
+                "score_threshold": settings.min_score,
+                "decoder_settings": settings.to_dict(),
                 "scores": scores,
                 "error": decoder_error,
             },

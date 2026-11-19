@@ -23,7 +23,6 @@ from src.adapters.real import (
 from src.bci import FBCCADecoder
 from src.bci.config import (
     COMMANDS,
-    FB_EEGNET_ENABLED,
     SSVEP_CHANNEL_NAMES,
     TARGET_FREQUENCIES_HZ,
 )
@@ -170,9 +169,6 @@ class LSLEEGOutletTest(unittest.TestCase):
 
 
 class FBCCADecoderTest(unittest.TestCase):
-    def test_fb_eegnet_remains_disabled_until_new_model_assets_exist(self) -> None:
-        self.assertFalse(FB_EEGNET_ENABLED)
-
     def test_recognizes_each_configured_frequency(self) -> None:
         fs = 250.0
         timeline = np.arange(round(fs * 4)) / fs

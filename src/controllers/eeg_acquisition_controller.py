@@ -84,9 +84,9 @@ class EEGAcquisitionController(QObject):
         self._reset_live_state()
         self.host.acquisition_stage = "runtime"
         self.host.acquisition_tab = "Dashboard"
-        self.host._eeg_status = "设备已选择 · 点击 Start Data Stream 开始采集"
+        self.host._eeg_status = "设备已选择 · 点击 启动数据流 开始采集"
         self.host._build_eeg_worker(replace=True)
-        self.host._notify("ExpandableEEG会话已建立；点击 Start Data Stream 开始8通道采集")
+        self.host._notify("ExpandableEEG会话已建立；点击 启动数据流 开始8通道采集")
         self.host.update()
 
     def toggle_stream(self) -> None:
